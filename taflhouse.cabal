@@ -9,6 +9,7 @@ library
                       , Tafl.Board
                       , Tafl.Move
                       , Tafl.Capture
+                      , Tafl.Fort
                       , Tafl.Game
   build-depends:        base
                       , containers

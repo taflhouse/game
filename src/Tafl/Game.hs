@@ -11,6 +11,7 @@ import Tafl.Rules (BoardVariant, variantDefaultRules)
 import Tafl.Board (variantBoard)
 import Tafl.Move (getPossibleActions, canMakeAMove)
 import Tafl.Capture (checkCaptures)
+import Tafl.Fort (kingEscapedThroughFort)
 
 -- | Create the initial game state for a given board variant.
 initialState :: BoardVariant -> GameState
@@ -67,6 +68,9 @@ isGameOver :: GameState -> GameResult
 isGameOver gs
   -- King reached a corner -> defender wins
   | kingAtCorner gs = GameResult True (Just DefenderSide) "King escaped!"
+  -- King escaped through exit fort -> defender wins
+  | exitForts (gsRules gs) && kingEscapedThroughFort gs =
+      GameResult True (Just DefenderSide) "King escaped through exit fort!"
   -- King captured (no king on board) -> attacker wins
   | not (kingExists gs) = GameResult True (Just AttackerSide) "King captured!"
   -- Current side has no legal moves -> they lose
