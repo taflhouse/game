@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "haskell-pro": {
+      "source": "rmyndharis/antigravity-skills",
+      "sourceType": "github",
+      "skillPath": "skills/haskell-pro/SKILL.md",
+      "computedHash": "35c28e0122165cce4eef7ebab90236ec6f9289bf409c559bfcd5207ab16fc28c"
+    },
+    "peyton-jones-practical-haskell": {
+      "source": "copyleftdev/sk1llz",
+      "sourceType": "github",
+      "skillPath": "paradigms/functional/peyton-jones/SKILL.md",
+      "computedHash": "cb654cbcd0fd7987da2639b4359a6973a684481f218447581c0ccc349ed12bed"
+    }
+  }
+}

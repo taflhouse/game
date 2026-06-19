@@ -1,0 +1,14 @@
+packages:
+  .
+
+allow-newer:
+  all:base
+
+-- +template-haskell requires GHC >= 9.8 (template-haskell >= 2.21)
+-- Enable in the nix wasm shell; disable for native GHC 9.6
+flags: -template-haskell
+
+source-repository-package
+  type: git
+  location: https://github.com/dmjio/miso
+  tag: 1.11.0
