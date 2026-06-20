@@ -45,6 +45,11 @@ data Action
 
 #ifdef WASM
 foreign export javascript "hs_start" main :: IO ()
+foreign import javascript unsafe "globalThis.playMoveSound()"
+  js_playMoveSound :: IO ()
+#else
+js_playMoveSound :: IO ()
+js_playMoveSound = pure ()
 #endif
 
 main :: IO ()
@@ -90,25 +95,24 @@ updateModel = \case
     , mVariant    = variant
     }
 
-  CellClicked coords -> modify $ \m ->
+  CellClicked coords -> do
+    m <- get
     let gs    = mGameState m
         board = gsBoard gs
         side  = turnSide gs
         piece = pieceAt board coords
-    in
-    -- Game over? Ignore clicks
-    if finished (gsResult gs) then m
-    -- Clicking a selected piece's valid move destination -> make the move
-    else case mSelected m of
-      Just sel | coords `elem` mValidMoves m ->
-        let gs' = act gs (MoveAction sel coords)
-        in m { mGameState = gs', mSelected = Nothing, mValidMoves = [] }
-      -- Clicking own piece -> select it
-      _ | canControl side piece ->
-        let moves = getPossibleMovesFrom gs coords
-        in m { mSelected = Just coords, mValidMoves = moves }
-      -- Clicking elsewhere -> deselect
-      _ -> m { mSelected = Nothing, mValidMoves = [] }
+    if finished (gsResult gs)
+      then pure ()
+      else case mSelected m of
+        Just sel | coords `elem` mValidMoves m -> do
+          let gs' = act gs (MoveAction sel coords)
+          modify $ const $ m { mGameState = gs', mSelected = Nothing, mValidMoves = [] }
+          io_ js_playMoveSound
+        _ | canControl side piece -> do
+          let moves = getPossibleMovesFrom gs coords
+          modify $ const $ m { mSelected = Just coords, mValidMoves = moves }
+        _ ->
+          modify $ const $ m { mSelected = Nothing, mValidMoves = [] }
 
 -- ---------------------------------------------------------------------------
 -- View
