@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
+import Control.Concurrent (threadDelay)
 import Miso hiding ((!!))
 import qualified Miso.CSS as CSS
 import Miso.CSS.Color
@@ -13,20 +14,26 @@ import qualified Miso.Svg as SVG
 import qualified Miso.Svg.Property as SP
 
 import Tafl.Types
-import Tafl.Rules (copenhagen, BoardVariant(..), variantDefaultRules)
+import Tafl.Rules (BoardVariant(..), variantDefaultRules)
 import Tafl.Board (variantBoard)
 import Tafl.Move  (getPossibleMovesFrom, getPossibleActions, isActionPossible)
 import Tafl.Game  (act, isGameOver, initialState)
+import Tafl.AI    (AiConfig(..), bestMove)
 
 -- ---------------------------------------------------------------------------
 -- Model
 -- ---------------------------------------------------------------------------
 
 data Model = Model
-  { mGameState  :: !GameState
-  , mSelected   :: Maybe Coords
-  , mValidMoves :: [Coords]
-  , mVariant    :: !BoardVariant
+  { mGameState   :: !GameState
+  , mSelected    :: Maybe Coords
+  , mValidMoves  :: [Coords]
+  , mVariant     :: !BoardVariant
+  , mAiEnabled   :: !Bool
+  , mAiSide      :: !Side
+  , mAiThinking  :: !Bool
+  , mAiDepth     :: !Int
+  , mAiNodeLimit :: !Int
   } deriving (Eq, Show)
 
 -- ---------------------------------------------------------------------------
@@ -37,6 +44,11 @@ data Action
   = CellClicked Coords
   | NewGame BoardVariant
   | NoOp
+  | AiMoveComplete MoveAction
+  | ToggleAi
+  | SetAiSide Side
+  | SetAiDepth Int
+  | SetAiNodeLimit Int
   deriving (Show, Eq)
 
 -- ---------------------------------------------------------------------------
@@ -60,7 +72,7 @@ main = startApp defaultEvents app
       , hydrateModel     = Nothing
       , update           = updateModel
       , view             = viewModel
-      , subs             = []
+      , subs             = [\sink -> threadDelay 100000 >> sink (NewGame Tablut)]
       , styles           = []
       , scripts          = []
       , mountPoint       = Nothing
@@ -74,10 +86,15 @@ main = startApp defaultEvents app
 
 initModel :: Model
 initModel = Model
-  { mGameState  = initialState Classic
-  , mSelected   = Nothing
-  , mValidMoves = []
-  , mVariant    = Classic
+  { mGameState   = initialState Tablut
+  , mSelected    = Nothing
+  , mValidMoves  = []
+  , mVariant     = Tablut
+  , mAiEnabled   = True
+  , mAiSide      = AttackerSide
+  , mAiThinking  = False
+  , mAiDepth     = 4
+  , mAiNodeLimit = 0
   }
 
 -- ---------------------------------------------------------------------------
@@ -88,12 +105,16 @@ updateModel :: Action -> Effect ROOT () Model Action
 updateModel = \case
   NoOp -> pure ()
 
-  NewGame variant -> modify $ \_ -> Model
-    { mGameState  = initialState variant
-    , mSelected   = Nothing
-    , mValidMoves = []
-    , mVariant    = variant
-    }
+  NewGame variant -> do
+    m <- get
+    put $ m
+      { mGameState  = initialState variant
+      , mSelected   = Nothing
+      , mValidMoves = []
+      , mVariant    = variant
+      , mAiThinking = False
+      }
+    triggerAi
 
   CellClicked coords -> do
     m <- get
@@ -101,18 +122,60 @@ updateModel = \case
         board = gsBoard gs
         side  = turnSide gs
         piece = pieceAt board coords
-    if finished (gsResult gs)
+    if finished (gsResult gs) || mAiThinking m || (mAiEnabled m && mAiSide m == side)
       then pure ()
       else case mSelected m of
         Just sel | coords `elem` mValidMoves m -> do
           let gs' = act gs (MoveAction sel coords)
           modify $ const $ m { mGameState = gs', mSelected = Nothing, mValidMoves = [] }
           io_ js_playMoveSound
+          triggerAi
         _ | canControl side piece -> do
           let moves = getPossibleMovesFrom gs coords
           modify $ const $ m { mSelected = Just coords, mValidMoves = moves }
         _ ->
           modify $ const $ m { mSelected = Nothing, mValidMoves = [] }
+
+  AiMoveComplete move -> do
+    m <- get
+    if mAiThinking m
+      then do
+        let gs' = act (mGameState m) move
+        modify $ const $ m
+          { mGameState = gs', mSelected = Nothing
+          , mValidMoves = [], mAiThinking = False }
+        io_ js_playMoveSound
+      else pure ()
+
+  ToggleAi -> do
+    modify $ \m -> m { mAiEnabled = not (mAiEnabled m), mAiThinking = False }
+    triggerAi
+
+  SetAiSide side -> do
+    modify $ \m -> m { mAiSide = side, mAiThinking = False }
+    triggerAi
+
+  SetAiDepth d ->
+    modify $ \m -> m { mAiDepth = max 1 (min 8 d) }
+
+  SetAiNodeLimit n ->
+    modify $ \m -> m { mAiNodeLimit = n }
+
+-- | Check if the AI should move and trigger the search if so.
+triggerAi :: Effect ROOT () Model Action
+triggerAi = do
+  m <- get
+  let gs = mGameState m
+  if mAiEnabled m && not (finished (gsResult gs)) && mAiSide m == turnSide gs
+    then do
+      modify $ \x -> x { mAiThinking = True }
+      let cfg = AiConfig (mAiDepth m) (mAiNodeLimit m)
+      withSink $ \sink -> do
+        threadDelay 100000
+        case bestMove cfg gs of
+          Nothing   -> sink NoOp
+          Just move -> sink (AiMoveComplete move)
+    else pure ()
 
 -- ---------------------------------------------------------------------------
 -- View
@@ -145,6 +208,7 @@ viewModel _ m =
     [ viewTitle
     , viewBoardPanel m
     , viewStatus m
+    , viewAiControls m
     , viewControls m
     ]
 
@@ -209,7 +273,7 @@ viewSVGBoard m =
        , pieceAt board (Coords r c) /= Empty
        ]
     ++ renderLastMove m n
-    ++ [ renderClickTarget n r c | r <- [0..n-1], c <- [0..n-1] ]
+    ++ [ renderClickTarget m n r c | r <- [0..n-1], c <- [0..n-1] ]
     )
 
 svgDefs :: View Model Action
@@ -339,15 +403,21 @@ renderPiece _n r c piece =
     ]
 
 -- Transparent click targets
-renderClickTarget :: Int -> Int -> Int -> View Model Action
-renderClickTarget _n r c =
-  SVG.rect_
+renderClickTarget :: Model -> Int -> Int -> Int -> View Model Action
+renderClickTarget m _n r c =
+  let gs = mGameState m
+      side = turnSide gs
+      blocked = mAiThinking m
+             || (mAiEnabled m && mAiSide m == side)
+             || finished (gsResult gs)
+      cur = if blocked then "not-allowed" else "pointer"
+  in SVG.rect_
     [ SP.x_ (ms (c * sqSize))
     , SP.y_ (ms (r * sqSize))
     , HP.width_ (ms sqSize)
     , HP.height_ (ms sqSize)
     , SP.fill_ "transparent"
-    , CSS.style_ [CSS.cursor "pointer", "touch-action" =: "manipulation"]
+    , CSS.style_ [CSS.cursor cur, "touch-action" =: "manipulation"]
     , SVG.onClick (CellClicked (Coords r c))
     ]
 
@@ -361,13 +431,17 @@ viewStatus m =
       result = gsResult gs
       side   = turnSide gs
       caps   = gsCaptures gs
+      isAiTurn = mAiEnabled m && mAiSide m == side
       (bgColor, fgColor, msg)
         | finished result = case winner result of
             Just AttackerSide -> (RGB 120 30 30, RGB 255 200 200, "Attackers win! " <> desc result)
             Just DefenderSide -> (RGB 30 100 50, RGB 200 255 200, "Defenders win! " <> desc result)
             Nothing           -> (RGB 80 70 40, RGB 240 230 180, "Draw! " <> desc result)
-        | side == AttackerSide = (RGB 50 45 40, RGB 220 200 180, "Attacker's turn")
-        | otherwise            = (RGB 50 45 40, RGB 220 200 180, "Defender's turn")
+        | mAiThinking m = (RGB 60 55 50, RGB 200 180 160, "AI thinking...")
+        | side == AttackerSide = (RGB 50 45 40, RGB 220 200 180,
+            "Attacker's turn" <> if isAiTurn then " (AI)" else "")
+        | otherwise            = (RGB 50 45 40, RGB 220 200 180,
+            "Defender's turn" <> if isAiTurn then " (AI)" else "")
   in H.div_
     [ CSS.style_
       [ CSS.backgroundColor bgColor
@@ -397,6 +471,80 @@ viewStatus m =
           [ text (ms ("Last move captured " ++ show (length caps) ++ " piece(s)")) ]
         else H.div_ [] []
     ]
+
+viewAiControls :: Model -> View Model Action
+viewAiControls m =
+  H.div_
+    [ CSS.style_
+      [ CSS.display "flex"
+      , CSS.flexDirection "column"
+      , CSS.gap "8px"
+      , CSS.marginTop "12px"
+      , CSS.alignItems "center"
+      , CSS.width "100%"
+      , CSS.maxWidth (ms (sqSize * 11) <> "px")
+      ]
+    ]
+    [ -- Row 1: Toggle + Side
+      H.div_
+        [ CSS.style_ [CSS.display "flex", CSS.gap "8px", CSS.flexWrap "wrap", CSS.justifyContent "center"] ]
+        [ ctrlBtn ToggleAi
+            (if mAiEnabled m then "AI: ON" else "AI: OFF")
+            (mAiEnabled m)
+        , ctrlBtn (SetAiSide AttackerSide) "AI: Attackers"
+            (mAiEnabled m && mAiSide m == AttackerSide)
+        , ctrlBtn (SetAiSide DefenderSide) "AI: Defenders"
+            (mAiEnabled m && mAiSide m == DefenderSide)
+        ]
+    , -- Row 2: Depth
+      H.div_
+        [ CSS.style_
+          [ CSS.display "flex", CSS.gap "4px", CSS.flexWrap "wrap"
+          , CSS.justifyContent "center", CSS.alignItems "center"
+          ]
+        ]
+        ( H.span_ [CSS.style_ [CSS.color (RGB 180 170 155), CSS.fontSize "12px"]] [text "Depth:"]
+        : [ ctrlBtn (SetAiDepth d) (ms (show d)) (mAiDepth m == d)
+          | d <- [1..8]
+          ]
+        )
+    , -- Row 3: Node limit
+      H.div_
+        [ CSS.style_
+          [ CSS.display "flex", CSS.gap "4px", CSS.flexWrap "wrap"
+          , CSS.justifyContent "center", CSS.alignItems "center"
+          ]
+        ]
+        ( H.span_ [CSS.style_ [CSS.color (RGB 180 170 155), CSS.fontSize "12px"]] [text "Nodes:"]
+        : [ ctrlBtn (SetAiNodeLimit n) label (mAiNodeLimit m == n)
+          | (n, label) <- [ (0, "None"), (1000, "1K"), (5000, "5K")
+                          , (10000, "10K"), (50000, "50K"), (100000, "100K")
+                          ]
+          ]
+        )
+    ]
+
+ctrlBtn :: Action -> MisoString -> Bool -> View Model Action
+ctrlBtn action label isActive =
+  let bg = if isActive then RGB 80 110 80 else RGB 55 50 45
+      fg = if isActive then RGB 220 255 220 else RGB 180 170 155
+  in H.button_
+    [ CSS.style_
+      [ CSS.backgroundColor bg
+      , CSS.color fg
+      , CSS.border "1px solid"
+      , CSS.borderColor (if isActive then RGB 120 160 120 else RGB 70 65 58)
+      , CSS.borderRadius "6px"
+      , CSS.padding "6px 10px"
+      , CSS.cursor "pointer"
+      , CSS.fontSize "12px"
+      , CSS.fontWeight (if isActive then "bold" else "normal")
+      , CSS.fontFamily "'Segoe UI', Arial, sans-serif"
+      , "touch-action" =: "manipulation"
+      ]
+    , SVG.onClick action
+    ]
+    [ text label ]
 
 viewControls :: Model -> View Model Action
 viewControls m =

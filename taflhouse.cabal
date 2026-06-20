@@ -13,6 +13,7 @@ library
                       , Tafl.Surround
                       , Tafl.Symmetry
                       , Tafl.Game
+                      , Tafl.AI
   build-depends:        base
                       , containers
                       , vector
