@@ -22,6 +22,7 @@ copenhagen = RuleSet
   , startingSide           = AttackerSide
   , saveBoardHistory       = True
   , saveActions            = True
+  , skipExpensiveChecks    = False
   }
 
 -- | All available board variants.

@@ -5,7 +5,7 @@ import Data.Ord (comparing, Down(..))
 
 import Tafl.Types
 import Tafl.Game (act)
-import Tafl.Move (getPossibleActions, getPossibleMovesFrom)
+import Tafl.Move (getPossibleActions)
 
 -- | AI configuration.
 data AiConfig = AiConfig
@@ -13,9 +13,9 @@ data AiConfig = AiConfig
   , acMaxNodes :: !Int   -- ^ Hard node cutoff (0 = unlimited)
   } deriving (Eq, Show)
 
--- | Default AI configuration: depth 4, no node limit.
+-- | Default AI configuration: depth 4, 10k node limit.
 defaultAiConfig :: AiConfig
-defaultAiConfig = AiConfig { acMaxDepth = 4, acMaxNodes = 0 }
+defaultAiConfig = AiConfig { acMaxDepth = 4, acMaxNodes = 10000 }
 
 -- | Find the best move for the current side using minimax with alpha-beta
 -- pruning and iterative deepening. Returns 'Nothing' if the game is over
@@ -97,7 +97,8 @@ alphaBeta config gs depth alpha beta nodes
 -- computation in every 'act' call during the search tree.
 prepareForSearch :: GameState -> GameState
 prepareForSearch gs = gs
-  { gsRules = (gsRules gs) { saveBoardHistory = False, saveActions = False }
+  { gsRules = (gsRules gs)
+      { saveBoardHistory = False, saveActions = False, skipExpensiveChecks = True }
   , gsBoardHistory = mempty
   , gsActions = []
   }
@@ -121,7 +122,7 @@ evaluate gs
       Just AttackerSide ->  100000
       Just DefenderSide -> -100000
       Nothing           ->  0
-  | otherwise = material + kingDist + kingExpo + mobility + boardCtrl
+  | otherwise = material + kingDist + kingExpo + boardCtrl
   where
     result = gsResult gs
     board  = gsBoard gs
@@ -158,9 +159,6 @@ evaluate gs
         , isAttacker board sq
         ]
 
-    -- Mobility: legal move count difference
-    mobility = 2 * (countMobility gs AttackerSide - countMobility gs DefenderSide)
-
     -- Board control: attackers rewarded near center, defenders near edges
     boardCtrl = sum [ ctrl r c | r <- [0 .. n - 1], c <- [0 .. n - 1] ]
 
@@ -188,28 +186,29 @@ countPieces board n = foldl' go (0, 0, Nothing)
       King     -> (a, d, Just (Coords r c))
       Empty    -> (a, d, k)
 
--- | Count total legal moves for a side.
-countMobility :: GameState -> Side -> Int
-countMobility gs side = sum
-  [ length (getPossibleMovesFrom gs (Coords r c))
-  | r <- [0 .. n - 1], c <- [0 .. n - 1]
-  , canControl side (pieceAt board (Coords r c))
-  ]
-  where
-    board = gsBoard gs
-    n = boardSize board
-
--- | Order moves for better alpha-beta pruning.
--- Priority: corner-reaching king moves > captures > king moves > other.
+-- | Order moves for better alpha-beta pruning using cheap heuristics.
+-- No 'act' calls — just static board inspection.
 orderMoves :: GameState -> [MoveAction] -> [MoveAction]
 orderMoves gs = sortBy (comparing (Down . priority))
   where
     board = gsBoard gs
+    side  = turnSide gs
     priority mv =
       let piece = pieceAt board (from mv)
-          gs' = act gs mv
-          caps = length (gsCaptures gs')
-      in if piece == King && isCorner gs (to mv) then 1000
-         else if caps > 0 then 100 + caps
+          dest  = to mv
+      in if piece == King && isCorner gs dest then 1000
          else if piece == King then 10
+         else if hasAdjacentEnemy board dest side then 5
          else (0 :: Int)
+
+-- | Check if a destination square is adjacent to an enemy piece (capture proxy).
+hasAdjacentEnemy :: Board -> Coords -> Side -> Bool
+hasAdjacentEnemy board (Coords r c) side =
+  let n = boardSize board
+      enemy = case side of
+        AttackerSide -> isDefenderOrKing
+        DefenderSide -> isAttacker
+      check dr dc =
+        let r' = r + dr; c' = c + dc
+        in r' >= 0 && r' < n && c' >= 0 && c' < n && enemy board (Coords r' c')
+  in check (-1) 0 || check 1 0 || check 0 (-1) || check 0 1

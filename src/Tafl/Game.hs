@@ -83,7 +83,7 @@ isGameOver gs
   | exitForts (gsRules gs) && kingEscapedThroughFort gs =
       GameResult True (Just DefenderSide) "King escaped through exit fort!"
   -- Attackers surrounded all defenders -> attacker wins
-  | didAttackersSurroundDefenders (gsBoard gs) =
+  | not (skipExpensiveChecks (gsRules gs)) && didAttackersSurroundDefenders (gsBoard gs) =
       GameResult True (Just AttackerSide) "Defenders surrounded!"
   -- King captured (no king on board) -> attacker wins
   | not (kingExists gs) = GameResult True (Just AttackerSide) "King captured!"

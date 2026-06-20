@@ -24,16 +24,24 @@ import Tafl.AI    (AiConfig(..), bestMove)
 -- Model
 -- ---------------------------------------------------------------------------
 
+data GameMode = LocalMode | AiMode
+  deriving (Eq, Show)
+
+data Screen = SetupScreen | GameScreen
+  deriving (Eq, Show)
+
 data Model = Model
-  { mGameState   :: !GameState
+  { mScreen      :: !Screen
+  , mGameMode    :: !GameMode
+  , mGameState   :: !GameState
   , mSelected    :: Maybe Coords
   , mValidMoves  :: [Coords]
   , mVariant     :: !BoardVariant
-  , mAiEnabled   :: !Bool
   , mAiSide      :: !Side
   , mAiThinking  :: !Bool
   , mAiDepth     :: !Int
   , mAiNodeLimit :: !Int
+  , mHistory     :: [GameState]
   } deriving (Eq, Show)
 
 -- ---------------------------------------------------------------------------
@@ -45,10 +53,14 @@ data Action
   | NewGame BoardVariant
   | NoOp
   | AiMoveComplete MoveAction
-  | ToggleAi
+  | SetGameMode GameMode
+  | SetVariant BoardVariant
   | SetAiSide Side
   | SetAiDepth Int
   | SetAiNodeLimit Int
+  | GotoMove Int
+  | StartGame
+  | BackToSetup
   deriving (Show, Eq)
 
 -- ---------------------------------------------------------------------------
@@ -72,7 +84,7 @@ main = startApp defaultEvents app
       , hydrateModel     = Nothing
       , update           = updateModel
       , view             = viewModel
-      , subs             = [\sink -> threadDelay 100000 >> sink (NewGame Tablut)]
+      , subs             = []
       , styles           = []
       , scripts          = []
       , mountPoint       = Nothing
@@ -86,15 +98,17 @@ main = startApp defaultEvents app
 
 initModel :: Model
 initModel = Model
-  { mGameState   = initialState Tablut
+  { mScreen      = SetupScreen
+  , mGameMode    = AiMode
+  , mGameState   = initialState Tablut
   , mSelected    = Nothing
   , mValidMoves  = []
   , mVariant     = Tablut
-  , mAiEnabled   = True
   , mAiSide      = AttackerSide
   , mAiThinking  = False
   , mAiDepth     = 4
-  , mAiNodeLimit = 0
+  , mAiNodeLimit = 10000
+  , mHistory     = []
   }
 
 -- ---------------------------------------------------------------------------
@@ -105,6 +119,28 @@ updateModel :: Action -> Effect ROOT () Model Action
 updateModel = \case
   NoOp -> pure ()
 
+  SetGameMode mode ->
+    modify $ \m -> m { mGameMode = mode }
+
+  SetVariant variant ->
+    modify $ \m -> m { mVariant = variant }
+
+  StartGame -> do
+    m <- get
+    let gs = initialState (mVariant m)
+    put $ m
+      { mScreen     = GameScreen
+      , mGameState  = gs
+      , mSelected   = Nothing
+      , mValidMoves = []
+      , mAiThinking = False
+      , mHistory    = []
+      }
+    triggerAi
+
+  BackToSetup ->
+    modify $ \m -> m { mScreen = SetupScreen, mAiThinking = False }
+
   NewGame variant -> do
     m <- get
     put $ m
@@ -113,6 +149,7 @@ updateModel = \case
       , mValidMoves = []
       , mVariant    = variant
       , mAiThinking = False
+      , mHistory    = []
       }
     triggerAi
 
@@ -122,12 +159,14 @@ updateModel = \case
         board = gsBoard gs
         side  = turnSide gs
         piece = pieceAt board coords
-    if finished (gsResult gs) || mAiThinking m || (mAiEnabled m && mAiSide m == side)
+        aiBlocked = mGameMode m == AiMode && mAiSide m == side
+    if finished (gsResult gs) || mAiThinking m || aiBlocked
       then pure ()
       else case mSelected m of
         Just sel | coords `elem` mValidMoves m -> do
           let gs' = act gs (MoveAction sel coords)
-          modify $ const $ m { mGameState = gs', mSelected = Nothing, mValidMoves = [] }
+          modify $ const $ m { mGameState = gs', mSelected = Nothing, mValidMoves = []
+                             , mHistory = mHistory m ++ [gs] }
           io_ js_playMoveSound
           triggerAi
         _ | canControl side piece -> do
@@ -140,20 +179,17 @@ updateModel = \case
     m <- get
     if mAiThinking m
       then do
-        let gs' = act (mGameState m) move
+        let gs = mGameState m
+            gs' = act gs move
         modify $ const $ m
           { mGameState = gs', mSelected = Nothing
-          , mValidMoves = [], mAiThinking = False }
+          , mValidMoves = [], mAiThinking = False
+          , mHistory = mHistory m ++ [gs] }
         io_ js_playMoveSound
       else pure ()
 
-  ToggleAi -> do
-    modify $ \m -> m { mAiEnabled = not (mAiEnabled m), mAiThinking = False }
-    triggerAi
-
-  SetAiSide side -> do
-    modify $ \m -> m { mAiSide = side, mAiThinking = False }
-    triggerAi
+  SetAiSide side ->
+    modify $ \m -> m { mAiSide = side }
 
   SetAiDepth d ->
     modify $ \m -> m { mAiDepth = max 1 (min 8 d) }
@@ -161,12 +197,30 @@ updateModel = \case
   SetAiNodeLimit n ->
     modify $ \m -> m { mAiNodeLimit = n }
 
+  GotoMove i -> do
+    m <- get
+    let allStates = mHistory m ++ [mGameState m]
+        currentIdx = length allStates - 1
+    if i >= 0 && i < currentIdx
+      then do
+        let target = allStates !! i
+            newHistory = take i allStates
+        put $ m
+          { mGameState  = target
+          , mHistory    = newHistory
+          , mSelected   = Nothing
+          , mValidMoves = []
+          , mAiThinking = False
+          }
+        triggerAi
+      else pure ()
+
 -- | Check if the AI should move and trigger the search if so.
 triggerAi :: Effect ROOT () Model Action
 triggerAi = do
   m <- get
   let gs = mGameState m
-  if mAiEnabled m && not (finished (gsResult gs)) && mAiSide m == turnSide gs
+  if mGameMode m == AiMode && not (finished (gsResult gs)) && mAiSide m == turnSide gs
     then do
       modify $ \x -> x { mAiThinking = True }
       let cfg = AiConfig (mAiDepth m) (mAiNodeLimit m)
@@ -182,7 +236,214 @@ triggerAi = do
 -- ---------------------------------------------------------------------------
 
 viewModel :: () -> Model -> View Model Action
-viewModel _ m =
+viewModel _ m = case mScreen m of
+  SetupScreen -> viewSetup m
+  GameScreen  -> viewGame m
+
+-- ---------------------------------------------------------------------------
+-- Setup Screen
+-- ---------------------------------------------------------------------------
+
+viewSetup :: Model -> View Model Action
+viewSetup m =
+  H.div_
+    [ CSS.style_
+      [ CSS.margin "0"
+      , CSS.padding "0"
+      , CSS.position "fixed"
+      , "top" =: "0"
+      , "left" =: "0"
+      , CSS.width "100%"
+      , "height" =: "100%"
+      , "overflow-y" =: "auto"
+      , "overscroll-behavior" =: "none"
+      , CSS.backgroundColor (RGB 30 28 26)
+      , CSS.display "flex"
+      , CSS.flexDirection "column"
+      , CSS.alignItems "center"
+      , CSS.justifyContent "flex-start"
+      , CSS.fontFamily "'Segoe UI', Arial, sans-serif"
+      , CSS.boxSizing "border-box"
+      , CSS.paddingTop "48px"
+      , CSS.paddingBottom "48px"
+      ]
+    ]
+    [ viewTitle
+    , setupSection "Mode"
+        [ setupBtn (SetGameMode LocalMode) "Local" (mGameMode m == LocalMode)
+        , setupBtn (SetGameMode AiMode) "vs AI" (mGameMode m == AiMode)
+        , setupBtnDisabled "Multiplayer (coming soon)"
+        ]
+    , setupSection "Board"
+        [ setupBtn (SetVariant Brandubh) "Brandubh 7x7" (mVariant m == Brandubh)
+        , setupBtn (SetVariant Tablut) "Tablut 9x9" (mVariant m == Tablut)
+        , setupBtn (SetVariant Classic) "Copenhagen 11x11" (mVariant m == Classic)
+        , setupBtn (SetVariant Line) "Line 11x11" (mVariant m == Line)
+        , setupBtn (SetVariant Tawlbwrdd) "Tawlbwrdd 11x11" (mVariant m == Tawlbwrdd)
+        ]
+    , if mGameMode m == AiMode then viewSetupAi m else H.div_ [] []
+    , H.div_
+        [ CSS.style_ [CSS.marginTop "28px"] ]
+        [ H.button_
+            [ CSS.style_
+              [ CSS.backgroundColor (RGB 80 130 80)
+              , CSS.color (RGB 240 255 240)
+              , CSS.border "2px solid"
+              , CSS.borderColor (RGB 120 180 120)
+              , CSS.borderRadius "8px"
+              , CSS.padding "14px 40px"
+              , CSS.cursor "pointer"
+              , CSS.fontSize "18px"
+              , CSS.fontWeight "bold"
+              , CSS.fontFamily "'Segoe UI', Arial, sans-serif"
+              , CSS.letterSpacing "2px"
+              , "touch-action" =: "manipulation"
+              ]
+            , SVG.onClick StartGame
+            ]
+            [ text "START GAME" ]
+        ]
+    ]
+
+setupSection :: MisoString -> [View Model Action] -> View Model Action
+setupSection label children =
+  H.div_
+    [ CSS.style_
+      [ CSS.marginTop "24px"
+      , CSS.width "100%"
+      , CSS.maxWidth "500px"
+      , CSS.textAlign "center"
+      ]
+    ]
+    [ H.div_
+        [ CSS.style_
+          [ CSS.color (RGB 150 140 125)
+          , CSS.fontSize "12px"
+          , CSS.letterSpacing "3px"
+          , CSS.marginBottom "10px"
+          , "text-transform" =: "uppercase"
+          ]
+        ]
+        [ text label ]
+    , H.div_
+        [ CSS.style_
+          [ CSS.display "flex"
+          , CSS.gap "8px"
+          , CSS.flexWrap "wrap"
+          , CSS.justifyContent "center"
+          ]
+        ]
+        children
+    ]
+
+setupBtn :: Action -> MisoString -> Bool -> View Model Action
+setupBtn action label isActive =
+  let bg = if isActive then RGB 80 110 80 else RGB 55 50 45
+      fg = if isActive then RGB 220 255 220 else RGB 180 170 155
+  in H.button_
+    [ CSS.style_
+      [ CSS.backgroundColor bg
+      , CSS.color fg
+      , CSS.border "1px solid"
+      , CSS.borderColor (if isActive then RGB 120 160 120 else RGB 70 65 58)
+      , CSS.borderRadius "6px"
+      , CSS.padding "10px 16px"
+      , CSS.cursor "pointer"
+      , CSS.fontSize "14px"
+      , CSS.fontWeight (if isActive then "bold" else "normal")
+      , CSS.fontFamily "'Segoe UI', Arial, sans-serif"
+      , "touch-action" =: "manipulation"
+      ]
+    , SVG.onClick action
+    ]
+    [ text label ]
+
+setupBtnDisabled :: MisoString -> View Model Action
+setupBtnDisabled label =
+  H.button_
+    [ CSS.style_
+      [ CSS.backgroundColor (RGB 45 42 38)
+      , CSS.color (RGB 100 95 85)
+      , CSS.border "1px solid"
+      , CSS.borderColor (RGB 55 52 48)
+      , CSS.borderRadius "6px"
+      , CSS.padding "10px 16px"
+      , CSS.cursor "not-allowed"
+      , CSS.fontSize "14px"
+      , CSS.fontFamily "'Segoe UI', Arial, sans-serif"
+      , CSS.opacity "0.6"
+      , "touch-action" =: "manipulation"
+      ]
+    , HP.disabled_
+    ]
+    [ text label ]
+
+viewSetupAi :: Model -> View Model Action
+viewSetupAi m =
+  H.div_
+    [ CSS.style_
+      [ CSS.marginTop "20px"
+      , CSS.width "100%"
+      , CSS.maxWidth "500px"
+      , CSS.textAlign "center"
+      ]
+    ]
+    [ H.div_
+        [ CSS.style_
+          [ CSS.color (RGB 150 140 125)
+          , CSS.fontSize "12px"
+          , CSS.letterSpacing "3px"
+          , CSS.marginBottom "10px"
+          , "text-transform" =: "uppercase"
+          ]
+        ]
+        [ text "AI SETTINGS" ]
+    -- AI side
+    , H.div_
+        [ CSS.style_
+          [ CSS.display "flex", CSS.gap "8px", CSS.flexWrap "wrap"
+          , CSS.justifyContent "center", CSS.marginBottom "8px"
+          ]
+        ]
+        [ setupBtn (SetAiSide AttackerSide) "AI plays Attackers" (mAiSide m == AttackerSide)
+        , setupBtn (SetAiSide DefenderSide) "AI plays Defenders" (mAiSide m == DefenderSide)
+        ]
+    -- Depth
+    , H.div_
+        [ CSS.style_
+          [ CSS.display "flex", CSS.gap "4px", CSS.flexWrap "wrap"
+          , CSS.justifyContent "center", CSS.alignItems "center"
+          , CSS.marginBottom "8px"
+          ]
+        ]
+        ( H.span_ [CSS.style_ [CSS.color (RGB 180 170 155), CSS.fontSize "13px"]] [text "Depth:"]
+        : [ setupBtn (SetAiDepth d) (ms (show d)) (mAiDepth m == d)
+          | d <- [1..8]
+          ]
+        )
+    -- Node limit
+    , H.div_
+        [ CSS.style_
+          [ CSS.display "flex", CSS.gap "4px", CSS.flexWrap "wrap"
+          , CSS.justifyContent "center", CSS.alignItems "center"
+          ]
+        ]
+        ( H.span_ [CSS.style_ [CSS.color (RGB 180 170 155), CSS.fontSize "13px"]] [text "Nodes:"]
+        : [ setupBtn (SetAiNodeLimit n) label (mAiNodeLimit m == n)
+          | (n, label) <- [ (1000, "1K"), (5000, "5K")
+                          , (10000, "10K"), (50000, "50K"), (100000, "100K")
+                          , (0, "None")
+                          ]
+          ]
+        )
+    ]
+
+-- ---------------------------------------------------------------------------
+-- Game Screen
+-- ---------------------------------------------------------------------------
+
+viewGame :: Model -> View Model Action
+viewGame m =
   H.div_
     [ CSS.style_
       [ CSS.margin "0"
@@ -208,8 +469,8 @@ viewModel _ m =
     [ viewTitle
     , viewBoardPanel m
     , viewStatus m
-    , viewAiControls m
-    , viewControls m
+    , viewMoveHistory m
+    , viewGameControls m
     ]
 
 viewTitle :: View Model Action
@@ -407,9 +668,8 @@ renderClickTarget :: Model -> Int -> Int -> Int -> View Model Action
 renderClickTarget m _n r c =
   let gs = mGameState m
       side = turnSide gs
-      blocked = mAiThinking m
-             || (mAiEnabled m && mAiSide m == side)
-             || finished (gsResult gs)
+      aiBlocked = mGameMode m == AiMode && mAiSide m == side
+      blocked = mAiThinking m || aiBlocked || finished (gsResult gs)
       cur = if blocked then "not-allowed" else "pointer"
   in SVG.rect_
     [ SP.x_ (ms (c * sqSize))
@@ -431,17 +691,18 @@ viewStatus m =
       result = gsResult gs
       side   = turnSide gs
       caps   = gsCaptures gs
-      isAiTurn = mAiEnabled m && mAiSide m == side
+      isAi   = mGameMode m == AiMode
       (bgColor, fgColor, msg)
         | finished result = case winner result of
             Just AttackerSide -> (RGB 120 30 30, RGB 255 200 200, "Attackers win! " <> desc result)
             Just DefenderSide -> (RGB 30 100 50, RGB 200 255 200, "Defenders win! " <> desc result)
             Nothing           -> (RGB 80 70 40, RGB 240 230 180, "Draw! " <> desc result)
         | mAiThinking m = (RGB 60 55 50, RGB 200 180 160, "AI thinking...")
-        | side == AttackerSide = (RGB 50 45 40, RGB 220 200 180,
-            "Attacker's turn" <> if isAiTurn then " (AI)" else "")
-        | otherwise            = (RGB 50 45 40, RGB 220 200 180,
-            "Defender's turn" <> if isAiTurn then " (AI)" else "")
+        | isAi && mAiSide m == side = (RGB 50 45 40, RGB 220 200 180,
+            (if side == AttackerSide then "Attacker's turn" else "Defender's turn") <> " (AI)")
+        | isAi = (RGB 50 45 40, RGB 220 200 180, "Your turn")
+        | side == AttackerSide = (RGB 50 45 40, RGB 220 200 180, "Attacker's turn")
+        | otherwise            = (RGB 50 45 40, RGB 220 200 180, "Defender's turn")
   in H.div_
     [ CSS.style_
       [ CSS.backgroundColor bgColor
@@ -472,56 +733,91 @@ viewStatus m =
         else H.div_ [] []
     ]
 
-viewAiControls :: Model -> View Model Action
-viewAiControls m =
+viewMoveHistory :: Model -> View Model Action
+viewMoveHistory m
+  | null (mHistory m) = H.div_ [] []
+  | otherwise =
+      let allStates = mHistory m ++ [mGameState m]
+          n = boardSize (gsBoard (mGameState m))
+          currentIdx = length allStates - 1
+      in H.div_
+        [ CSS.style_
+          [ CSS.display "flex"
+          , CSS.flexDirection "column"
+          , CSS.gap "4px"
+          , CSS.marginTop "12px"
+          , CSS.alignItems "center"
+          , CSS.width "100%"
+          , CSS.maxWidth (ms (sqSize * 11) <> "px")
+          ]
+        ]
+        [ H.div_
+            [ CSS.style_
+              [ CSS.display "flex"
+              , CSS.gap "3px"
+              , CSS.flexWrap "wrap"
+              , CSS.justifyContent "center"
+              , CSS.maxHeight "72px"
+              , "overflow-y" =: "auto"
+              , CSS.padding "4px"
+              ]
+            ]
+            [ moveBtn i gs n (i == currentIdx)
+            | (i, gs) <- zip [0..] allStates
+            ]
+        ]
+
+moveBtn :: Int -> GameState -> Int -> Bool -> View Model Action
+moveBtn idx gs n isCurrent =
+  let label = case gsLastAction gs of
+        Nothing -> "Start"
+        Just (MoveAction f t) ->
+          let side = opponentSide gs
+              sideChar = case side of
+                AttackerSide -> "A"
+                DefenderSide -> "D"
+          in ms (show idx) <> "." <> sideChar <> " "
+               <> ms (coordStr n f) <> "-" <> ms (coordStr n t)
+      bg = if isCurrent then RGB 80 100 120 else RGB 50 48 45
+      fg = if isCurrent then RGB 200 220 255 else RGB 150 145 135
+  in H.button_
+    [ CSS.style_
+      [ CSS.backgroundColor bg
+      , CSS.color fg
+      , CSS.border "1px solid"
+      , CSS.borderColor (if isCurrent then RGB 100 130 170 else RGB 65 60 55)
+      , CSS.borderRadius "4px"
+      , CSS.padding "2px 5px"
+      , CSS.cursor (if isCurrent then "default" else "pointer")
+      , CSS.fontSize "11px"
+      , CSS.fontWeight (if isCurrent then "bold" else "normal")
+      , CSS.fontFamily "'Consolas', 'Courier New', monospace"
+      , "touch-action" =: "manipulation"
+      ]
+    , SVG.onClick (GotoMove idx)
+    ]
+    [ text label ]
+
+coordStr :: Int -> Coords -> String
+coordStr n (Coords r c) = [toEnum (fromEnum 'a' + c)] ++ show (n - r)
+
+viewGameControls :: Model -> View Model Action
+viewGameControls m =
   H.div_
     [ CSS.style_
       [ CSS.display "flex"
-      , CSS.flexDirection "column"
       , CSS.gap "8px"
       , CSS.marginTop "12px"
-      , CSS.alignItems "center"
-      , CSS.width "100%"
-      , CSS.maxWidth (ms (sqSize * 11) <> "px")
+      , CSS.flexWrap "wrap"
+      , CSS.justifyContent "center"
       ]
     ]
-    [ -- Row 1: Toggle + Side
-      H.div_
-        [ CSS.style_ [CSS.display "flex", CSS.gap "8px", CSS.flexWrap "wrap", CSS.justifyContent "center"] ]
-        [ ctrlBtn ToggleAi
-            (if mAiEnabled m then "AI: ON" else "AI: OFF")
-            (mAiEnabled m)
-        , ctrlBtn (SetAiSide AttackerSide) "AI: Attackers"
-            (mAiEnabled m && mAiSide m == AttackerSide)
-        , ctrlBtn (SetAiSide DefenderSide) "AI: Defenders"
-            (mAiEnabled m && mAiSide m == DefenderSide)
-        ]
-    , -- Row 2: Depth
-      H.div_
-        [ CSS.style_
-          [ CSS.display "flex", CSS.gap "4px", CSS.flexWrap "wrap"
-          , CSS.justifyContent "center", CSS.alignItems "center"
-          ]
-        ]
-        ( H.span_ [CSS.style_ [CSS.color (RGB 180 170 155), CSS.fontSize "12px"]] [text "Depth:"]
-        : [ ctrlBtn (SetAiDepth d) (ms (show d)) (mAiDepth m == d)
-          | d <- [1..8]
-          ]
-        )
-    , -- Row 3: Node limit
-      H.div_
-        [ CSS.style_
-          [ CSS.display "flex", CSS.gap "4px", CSS.flexWrap "wrap"
-          , CSS.justifyContent "center", CSS.alignItems "center"
-          ]
-        ]
-        ( H.span_ [CSS.style_ [CSS.color (RGB 180 170 155), CSS.fontSize "12px"]] [text "Nodes:"]
-        : [ ctrlBtn (SetAiNodeLimit n) label (mAiNodeLimit m == n)
-          | (n, label) <- [ (0, "None"), (1000, "1K"), (5000, "5K")
-                          , (10000, "10K"), (50000, "50K"), (100000, "100K")
-                          ]
-          ]
-        )
+    [ ctrlBtn BackToSetup "Back to Setup" False
+    , variantBtn m Brandubh "New: Brandubh 7x7"
+    , variantBtn m Tablut "New: Tablut 9x9"
+    , variantBtn m Classic "New: Copenhagen 11x11"
+    , variantBtn m Line "New: Line 11x11"
+    , variantBtn m Tawlbwrdd "New: Tawlbwrdd 11x11"
     ]
 
 ctrlBtn :: Action -> MisoString -> Bool -> View Model Action
@@ -545,24 +841,6 @@ ctrlBtn action label isActive =
     , SVG.onClick action
     ]
     [ text label ]
-
-viewControls :: Model -> View Model Action
-viewControls m =
-  H.div_
-    [ CSS.style_
-      [ CSS.display "flex"
-      , CSS.gap "8px"
-      , CSS.marginTop "12px"
-      , CSS.flexWrap "wrap"
-      , CSS.justifyContent "center"
-      ]
-    ]
-    [ variantBtn m Brandubh "Brandubh 7x7"
-    , variantBtn m Tablut "Tablut 9x9"
-    , variantBtn m Classic "Copenhagen 11x11"
-    , variantBtn m Line "Line 11x11"
-    , variantBtn m Tawlbwrdd "Tawlbwrdd 11x11"
-    ]
 
 variantBtn :: Model -> BoardVariant -> MisoString -> View Model Action
 variantBtn m variant label =

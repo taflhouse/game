@@ -70,6 +70,7 @@ data RuleSet = RuleSet
   , startingSide           :: !Side
   , saveBoardHistory       :: !Bool
   , saveActions            :: !Bool
+  , skipExpensiveChecks    :: !Bool
   } deriving (Eq, Show)
 
 -- | Result of a game (or in-progress indicator).
