@@ -12,6 +12,7 @@ import Tafl.Board (variantBoard)
 import Tafl.Move (getPossibleActions, canMakeAMove)
 import Tafl.Capture (checkCaptures)
 import Tafl.Fort (kingEscapedThroughFort)
+import Tafl.Surround (didAttackersSurroundDefenders)
 
 -- | Create the initial game state for a given board variant.
 initialState :: BoardVariant -> GameState
@@ -71,6 +72,9 @@ isGameOver gs
   -- King escaped through exit fort -> defender wins
   | exitForts (gsRules gs) && kingEscapedThroughFort gs =
       GameResult True (Just DefenderSide) "King escaped through exit fort!"
+  -- Attackers surrounded all defenders -> attacker wins
+  | didAttackersSurroundDefenders (gsBoard gs) =
+      GameResult True (Just AttackerSide) "Defenders surrounded!"
   -- King captured (no king on board) -> attacker wins
   | not (kingExists gs) = GameResult True (Just AttackerSide) "King captured!"
   -- Current side has no legal moves -> they lose
