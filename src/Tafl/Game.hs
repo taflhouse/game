@@ -13,6 +13,7 @@ import Tafl.Move (getPossibleActions, canMakeAMove)
 import Tafl.Capture (checkCaptures)
 import Tafl.Fort (kingEscapedThroughFort)
 import Tafl.Surround (didAttackersSurroundDefenders)
+import Tafl.Symmetry (addBoardToHistory, checkRepetition, initialBoardHistory)
 
 -- | Create the initial game state for a given board variant.
 initialState :: BoardVariant -> GameState
@@ -22,7 +23,9 @@ initialState variant =
   in GameState
     { gsBoard        = board
     , gsActions      = []
-    , gsBoardHistory = mempty
+    , gsBoardHistory = if saveBoardHistory rules
+                       then initialBoardHistory board
+                       else mempty
     , gsTurn         = 0
     , gsResult       = GameResult False Nothing ""
     , gsCaptures     = []
@@ -53,9 +56,13 @@ act gs move =
                          then gsActions gs ++ [move]
                          else []
         }
+      -- Track board history for repetition detection
+      gs3     = if saveBoardHistory (gsRules gs)
+                then addBoardToHistory gs2
+                else gs2
       -- Check game over
-      result  = isGameOver gs2
-  in gs2 { gsResult = result }
+      result  = isGameOver gs3
+  in gs3 { gsResult = result }
 
 -- | Set a piece at a coordinate on the board.
 setPiece :: Board -> Coords -> Piece -> Board
@@ -67,6 +74,9 @@ setPiece board (Coords r c) piece =
 -- | Check if the game is over.
 isGameOver :: GameState -> GameResult
 isGameOver gs
+  -- Draw on threefold repetition
+  | saveBoardHistory (gsRules gs) && checkRepetition gs =
+      GameResult True Nothing "Draw on repetition"
   -- King reached a corner -> defender wins
   | kingAtCorner gs = GameResult True (Just DefenderSide) "King escaped!"
   -- King escaped through exit fort -> defender wins

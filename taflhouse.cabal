@@ -11,6 +11,7 @@ library
                       , Tafl.Capture
                       , Tafl.Fort
                       , Tafl.Surround
+                      , Tafl.Symmetry
                       , Tafl.Game
   build-depends:        base
                       , containers
