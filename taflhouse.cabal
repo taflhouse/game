@@ -29,6 +29,6 @@ executable app
 
   hs-source-dirs:       app
   main-is:              Main.hs
-  build-depends:        base, miso, taflhouse
+  build-depends:        base, miso, taflhouse, supabase-miso, miso-ui, time, containers, text
   default-language:     GHC2021
   default-extensions:   CPP OverloadedStrings

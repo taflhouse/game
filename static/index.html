@@ -1,14 +1,19 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" class="dark theme-cosmic">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
     <title>Taflhouse</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/basecoat-css@0.3.6/dist/js/all.min.js"></script>
+    <link href="/assets/styles.css" rel="stylesheet" />
+    <script>
+      // Restore theme before first paint to avoid flash
+      if (localStorage.getItem('taflhouse_theme') === 'light') {
+        document.documentElement.classList.remove('dark');
+      }
+    </script>
   </head>
-
   <body>
-
-    <script src="index.js" type="module"></script>
-
+    <script src="/index.js" type="module"></script>
   </body>
 </html>

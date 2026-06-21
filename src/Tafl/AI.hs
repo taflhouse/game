@@ -23,27 +23,27 @@ defaultAiConfig = AiConfig { acMaxDepth = 4, acMaxNodes = 10000 }
 bestMove :: AiConfig -> GameState -> Maybe MoveAction
 bestMove config gs
   | finished (gsResult gs) = Nothing
-  | null moves = Nothing
-  | otherwise = Just (iterDeepen 1 (head moves))
+  | otherwise = case orderMoves gs' (getPossibleActions gs') of
+      []             -> Nothing
+      moves@(m0:_)   -> Just (iterDeepen moves m0 1 m0)
   where
     gs' = prepareForSearch gs
-    moves = orderMoves gs' (getPossibleActions gs')
     isMax = turnSide gs' == AttackerSide
 
-    iterDeepen :: Int -> MoveAction -> MoveAction
-    iterDeepen depth prevBest
+    iterDeepen :: [MoveAction] -> MoveAction -> Int -> MoveAction -> MoveAction
+    iterDeepen moves m0 depth prevBest
       | depth > acMaxDepth config = prevBest
       | otherwise =
-          let (mv, nodes) = searchRoot depth
+          let (mv, nodes) = searchRoot moves m0 depth
               exceeded = acMaxNodes config > 0 && nodes >= acMaxNodes config
           in if exceeded && depth > 1
              then prevBest
-             else iterDeepen (depth + 1) mv
+             else iterDeepen moves m0 (depth + 1) mv
 
-    searchRoot :: Int -> (MoveAction, Int)
-    searchRoot depth =
+    searchRoot :: [MoveAction] -> MoveAction -> Int -> (MoveAction, Int)
+    searchRoot moves m0 depth =
       let initScore = if isMax then -200000 else 200000
-      in rootLoop moves (head moves) initScore (-200000) 200000 0
+      in rootLoop moves m0 initScore (-200000) 200000 0
       where
         rootLoop :: [MoveAction] -> MoveAction -> Int -> Int -> Int -> Int -> (MoveAction, Int)
         rootLoop [] best _ _ _ nodes = (best, nodes)

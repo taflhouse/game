@@ -1,5 +1,7 @@
 packages:
   .
+  /Users/hnmatlock/local/supabase-miso
+  /Users/hnmatlock/local/miso.ui
 
 allow-newer:
   all:base
