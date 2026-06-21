@@ -6,7 +6,6 @@ import Control.Monad (void)
 import Data.Aeson (decode, encode)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as LBS
-import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -25,17 +24,18 @@ import Tafl.Rules (slugToVariant)
 import Tafl.Protocol
 
 import Server.Room
-import Server.Auth (validateJWT)
+import Server.Auth (validateJWT, newJWKStore)
 import Server.DB (getProfile, updateGameResult, Profile(..))
 
 main :: IO ()
 main = do
   port <- read . fromMaybe "3000" <$> lookupEnv "PORT"
   dbUrl <- getEnv "DATABASE_URL"
-  jwtSecret <- getEnv "SUPABASE_JWT_SECRET"
+  supabaseUrl <- getEnv "SUPABASE_URL"
   conn <- connectPostgreSQL (BS.pack dbUrl)
+  jwkStore <- newJWKStore (T.pack supabaseUrl)
   roomsVar <- newTVarIO Map.empty
-  let env = Env conn (T.pack jwtSecret) roomsVar
+  let env = Env conn jwkStore roomsVar
   TIO.putStrLn $ "Server starting on port " <> T.pack (show port)
   Warp.run port $ websocketsOr WS.defaultConnectionOptions (wsApp env) httpApp
 
@@ -57,21 +57,26 @@ handleConnection :: Env -> WS.Connection -> IO ()
 handleConnection env conn = do
   -- Step 1: Wait for CmAuth
   msgBytes <- WS.receiveData conn
+  TIO.putStrLn $ "Received: " <> T.pack (show (LBS.take 500 msgBytes))
   case decode (msgBytes :: LBS.ByteString) of
-    Just (CmAuth token gameId) -> do
-      authResult <- validateJWT (BS.pack (T.unpack (envJwtSecret env))) token
+    Just (CmAuth token gameId mDisplayName) -> do
+      authResult <- validateJWT (envJwkStore env) token
       case authResult of
         Left err -> sendErr conn ("Auth failed: " <> err)
         Right userId -> do
+          TIO.putStrLn $ "[auth] OK for user: " <> T.take 8 userId
           mProfile <- getProfile (envConn env) userId
-          case mProfile of
-            Nothing -> sendErr conn "No profile found. Please create a username first."
-            Just profile -> handleAuthenticated env conn userId (profileUsername profile) gameId
+          let username = case mProfile of
+                Just profile -> profileUsername profile
+                Nothing      -> fromMaybe ("Guest-" <> T.take 8 userId) mDisplayName
+          WS.sendTextData conn (encode SmAuthOk)
+          TIO.putStrLn "[auth] Sent auth_ok, waiting for create/join"
+          handleAuthenticated env conn userId username gameId
     _ -> sendErr conn "Expected auth message"
 
 -- | Handle an authenticated connection — wait for create/join, then game loop.
 handleAuthenticated :: Env -> WS.Connection -> Text -> Text -> Text -> IO ()
-handleAuthenticated env conn userId username _initialGameId = do
+handleAuthenticated env conn userId username initialGameId = do
   -- Step 2: Wait for CmCreateGame or CmJoinGame
   msgBytes <- WS.receiveData conn
   case decode (msgBytes :: LBS.ByteString) of
@@ -80,11 +85,9 @@ handleAuthenticated env conn userId username _initialGameId = do
         Nothing -> sendErr conn ("Unknown variant: " <> variantStr)
         Just variant -> do
           let pc = PlayerConn userId username conn
-          -- Use the invite code as a deterministic game ID prefix
-          let gameId = inviteCode <> "-" <> T.take 8 userId
-          room <- createRoom env gameId variant inviteCode pc "defender"
+          room <- createRoom env initialGameId variant inviteCode pc "defender"
           sendToPlayer pc SmWaitingForOpponent
-          TIO.putStrLn $ username <> " created game " <> gameId
+          TIO.putStrLn $ username <> " created game " <> initialGameId
           gameLoop env room pc DefenderSide
 
     Just (CmJoinGame inviteCode) -> do
@@ -167,7 +170,7 @@ gameLoop env room0 pc side = do
         _ -> pure ()
 
 -- | Find a room by invite code.
-findRoomByInvite :: Text -> Map Text GameRoom -> Maybe GameRoom
+findRoomByInvite :: Text -> Map.Map Text GameRoom -> Maybe GameRoom
 findRoomByInvite code rooms =
   case filter (\r -> grInviteCode r == code) (Map.elems rooms) of
     (r:_) -> Just r

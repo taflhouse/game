@@ -5,14 +5,14 @@ module Tafl.Protocol
   , ServerMsg(..)
   ) where
 
-import Data.Aeson (ToJSON(..), FromJSON(..), Value, object, withObject, (.:), (.=))
+import Data.Aeson (ToJSON(..), FromJSON(..), Value, object, withObject, (.:), (.:?), (.=))
 import Data.Aeson.Types (Parser, Pair)
 import Data.Text (Text)
 import Tafl.Types (Coords, MoveAction, Side, GameResult)
 
 -- | Client → Server messages.
 data ClientMsg
-  = CmAuth Text Text              -- ^ JWT token, game_id
+  = CmAuth Text Text (Maybe Text)  -- ^ JWT token, game_id, optional display_name
   | CmCreateGame Text Text        -- ^ variant slug, invite_code
   | CmJoinGame Text               -- ^ invite_code
   | CmMove MoveAction             -- ^ make a move
@@ -25,6 +25,7 @@ data ClientMsg
 -- | Server → Client messages.
 data ServerMsg
   = SmError Text                   -- ^ error message
+  | SmAuthOk                       -- ^ auth succeeded, send create/join
   | SmWaitingForOpponent           -- ^ game created, waiting
   | SmGameStarted Text Text Side   -- ^ game_id, opponent_username, your_side
   | SmMoveMade MoveAction [Coords] Side  -- ^ move, captures, next_turn
@@ -43,7 +44,7 @@ data ServerMsg
 
 instance ToJSON ClientMsg where
   toJSON = \case
-    CmAuth token gid   -> tagged "auth"        ["token" .= token, "game_id" .= gid]
+    CmAuth token gid mName -> tagged "auth"     ["token" .= token, "game_id" .= gid, "display_name" .= mName]
     CmCreateGame v ic   -> tagged "create_game" ["variant" .= v, "invite_code" .= ic]
     CmJoinGame ic       -> tagged "join_game"   ["invite_code" .= ic]
     CmMove ma           -> tagged "move"        ["action" .= ma]
@@ -56,7 +57,7 @@ instance FromJSON ClientMsg where
   parseJSON = withObject "ClientMsg" $ \v -> do
     tag <- v .: "type" :: Parser Text
     case tag of
-      "auth"         -> CmAuth <$> v .: "token" <*> v .: "game_id"
+      "auth"         -> CmAuth <$> v .: "token" <*> v .: "game_id" <*> v .:? "display_name"
       "create_game"  -> CmCreateGame <$> v .: "variant" <*> v .: "invite_code"
       "join_game"    -> CmJoinGame <$> v .: "invite_code"
       "move"         -> CmMove <$> v .: "action"
@@ -69,6 +70,7 @@ instance FromJSON ClientMsg where
 instance ToJSON ServerMsg where
   toJSON = \case
     SmError msg            -> tagged "error"            ["message" .= msg]
+    SmAuthOk               -> tagged "auth_ok"          []
     SmWaitingForOpponent   -> tagged "waiting"          []
     SmGameStarted g u s    -> tagged "game_started"     ["game_id" .= g, "opponent" .= u, "side" .= s]
     SmMoveMade ma cs nt    -> tagged "move_made"        ["action" .= ma, "captures" .= cs, "next_turn" .= nt]
@@ -85,6 +87,7 @@ instance FromJSON ServerMsg where
     tag <- v .: "type" :: Parser Text
     case tag of
       "error"                 -> SmError <$> v .: "message"
+      "auth_ok"               -> pure SmAuthOk
       "waiting"               -> pure SmWaitingForOpponent
       "game_started"          -> SmGameStarted <$> v .: "game_id" <*> v .: "opponent" <*> v .: "side"
       "move_made"             -> SmMoveMade <$> v .: "action" <*> v .: "captures" <*> v .: "next_turn"

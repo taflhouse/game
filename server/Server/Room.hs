@@ -25,12 +25,13 @@ import Tafl.Game (initialState, act)
 import Tafl.Move (isActionPossible)
 import Tafl.Protocol
 
+import Server.Auth (JWKStore)
 import Server.DB (createGameRecord, updateGameResult, joinGameRecord)
 
 -- | Server environment shared across handlers.
 data Env = Env
   { envConn      :: !Connection
-  , envJwtSecret :: !Text
+  , envJwkStore  :: !JWKStore
   , envRooms     :: TVar (Map Text GameRoom)
   }
 

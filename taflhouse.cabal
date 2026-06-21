@@ -61,6 +61,8 @@ executable server
                       , lens
                       , crypton-x509-store
                       , http-types
+                      , http-client
+                      , http-client-tls
                       , time
                       , mtl
   default-language:     GHC2021

@@ -23,3 +23,6 @@ CREATE POLICY "Users can view own games"
 CREATE POLICY "Users can insert own games"
   ON games FOR INSERT
   WITH CHECK (auth.uid() = user_id);
+
+-- Expose games to the API (PostgREST).
+GRANT SELECT, INSERT, UPDATE ON games TO anon, authenticated, service_role;

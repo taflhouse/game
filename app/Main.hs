@@ -17,15 +17,16 @@ import qualified Miso.Svg.Property as SP
 import Miso.JSON (Value, FromJSON(..), ToJSON(..), fromJSON, Result(..), Parser,
                   object, (.=), (.:), (.:?), withObject, withText)
 import Data.List (isPrefixOf)
+import Data.Maybe (fromMaybe)
 import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, jsg, (#))
 import Supabase.Miso.Core (successCallback, errorCallback)
 import Supabase.Miso.Auth
-  ( signUpEmail, signInWithPassword, signOut
+  ( signUpEmail, signInWithPassword, signOut, signInAnonymously
   , SignUpEmail(..), SignInCredentials(..), Email(..), Password(..)
-  , defaultSignOutOptions
-  , AuthResponse(..), AuthData(..), Session(..), User(..)
+  , defaultSignOutOptions, defaultSignInAnonymouslyOptions
+  , AuthResponse(..), AuthData(..), Session(..), User(..), AppMetadata(..)
   )
-import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq)
+import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq, neq)
 
 import Miso.WebSocket (connectJSON, sendJSON, WebSocket, emptyWebSocket, Closed)
 
@@ -72,7 +73,7 @@ instance ToJSON GameResult where
   toJSON (GameResult fin w d) = object
     [ "finished" .= fin
     , "winner"   .= w
-    , "desc"     .= d
+    , "desc"     .= ms d
     ]
 
 instance FromJSON GameResult where
@@ -80,14 +81,18 @@ instance FromJSON GameResult where
     GameResult <$> v .: "finished" <*> v .: "winner" <*> v .: "desc"
 
 -- | Helper to build a tagged JSON object for Miso.JSON.
-misoTagged :: T.Text -> [(MisoString, Value)] -> Value
+misoTagged :: MisoString -> [(MisoString, Value)] -> Value
 misoTagged t ps = object (("type" .= t) : ps)
+
+-- | Convert Text to MisoString for JSON serialization.
+txt :: T.Text -> MisoString
+txt = ms
 
 instance ToJSON ClientMsg where
   toJSON = \case
-    CmAuth token gid    -> misoTagged "auth"         ["token" .= token, "game_id" .= gid]
-    CmCreateGame v ic   -> misoTagged "create_game"  ["variant" .= v, "invite_code" .= ic]
-    CmJoinGame ic       -> misoTagged "join_game"    ["invite_code" .= ic]
+    CmAuth token gid mName -> misoTagged "auth"       ["token" .= txt token, "game_id" .= txt gid, "display_name" .= fmap txt mName]
+    CmCreateGame v ic   -> misoTagged "create_game"  ["variant" .= txt v, "invite_code" .= txt ic]
+    CmJoinGame ic       -> misoTagged "join_game"    ["invite_code" .= txt ic]
     CmMove ma           -> misoTagged "move"         ["action" .= ma]
     CmResign            -> misoTagged "resign"       []
     CmOfferDraw         -> misoTagged "offer_draw"   []
@@ -98,7 +103,7 @@ instance FromJSON ClientMsg where
   parseJSON = withObject "ClientMsg" $ \v -> do
     tag <- v .: "type" :: Parser T.Text
     case tag of
-      "auth"         -> CmAuth <$> v .: "token" <*> v .: "game_id"
+      "auth"         -> CmAuth <$> v .: "token" <*> v .: "game_id" <*> v .:? "display_name"
       "create_game"  -> CmCreateGame <$> v .: "variant" <*> v .: "invite_code"
       "join_game"    -> CmJoinGame <$> v .: "invite_code"
       "move"         -> CmMove <$> v .: "action"
@@ -110,11 +115,12 @@ instance FromJSON ClientMsg where
 
 instance ToJSON ServerMsg where
   toJSON = \case
-    SmError msg            -> misoTagged "error"                 ["message" .= msg]
+    SmError msg            -> misoTagged "error"                 ["message" .= txt msg]
+    SmAuthOk               -> misoTagged "auth_ok"               []
     SmWaitingForOpponent   -> misoTagged "waiting"               []
-    SmGameStarted g u s    -> misoTagged "game_started"          ["game_id" .= g, "opponent" .= u, "side" .= s]
+    SmGameStarted g u s    -> misoTagged "game_started"          ["game_id" .= txt g, "opponent" .= txt u, "side" .= s]
     SmMoveMade ma cs nt    -> misoTagged "move_made"             ["action" .= ma, "captures" .= cs, "next_turn" .= nt]
-    SmMoveRejected msg     -> misoTagged "move_rejected"         ["message" .= msg]
+    SmMoveRejected msg     -> misoTagged "move_rejected"         ["message" .= txt msg]
     SmGameOver r           -> misoTagged "game_over"             ["result" .= r]
     SmDrawOffered          -> misoTagged "draw_offered"          []
     SmDrawDeclined         -> misoTagged "draw_declined"         []
@@ -127,6 +133,7 @@ instance FromJSON ServerMsg where
     tag <- v .: "type" :: Parser T.Text
     case tag of
       "error"                 -> SmError <$> v .: "message"
+      "auth_ok"               -> pure SmAuthOk
       "waiting"               -> pure SmWaitingForOpponent
       "game_started"          -> SmGameStarted <$> v .: "game_id" <*> v .: "opponent" <*> v .: "side"
       "move_made"             -> SmMoveMade <$> v .: "action" <*> v .: "captures" <*> v .: "next_turn"
@@ -146,7 +153,7 @@ instance FromJSON ServerMsg where
 data GameMode = LocalMode | AiMode | MultiplayerMode
   deriving (Eq, Show)
 
-data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | GameScreen | ReplayScreen | ProfileScreen
+data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen
   deriving (Eq, Show)
 
 data Profile = Profile
@@ -187,6 +194,9 @@ instance FromJSON GameRecord where
       <*> v .:? "moves"
       <*> (maybe False id <$> v .:? "is_public")
 
+data DeferredMpAction = DeferCreate | DeferJoin
+  deriving (Eq, Show)
+
 data Model = Model
   { mScreen         :: !Screen
   , mGameMode       :: !GameMode
@@ -221,6 +231,7 @@ data Model = Model
   , mIsPublic        :: !Bool
   , mReplayNotFound  :: !Bool
   -- Multiplayer
+  , mGuestName        :: Maybe MisoString
   , mWsConn          :: !WebSocket
   , mWsConnected     :: !Bool
   , mProfile         :: Maybe Profile
@@ -233,6 +244,9 @@ data Model = Model
   , mDrawOffered     :: !Bool
   , mProfileDropdown :: !Bool
   , mSidePreference  :: !MisoString
+  , mEditUsername    :: !MisoString
+  , mEditDisplayName :: !MisoString
+  , mDeferredMpAction :: Maybe DeferredMpAction
   }
 
 instance Eq Model where
@@ -268,6 +282,7 @@ instance Eq Model where
         && mGameId a == mGameId b
         && mIsPublic a == mIsPublic b
         && mReplayNotFound a == mReplayNotFound b
+        && mGuestName a == mGuestName b
         && mWsConnected a == mWsConnected b
         && mProfile a == mProfile b
         && mNeedsUsername a == mNeedsUsername b
@@ -279,6 +294,9 @@ instance Eq Model where
         && mDrawOffered a == mDrawOffered b
         && mProfileDropdown a == mProfileDropdown b
         && mSidePreference a == mSidePreference b
+        && mEditUsername a == mEditUsername b
+        && mEditDisplayName a == mEditDisplayName b
+        && mDeferredMpAction a == mDeferredMpAction b
 
 eqSession :: Maybe Session -> Maybe Session -> Bool
 eqSession Nothing Nothing = True
@@ -304,6 +322,7 @@ data Action
   | GotoSignIn
   | GotoSignUp
   | GotoConfig
+  | GotoJoin
   | ToggleConfigExpand
   | HandleURI URI
   | Undo
@@ -314,6 +333,8 @@ data Action
   | DoSignOut
   | AuthSuccess AuthResponse
   | AuthError MisoString
+  | AnonAuthSuccess AuthResponse
+  | AnonAuthError MisoString
   | SignOutSuccess Value
   | SessionRestored (Maybe Session)
   | GameSaved Value
@@ -348,6 +369,12 @@ data Action
   | ProfileLoadError MisoString
   | ToggleProfileDropdown
   | GotoProfile
+  | GotoProfileEdit
+  | SetEditUsername MisoString
+  | SetEditDisplayName MisoString
+  | SubmitProfileEdit
+  | ProfileUpdated Value
+  | ProfileUpdateError MisoString
   -- Multiplayer
   | WsConnect MisoString
   | WsConnected WebSocket
@@ -366,15 +393,16 @@ data Action
   | AcceptDraw
   | DeclineDraw
   | SetSidePreference MisoString
+  | CopyInviteCode MisoString
 
 -- ---------------------------------------------------------------------------
 -- Routing
 -- ---------------------------------------------------------------------------
 
-data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute | ProfileRoute
+data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute | ProfileRoute | ProfileEditRoute
            | PlayRoute MisoString      -- /play/<uuid> active game
            | GameRoute MisoString      -- /games/<uuid> replay/permalink
-           | JoinRoute MisoString      -- /join/<invite_code>
+           | JoinRoute (Maybe MisoString) -- /join or /join/<invite_code>
 
 variantSlugMs :: BoardVariant -> MisoString
 variantSlugMs v = ms (variantSlug v)
@@ -396,14 +424,16 @@ parseRoute uri = case uriPath uri of
   "sign-in"  -> SignInRoute
   "sign-up"  -> SignUpRoute
   "new-game" -> ConfigRoute
+  "profile/edit" -> ProfileEditRoute
   "profile"  -> ProfileRoute
+  "join"     -> JoinRoute Nothing
   path
     | Just uuid <- msStripPrefix "play/" path
     , isUUID uuid -> PlayRoute uuid
     | Just uuid <- msStripPrefix "games/" path
     , isUUID uuid -> GameRoute uuid
     | Just code <- msStripPrefix "join/" path
-    , not (null (fromMisoString code :: String)) -> JoinRoute code
+    , not (null (fromMisoString code :: String)) -> JoinRoute (Just code)
     | otherwise   -> HomeRoute
 
 msStripPrefix :: String -> MisoString -> Maybe MisoString
@@ -426,7 +456,7 @@ friendlyAuthError code = case (fromMisoString code :: String) of
   "email_not_confirmed" -> "Please check your email and confirm your account before signing in."
   "invalid_credentials" -> "Invalid email or password."
   "user_already_exists" -> "An account with this email already exists."
-  _ -> code
+  _ -> "Something went wrong. Please try again."
 
 homeURI :: URI
 homeURI = emptyURI
@@ -449,8 +479,14 @@ gamePermalinkURI uuid = emptyURI { uriPath = "games/" <> uuid }
 profileURI :: URI
 profileURI = emptyURI { uriPath = "profile" }
 
+profileEditURI :: URI
+profileEditURI = emptyURI { uriPath = "profile/edit" }
+
 joinURI :: MisoString -> URI
 joinURI code = emptyURI { uriPath = "join/" <> code }
+
+joinBareURI :: URI
+joinBareURI = emptyURI { uriPath = "join" }
 
 -- ---------------------------------------------------------------------------
 -- Entry point
@@ -509,6 +545,10 @@ generateInviteCode = do
   let str = fromMisoString uuid :: String
       code = filter (/= '-') (take 8 str)
   pure (ms code)
+
+-- | Generate a guest display name from a user ID.
+guestNameFromId :: MisoString -> MisoString
+guestNameFromId uid = "Guest-" <> ms (take 8 (filter (/= '-') (fromMisoString uid :: String)))
 
 -- | Save a game record to localStorage via the Miso DSL.
 saveLocalGameIO :: Value -> IO ()
@@ -579,6 +619,7 @@ initModel = Model
   , mGameId        = Nothing
   , mIsPublic        = False
   , mReplayNotFound  = False
+  , mGuestName        = Nothing
   , mWsConn          = emptyWebSocket
   , mWsConnected     = False
   , mProfile         = Nothing
@@ -591,6 +632,9 @@ initModel = Model
   , mDrawOffered     = False
   , mProfileDropdown = False
   , mSidePreference  = "defender"
+  , mEditUsername    = ""
+  , mEditDisplayName = ""
+  , mDeferredMpAction = Nothing
   }
 
 -- ---------------------------------------------------------------------------
@@ -624,6 +668,9 @@ updateModel = \case
   GotoConfig ->
     io_ $ pushURI configURI
 
+  GotoJoin ->
+    io_ $ pushURI joinBareURI
+
   ToggleConfigExpand ->
     modify $ \m -> m { mConfigExpanded = not (mConfigExpanded m) }
 
@@ -646,6 +693,7 @@ updateModel = \case
     modify $ \m -> m { mShowNodesInfo = not (mShowNodesInfo m) }
 
   HandleURI uri -> do
+    modify $ \x -> x { mToast = Nothing }
     m <- get
     case parseRoute uri of
       PlayRoute uuid
@@ -674,9 +722,21 @@ updateModel = \case
         modify $ \x -> x { mScreen = ConfigScreen, mMoveList = [], mGameId = Nothing }
       ProfileRoute ->
         modify $ \x -> x { mScreen = ProfileScreen }
-      JoinRoute code -> do
-        modify $ \x -> x { mJoinCodeInput = code }
-        withSink $ \sink -> sink JoinMultiplayerGame
+      ProfileEditRoute -> do
+        m' <- get
+        modify $ \x -> x
+          { mScreen = ProfileEditScreen
+          , mEditUsername = maybe "" pUsername (mProfile m')
+          , mEditDisplayName = maybe "" (maybe "" id . pDisplayName) (mProfile m')
+          }
+      JoinRoute mCode -> do
+        modify $ \x -> x
+          { mScreen = JoinScreen
+          , mJoinCodeInput = fromMaybe (mJoinCodeInput x) mCode
+          }
+        case mCode of
+          Just _  -> withSink $ \sink -> sink JoinMultiplayerGame
+          Nothing -> pure ()
 
   CellClicked coords -> do
     m <- get
@@ -814,23 +874,56 @@ updateModel = \case
   AuthError msg ->
     modify $ \m -> m { mAuthError = Just (friendlyAuthError msg), mAuthLoading = False }
 
+  AnonAuthSuccess resp -> do
+    case adSession (arData resp) of
+      Just sess -> do
+        let uid = userId (sessionUser sess)
+            gName = guestNameFromId uid
+        modify $ \m -> m
+          { mSession   = Just sess
+          , mGuestName = Just gName
+          }
+        m <- get
+        case mDeferredMpAction m of
+          Just DeferCreate ->
+            withSink $ \sink -> sink CreateMultiplayerGame
+          Just DeferJoin ->
+            withSink $ \sink -> sink JoinMultiplayerGame
+          Nothing -> pure ()
+        modify $ \x -> x { mDeferredMpAction = Nothing }
+      Nothing ->
+        modify $ \m -> m { mToast = Just "Anonymous sign-in failed", mDeferredMpAction = Nothing }
+
+  AnonAuthError msg ->
+    modify $ \m -> m { mToast = Just ("Sign-in failed: " <> msg), mDeferredMpAction = Nothing }
+
   DoSignOut -> do
     signOut defaultSignOutOptions SignOutSuccess AuthError
     modify $ \m -> m
-      { mSession    = Nothing
-      , mPastGames  = []
-      , mLocalGames = []
-      , mAuthError  = Nothing
+      { mSession         = Nothing
+      , mScreen          = HomeScreen
+      , mPastGames       = []
+      , mLocalGames      = []
+      , mAuthError       = Nothing
+      , mProfile         = Nothing
+      , mNeedsUsername    = False
+      , mProfileDropdown = False
+      , mGuestName       = Nothing
       }
+    io_ $ pushURI homeURI
 
   SignOutSuccess _ -> pure ()
 
   SessionRestored mSess -> do
     modify $ \m -> m { mSession = mSess }
     case mSess of
-      Just sess -> do
-        loadPastGames
-        loadProfile sess
+      Just sess
+        | amProvider (userAppMetadata (sessionUser sess)) == "anonymous" -> do
+            let uid = userId (sessionUser sess)
+            modify $ \m -> m { mGuestName = Just (guestNameFromId uid) }
+        | otherwise -> do
+            loadPastGames
+            loadProfile sess
       Nothing -> pure ()
 
   GameSaved _ -> loadPastGames
@@ -950,8 +1043,8 @@ updateModel = \case
 
   GameCreated _ -> pure ()
 
-  GameCreateError msg ->
-    modify $ \m -> m { mToast = Just ("Failed to create game: " <> msg) }
+  GameCreateError _ ->
+    pure ()
 
   ToggleGamePublic -> do
     m <- get
@@ -1007,8 +1100,8 @@ updateModel = \case
       , mUsernameInput = ""
       }
 
-  ProfileCreateError msg ->
-    modify $ \m -> m { mAuthError = Just msg }
+  ProfileCreateError _ ->
+    modify $ \m -> m { mAuthError = Just "Something went wrong. Please try again." }
 
   ProfileLoaded val ->
     case fromJSON val of
@@ -1026,8 +1119,49 @@ updateModel = \case
   ToggleProfileDropdown ->
     modify $ \m -> m { mProfileDropdown = not (mProfileDropdown m) }
 
-  GotoProfile ->
-    modify $ \m -> m { mScreen = ProfileScreen, mProfileDropdown = False }
+  GotoProfile -> do
+    modify $ \m -> m { mProfileDropdown = False }
+    io_ $ pushURI profileURI
+
+  GotoProfileEdit -> do
+    m <- get
+    modify $ \x -> x
+      { mProfileDropdown = False
+      , mEditUsername = maybe "" pUsername (mProfile m)
+      , mEditDisplayName = maybe "" (maybe "" id . pDisplayName) (mProfile m)
+      }
+    io_ $ pushURI profileEditURI
+
+  SetEditUsername s ->
+    modify $ \m -> m { mEditUsername = s }
+
+  SetEditDisplayName s ->
+    modify $ \m -> m { mEditDisplayName = s }
+
+  SubmitProfileEdit -> do
+    m <- get
+    case mSession m of
+      Just sess -> do
+        let uid = userId (sessionUser sess)
+            uData = object
+              [ "username"     .= mEditUsername m
+              , "display_name" .= mEditDisplayName m
+              ]
+        updateTable "profiles" uData
+          [eq "id" uid]
+          (UpdateOptions Nothing)
+          ProfileUpdated ProfileUpdateError
+      Nothing -> pure ()
+
+  ProfileUpdated _ -> do
+    m <- get
+    modify $ \x -> x
+      { mProfile = Just (Profile (mEditUsername m) (Just (mEditDisplayName m)))
+      }
+    io_ $ pushURI profileURI
+
+  ProfileUpdateError _ ->
+    modify $ \m -> m { mAuthError = Just "Something went wrong. Please try again." }
 
   -- Multiplayer actions
   WsConnect wsUrl ->
@@ -1036,34 +1170,38 @@ updateModel = \case
   WsConnected ws -> do
     modify $ \m -> m { mWsConn = ws, mWsConnected = True }
     m <- get
-    -- After connecting, send auth + create/join
+    -- Send auth; server will reply with SmAuthOk, then we send create/join
     case mSession m of
       Just sess -> do
-        let token = fromMisoString (sessionAccessToken sess) :: T.Text
-            gid   = maybe "" (\g -> fromMisoString g :: T.Text) (mGameId m)
-        sendJSON ws (CmAuth token gid)
-        -- Then send create or join
-        case mInviteCode m of
-          Just code -> do
-            let vSlug = variantSlug (mVariant m)
-                ic    = fromMisoString code :: T.Text
-            sendJSON ws (CmCreateGame vSlug ic)
-          Nothing
-            | mJoinCodeInput m /= "" -> do
-                let jc = fromMisoString (mJoinCodeInput m) :: T.Text
-                sendJSON ws (CmJoinGame jc)
-            | otherwise -> pure ()
+        let token = sessionAccessToken sess
+            gid   = maybe "" id (mGameId m)
+            mName = mGuestName m
+        sendJSON ws (CmAuth (fromMisoString token) (fromMisoString gid) (fmap fromMisoString mName))
       Nothing -> pure ()
 
   WsClosed _ ->
     modify $ \m -> m { mWsConnected = False }
 
-  WsError msg ->
-    modify $ \m -> m { mToast = Just ("WebSocket error: " <> msg), mWsConnected = False }
+  WsError _msg ->
+    modify $ \m -> m { mToast = Just "The server is having difficulty. Please try again soon.", mWsConnected = False }
 
   WsReceived serverMsg -> do
     m <- get
     case serverMsg of
+      SmAuthOk -> do
+        -- Auth succeeded, now send the create/join message
+        let ws = mWsConn m
+        case mInviteCode m of
+          Just code ->
+            let vSlug = variantSlug (mVariant m)
+                ic    = fromMisoString code :: T.Text
+            in sendJSON ws (CmCreateGame vSlug ic)
+          Nothing
+            | mJoinCodeInput m /= "" ->
+                let jc = fromMisoString (mJoinCodeInput m) :: T.Text
+                in sendJSON ws (CmJoinGame jc)
+            | otherwise -> pure ()
+
       SmWaitingForOpponent ->
         pure ()
 
@@ -1136,8 +1274,9 @@ updateModel = \case
   CreateMultiplayerGame -> do
     m <- get
     case mSession m of
-      Nothing -> modify $ \x -> x { mToast = Just "Sign in to play online" }
-      Just _ | mNeedsUsername m -> modify $ \x -> x { mToast = Just "Set a username first" }
+      Nothing -> do
+        modify $ \x -> x { mDeferredMpAction = Just DeferCreate }
+        signInAnonymously defaultSignInAnonymouslyOptions AnonAuthSuccess AnonAuthError
       Just _ -> io $ do
         invCode <- generateInviteCode
         uuid <- js_generateUUID
@@ -1164,8 +1303,9 @@ updateModel = \case
   JoinMultiplayerGame -> do
     m <- get
     case mSession m of
-      Nothing -> modify $ \x -> x { mToast = Just "Sign in to play online" }
-      Just _ | mNeedsUsername m -> modify $ \x -> x { mToast = Just "Set a username first" }
+      Nothing -> do
+        modify $ \x -> x { mDeferredMpAction = Just DeferJoin }
+        signInAnonymously defaultSignInAnonymouslyOptions AnonAuthSuccess AnonAuthError
       Just _ -> io $ do
         wsUrl <- js_getWsUrl
         pure (StartJoinGame wsUrl)
@@ -1207,6 +1347,13 @@ updateModel = \case
 
   SetSidePreference s ->
     modify $ \m -> m { mSidePreference = s }
+
+  CopyInviteCode code -> do
+    io_ $ js_copyToClipboard code
+    modify $ \m -> m { mToast = Just "Copied!" }
+    withSink $ \sink -> do
+      threadDelay 3000000
+      sink DismissToast
 
 -- | Check if the AI should move and trigger the search if so.
 triggerAi :: Effect ROOT () Model Action
@@ -1287,7 +1434,7 @@ loadPastGames = do
       modify $ \x -> x { mGamesLoading = True }
       let uid = userId (sessionUser sess)
       selectWithFilters "games" "*"
-        [eq "user_id" uid]
+        [eq "user_id" uid, neq "result_desc" ("in_progress" :: MisoString)]
         (FetchOptions Nothing Nothing)
         GamesLoaded GamesLoadError
 
@@ -1329,16 +1476,18 @@ viewModel _ m =
         [ H.div_
             [ HP.class_ "flex flex-col items-center min-h-full pt-8 pb-12 px-4 mx-auto w-full max-w-7xl"
             ]
-            [ if mNeedsUsername m && mScreen m /= SignInScreen && mScreen m /= SignUpScreen
+            [ if mNeedsUsername m && mGuestName m == Nothing && mScreen m /= SignInScreen && mScreen m /= SignUpScreen
                 then viewUsernameGate m
                 else case mScreen m of
                   HomeScreen    -> viewHome m
                   SignInScreen  -> viewSignIn m
                   SignUpScreen  -> viewSignUp m
                   ConfigScreen  -> viewConfig m
+                  JoinScreen    -> viewJoin m
                   GameScreen    -> viewGame m
                   ReplayScreen  -> viewReplay m
-                  ProfileScreen -> viewProfile m
+                  ProfileScreen     -> viewProfile m
+                  ProfileEditScreen -> viewProfileEdit m
             ]
         ]
     , viewToast m
@@ -1349,9 +1498,11 @@ viewToast m = case mToast m of
   Nothing -> text ""
   Just msg ->
     H.div_
-      [ HP.class_ "fixed bottom-6 left-1/2 card px-4 py-2 text-sm text-foreground shadow-lg"
-      , style_ [("transform", "translateX(-50%)"), ("z-index", "100")]
-      , SVG.onClick DismissToast
+      [ HP.class_ "card px-4 py-2 text-sm text-foreground shadow-lg"
+      , style_ [ ("position", "fixed"), ("bottom", "1.5rem"), ("left", "50%")
+               , ("transform", "translateX(-50%)"), ("z-index", "9999")
+               , ("user-select", "text"), ("cursor", "text")
+               ]
       ]
       [ text msg ]
 
@@ -1491,13 +1642,55 @@ navAuthButtons m =
             ]
             [ text "Sign In" ]
         ]
-    ) ++
-    [ H.button_
-        [ HP.class_ "btn btn-sm"
-        , style_ [("touch-action", "manipulation")]
-        , SVG.onClick GotoConfig
+    )
+
+viewOrDivider :: View Model Action
+viewOrDivider =
+  H.div_
+    [ HP.class_ "flex items-center gap-3 w-full"
+    , style_ [("margin-top", "1em"), ("margin-bottom", "1em")]
+    ]
+    [ H.div_ [ HP.class_ "flex-1 border-t border-border" ] []
+    , H.span_ [ HP.class_ "text-xs text-muted-foreground uppercase" ] [ text "or" ]
+    , H.div_ [ HP.class_ "flex-1 border-t border-border" ] []
+    ]
+
+-- ---------------------------------------------------------------------------
+-- Join Screen
+-- ---------------------------------------------------------------------------
+
+viewJoin :: Model -> View Model Action
+viewJoin m =
+  H.div_
+    [ HP.class_ "flex-1 flex items-center justify-center w-full"
+    ]
+    [ H.div_
+        [ HP.class_ "card p-6 w-full max-w-sm"
+        , style_ [("margin-top", "4em")]
         ]
-        [ text "New Game" ]
+        [ H.h2_
+            [ HP.class_ "text-xl font-bold mb-4 text-center" ]
+            [ text "Join a Game" ]
+        , H.p_
+            [ HP.class_ "text-sm text-muted-foreground mb-4 text-center" ]
+            [ text "Enter the invite code shared with you to play!" ]
+        , H.div_
+            [ HP.class_ "flex flex-col gap-3" ]
+            [ H.input_
+                [ HP.class_ "input w-full text-center"
+                , HP.type_ "text"
+                , HP.placeholder_ "Invite code"
+                , HP.value_ (mJoinCodeInput m)
+                , H.onInput SetJoinCodeInput
+                ]
+            , H.button_
+                [ HP.class_ "btn w-full"
+                , style_ [("touch-action", "manipulation")]
+                , SVG.onClick JoinMultiplayerGame
+                ]
+                [ text "Join" ]
+            ]
+        ]
     ]
 
 -- ---------------------------------------------------------------------------
@@ -1518,6 +1711,22 @@ viewHome m = case mSession m of
       , style_ [("margin-top", "4em")]
       ]
       [ H.div_
+          [ HP.class_ "flex flex-col items-center mb-6" ]
+          [ H.button_
+              [ HP.class_ "btn"
+              , style_ [("touch-action", "manipulation")]
+              , SVG.onClick GotoConfig
+              ]
+              [ text "New Game" ]
+          , viewOrDivider
+          , H.span_
+              [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+              , style_ [("touch-action", "manipulation")]
+              , SVG.onClick GotoJoin
+              ]
+              [ text "Join Game" ]
+          ]
+      , H.div_
           [ HP.class_ "flex justify-between items-center mb-4"
           ]
           [ H.h2_
@@ -1533,16 +1742,24 @@ viewHome m = case mSession m of
       [ HP.class_ "text-center max-w-md"
       , style_ [("margin-top", "4em")]
       ]
-      [ H.p_
-          [ HP.class_ "text-xl font-bold"
-          ]
-          [ text "No games yet" ]
-      , H.button_
+      [ H.button_
           [ HP.class_ "btn"
-          , style_ [("touch-action", "manipulation"), ("margin-top", "2em")]
+          , style_ [("touch-action", "manipulation")]
           , SVG.onClick GotoConfig
           ]
           [ text "New Game" ]
+      , viewOrDivider
+      , H.span_
+          [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+          , style_ [("touch-action", "manipulation")]
+          , SVG.onClick GotoJoin
+          ]
+          [ text "Join Game" ]
+      , H.p_
+          [ HP.class_ "text-xl font-bold"
+          , style_ [("margin-top", "2em")]
+          ]
+          [ text "No games yet" ]
       , H.p_
           [ HP.class_ "text-muted-foreground text-sm italic cursor-pointer"
           , style_ [("margin-top", "2em"), ("text-decoration", "underline dotted"), ("text-underline-offset", "4px")]
@@ -1566,6 +1783,13 @@ viewHome m = case mSession m of
           , SVG.onClick GotoConfig
           ]
           [ text "New Game" ]
+      , viewOrDivider
+      , H.span_
+          [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+          , style_ [("touch-action", "manipulation")]
+          , SVG.onClick GotoJoin
+          ]
+          [ text "Join Game" ]
       , H.div_
           [ style_ [("margin-top", "2em"), ("position", "relative")]
           ]
@@ -1629,7 +1853,7 @@ viewGameRow gr =
       modeText = case grGameMode gr of
         "ai"          -> "vs AI"
         "local"       -> "Local"
-        "multiplayer" -> "Online"
+        "multiplayer" -> "Multiplayer"
         _             -> grGameMode gr
       cells =
         [ H.td_ [] [ text (grVariant gr) ]
@@ -1843,7 +2067,7 @@ viewConfigSummary m =
   let modeText = case mGameMode m of
         LocalMode       -> "Local (2 players)"
         AiMode          -> "vs AI"
-        MultiplayerMode -> "Online"
+        MultiplayerMode -> "Multiplayer"
       boardText = variantName (mVariant m)
       aiInfo = if mGameMode m == AiMode
         then [ ("AI plays" :: MisoString, if mAiSide m == AttackerSide then "Attackers" else "Defenders")
@@ -1878,7 +2102,7 @@ viewConfigOptions m =
     [ setupSection "Mode"
         [ setupBtn (SetGameMode LocalMode) "Local" (mGameMode m == LocalMode)
         , setupBtn (SetGameMode AiMode) "vs AI" (mGameMode m == AiMode)
-        , setupBtn (SetGameMode MultiplayerMode) "Online" (mGameMode m == MultiplayerMode)
+        , setupBtn (SetGameMode MultiplayerMode) "Multiplayer" (mGameMode m == MultiplayerMode)
         ]
     , setupSection "Board"
         [ setupBtn (SetVariant Brandubh) "Brandubh 7x7" (mVariant m == Brandubh)
@@ -2013,28 +2237,6 @@ viewSetupMultiplayer m =
         [ setupBtn (SetSidePreference "attacker") "Attackers" (mSidePreference m == "attacker")
         , setupBtn (SetSidePreference "defender") "Defenders" (mSidePreference m == "defender")
         ]
-    , H.div_
-        [ HP.class_ "mt-4 pt-4 border-t border-border" ]
-        [ H.div_
-            [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase mb-2" ]
-            [ text "OR JOIN A GAME" ]
-        , H.div_
-            [ HP.class_ "flex gap-2 justify-center items-center" ]
-            [ H.input_
-                [ HP.class_ "input w-32 text-center"
-                , HP.type_ "text"
-                , HP.placeholder_ "Invite code"
-                , HP.value_ (mJoinCodeInput m)
-                , H.onInput SetJoinCodeInput
-                ]
-            , H.button_
-                [ HP.class_ "btn"
-                , style_ [("touch-action", "manipulation")]
-                , SVG.onClick JoinMultiplayerGame
-                ]
-                [ text "Join" ]
-            ]
-        ]
     ]
 
 -- ---------------------------------------------------------------------------
@@ -2111,7 +2313,76 @@ viewProfile m =
                       total = length (mPastGames m)
                       rate = if total > 0 then show (wins * 100 `div` total) <> "%" else "-"
                   in summaryRow ("Win Rate", ms rate)
+                , H.button_
+                    [ HP.class_ "btn w-full mt-2"
+                    , style_ [("touch-action", "manipulation")]
+                    , SVG.onClick GotoProfileEdit
+                    ]
+                    [ text "Edit Profile" ]
                 ]
+        ]
+    ]
+
+-- ---------------------------------------------------------------------------
+-- Profile Edit Screen
+-- ---------------------------------------------------------------------------
+
+viewProfileEdit :: Model -> View Model Action
+viewProfileEdit m =
+  H.div_
+    [ HP.class_ "flex-1 flex items-center justify-center w-full"
+    ]
+    [ H.div_
+        [ HP.class_ "card p-6 w-full max-w-sm"
+        , style_ [("margin-top", "4em")]
+        ]
+        [ H.h2_
+            [ HP.class_ "text-xl font-bold mb-4 text-center" ]
+            [ text "Edit Profile" ]
+        , H.form_
+            [ HP.class_ "flex flex-col gap-3"
+            , H.onSubmit SubmitProfileEdit
+            ]
+            [ H.label_
+                [ HP.class_ "text-sm text-muted-foreground" ]
+                [ text "Username" ]
+            , H.input_
+                [ HP.class_ "input w-full"
+                , HP.type_ "text"
+                , HP.required_ True
+                , HP.value_ (mEditUsername m)
+                , HP.placeholder_ "username"
+                , H.onInput SetEditUsername
+                ]
+            , H.label_
+                [ HP.class_ "text-sm text-muted-foreground" ]
+                [ text "Display Name" ]
+            , H.input_
+                [ HP.class_ "input w-full"
+                , HP.type_ "text"
+                , HP.value_ (mEditDisplayName m)
+                , HP.placeholder_ "Display Name"
+                , H.onInput SetEditDisplayName
+                ]
+            , case mAuthError m of
+                Nothing  -> H.div_ [] []
+                Just err -> H.div_
+                  [ HP.class_ "text-destructive text-sm" ]
+                  [ text err ]
+            , H.button_
+                [ HP.class_ "btn w-full"
+                , style_ [("touch-action", "manipulation")]
+                ]
+                [ text "Save" ]
+            ]
+        , H.div_
+            [ HP.class_ "text-center mt-4 text-sm text-muted-foreground" ]
+            [ H.span_
+                [ HP.class_ "text-foreground underline cursor-pointer"
+                , SVG.onClick GotoProfile
+                ]
+                [ text "Cancel" ]
+            ]
         ]
     ]
 
@@ -2145,7 +2416,7 @@ viewGame m
                 , H.button_
                     [ HP.class_ "btn btn-outline btn-sm text-foreground"
                     , style_ [("touch-action", "manipulation")]
-                    , SVG.onClick (ShowToast ("Invite code: " <> code))
+                    , SVG.onClick (CopyInviteCode code)
                     ]
                     [ text "Copy Invite Code" ]
                 ]
