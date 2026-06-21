@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 module Tafl.Types
   ( -- * Piece
     Piece(..)
@@ -33,6 +35,7 @@ module Tafl.Types
   , GameState(..)
   ) where
 
+import Data.Aeson (ToJSON(..), FromJSON(..), withText, withObject, (.:), object, (.=))
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Data.Vector (Vector)
@@ -194,3 +197,44 @@ opponentSide :: GameState -> Side
 opponentSide gs = case turnSide gs of
   AttackerSide -> DefenderSide
   DefenderSide -> AttackerSide
+
+-- ---------------------------------------------------------------------------
+-- JSON instances
+-- ---------------------------------------------------------------------------
+
+instance ToJSON Coords where
+  toJSON (Coords r c) = toJSON [r, c]
+
+instance FromJSON Coords where
+  parseJSON v = do
+    [r, c] <- parseJSON v
+    pure (Coords r c)
+
+instance ToJSON MoveAction where
+  toJSON (MoveAction f t) = toJSON [toJSON f, toJSON t]
+
+instance FromJSON MoveAction where
+  parseJSON v = do
+    [f, t] <- parseJSON v
+    pure (MoveAction f t)
+
+instance ToJSON Side where
+  toJSON AttackerSide = toJSON ("attacker" :: Text)
+  toJSON DefenderSide = toJSON ("defender" :: Text)
+
+instance FromJSON Side where
+  parseJSON = withText "Side" $ \case
+    "attacker" -> pure AttackerSide
+    "defender" -> pure DefenderSide
+    _          -> fail "expected \"attacker\" or \"defender\""
+
+instance ToJSON GameResult where
+  toJSON (GameResult fin w d) = object
+    [ "finished" .= fin
+    , "winner"   .= w
+    , "desc"     .= d
+    ]
+
+instance FromJSON GameResult where
+  parseJSON = withObject "GameResult" $ \v ->
+    GameResult <$> v .: "finished" <*> v .: "winner" <*> v .: "desc"

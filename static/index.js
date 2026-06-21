@@ -185,8 +185,8 @@ globalThis["runSupabaseQuery"] = function (
     ["from"](from)
     [fnName](...args)
     .then(({ data, error }) => {
-      if (data) successful(data);
-      if (error) errorful(error);
+      if (error) errorful(error.message);
+      else successful(data || []);
     });
 };
 
@@ -226,6 +226,11 @@ globalThis.saveLocalGame = function(gameObj) {
 globalThis.clearLocalGames = function() {
   localStorage.removeItem('taflhouse_local_games');
 };
+
+// -- WebSocket URL config --
+
+const WS_URL = '__WS_URL__';
+globalThis.getWsUrl = function() { return WS_URL; };
 
 // -- WASI / WASM loading --
 

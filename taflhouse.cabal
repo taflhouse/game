@@ -14,14 +14,18 @@ library
                       , Tafl.Symmetry
                       , Tafl.Game
                       , Tafl.AI
+                      , Tafl.Protocol
   build-depends:        base
                       , containers
                       , vector
                       , text
+                      , aeson
   default-language:     GHC2021
 
 executable app
-  if arch(wasm32)
+  if !arch(wasm32)
+    buildable: False
+  else
     cpp-options:
       -DWASM
     ghc-options:
@@ -32,3 +36,33 @@ executable app
   build-depends:        base, miso, taflhouse, supabase-miso, miso-ui, time, containers, text
   default-language:     GHC2021
   default-extensions:   CPP OverloadedStrings
+
+executable server
+  if arch(wasm32)
+    buildable: False
+  hs-source-dirs:       server
+  main-is:              Main.hs
+  other-modules:        Server.Room
+                      , Server.Auth
+                      , Server.DB
+  build-depends:        base
+                      , taflhouse
+                      , aeson
+                      , text
+                      , containers
+                      , warp
+                      , wai
+                      , wai-websockets
+                      , websockets
+                      , stm
+                      , bytestring
+                      , postgresql-simple
+                      , jose
+                      , lens
+                      , crypton-x509-store
+                      , http-types
+                      , time
+                      , mtl
+  default-language:     GHC2021
+  default-extensions:   OverloadedStrings LambdaCase
+  ghc-options:          -Wall -O2 -threaded

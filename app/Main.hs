@@ -14,8 +14,8 @@ import qualified Miso.Html.Property as HP
 import qualified Miso.Svg as SVG
 import qualified Miso.Svg.Property as SP
 
-import Miso.JSON (Value, FromJSON(..), ToJSON(..), fromJSON, Result(..),
-                  object, (.=), (.:), (.:?), withObject)
+import Miso.JSON (Value, FromJSON(..), ToJSON(..), fromJSON, Result(..), Parser,
+                  object, (.=), (.:), (.:?), withObject, withText)
 import Data.List (isPrefixOf)
 import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, jsg, (#))
 import Supabase.Miso.Core (successCallback, errorCallback)
@@ -27,14 +27,19 @@ import Supabase.Miso.Auth
   )
 import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq)
 
+import Miso.WebSocket (connectJSON, sendJSON, WebSocket, emptyWebSocket, Closed)
+
+import qualified Data.Text as T
+
 import Tafl.Types
-import Tafl.Rules (BoardVariant(..))
+import Tafl.Rules (BoardVariant(..), variantSlug)
 import Tafl.Move  (getPossibleMovesFrom)
 import Tafl.Game  (act, initialState)
 import Tafl.AI    (AiConfig(..), bestMove)
+import Tafl.Protocol (ClientMsg(..), ServerMsg(..))
 
 -- ---------------------------------------------------------------------------
--- JSON instances for game types (orphans — Tafl.Types has no aeson dep)
+-- Miso.JSON instances (Miso uses its own ToJSON/FromJSON, not Data.Aeson)
 -- ---------------------------------------------------------------------------
 
 instance ToJSON Coords where
@@ -53,15 +58,105 @@ instance FromJSON MoveAction where
     [f, t] <- parseJSON v
     pure (MoveAction f t)
 
+instance ToJSON Side where
+  toJSON AttackerSide = toJSON ("attacker" :: T.Text)
+  toJSON DefenderSide = toJSON ("defender" :: T.Text)
+
+instance FromJSON Side where
+  parseJSON = withText "Side" $ \case
+    "attacker" -> pure AttackerSide
+    "defender" -> pure DefenderSide
+    _          -> fail "expected \"attacker\" or \"defender\""
+
+instance ToJSON GameResult where
+  toJSON (GameResult fin w d) = object
+    [ "finished" .= fin
+    , "winner"   .= w
+    , "desc"     .= d
+    ]
+
+instance FromJSON GameResult where
+  parseJSON = withObject "GameResult" $ \v ->
+    GameResult <$> v .: "finished" <*> v .: "winner" <*> v .: "desc"
+
+-- | Helper to build a tagged JSON object for Miso.JSON.
+misoTagged :: T.Text -> [(MisoString, Value)] -> Value
+misoTagged t ps = object (("type" .= t) : ps)
+
+instance ToJSON ClientMsg where
+  toJSON = \case
+    CmAuth token gid    -> misoTagged "auth"         ["token" .= token, "game_id" .= gid]
+    CmCreateGame v ic   -> misoTagged "create_game"  ["variant" .= v, "invite_code" .= ic]
+    CmJoinGame ic       -> misoTagged "join_game"    ["invite_code" .= ic]
+    CmMove ma           -> misoTagged "move"         ["action" .= ma]
+    CmResign            -> misoTagged "resign"       []
+    CmOfferDraw         -> misoTagged "offer_draw"   []
+    CmAcceptDraw        -> misoTagged "accept_draw"  []
+    CmDeclineDraw       -> misoTagged "decline_draw" []
+
+instance FromJSON ClientMsg where
+  parseJSON = withObject "ClientMsg" $ \v -> do
+    tag <- v .: "type" :: Parser T.Text
+    case tag of
+      "auth"         -> CmAuth <$> v .: "token" <*> v .: "game_id"
+      "create_game"  -> CmCreateGame <$> v .: "variant" <*> v .: "invite_code"
+      "join_game"    -> CmJoinGame <$> v .: "invite_code"
+      "move"         -> CmMove <$> v .: "action"
+      "resign"       -> pure CmResign
+      "offer_draw"   -> pure CmOfferDraw
+      "accept_draw"  -> pure CmAcceptDraw
+      "decline_draw" -> pure CmDeclineDraw
+      _              -> fail ("unknown ClientMsg type: " <> show tag)
+
+instance ToJSON ServerMsg where
+  toJSON = \case
+    SmError msg            -> misoTagged "error"                 ["message" .= msg]
+    SmWaitingForOpponent   -> misoTagged "waiting"               []
+    SmGameStarted g u s    -> misoTagged "game_started"          ["game_id" .= g, "opponent" .= u, "side" .= s]
+    SmMoveMade ma cs nt    -> misoTagged "move_made"             ["action" .= ma, "captures" .= cs, "next_turn" .= nt]
+    SmMoveRejected msg     -> misoTagged "move_rejected"         ["message" .= msg]
+    SmGameOver r           -> misoTagged "game_over"             ["result" .= r]
+    SmDrawOffered          -> misoTagged "draw_offered"          []
+    SmDrawDeclined         -> misoTagged "draw_declined"         []
+    SmOpponentConnected    -> misoTagged "opponent_connected"    []
+    SmOpponentDisconnected -> misoTagged "opponent_disconnected" []
+    SmResigned s           -> misoTagged "resigned"              ["side" .= s]
+
+instance FromJSON ServerMsg where
+  parseJSON = withObject "ServerMsg" $ \v -> do
+    tag <- v .: "type" :: Parser T.Text
+    case tag of
+      "error"                 -> SmError <$> v .: "message"
+      "waiting"               -> pure SmWaitingForOpponent
+      "game_started"          -> SmGameStarted <$> v .: "game_id" <*> v .: "opponent" <*> v .: "side"
+      "move_made"             -> SmMoveMade <$> v .: "action" <*> v .: "captures" <*> v .: "next_turn"
+      "move_rejected"         -> SmMoveRejected <$> v .: "message"
+      "game_over"             -> SmGameOver <$> v .: "result"
+      "draw_offered"          -> pure SmDrawOffered
+      "draw_declined"         -> pure SmDrawDeclined
+      "opponent_connected"    -> pure SmOpponentConnected
+      "opponent_disconnected" -> pure SmOpponentDisconnected
+      "resigned"              -> SmResigned <$> v .: "side"
+      _                       -> fail ("unknown ServerMsg type: " <> show tag)
+
 -- ---------------------------------------------------------------------------
 -- Model
 -- ---------------------------------------------------------------------------
 
-data GameMode = LocalMode | AiMode
+data GameMode = LocalMode | AiMode | MultiplayerMode
   deriving (Eq, Show)
 
-data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | GameScreen | ReplayScreen
+data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | GameScreen | ReplayScreen | ProfileScreen
   deriving (Eq, Show)
+
+data Profile = Profile
+  { pUsername    :: !MisoString
+  , pDisplayName :: Maybe MisoString
+  } deriving (Eq, Show)
+
+instance FromJSON Profile where
+  parseJSON = withObject "Profile" $ \v ->
+    Profile <$> v .: "username" <*> v .:? "display_name"
 
 data GameRecord = GameRecord
   { grId         :: Maybe MisoString
@@ -123,9 +218,22 @@ data Model = Model
   , mReplayStates  :: [GameState]
   , mReplayIndex   :: !Int
   , mGameId        :: Maybe MisoString
-  , mIsPublic      :: !Bool
-  , mReplayNotFound :: !Bool
-  } deriving Show
+  , mIsPublic        :: !Bool
+  , mReplayNotFound  :: !Bool
+  -- Multiplayer
+  , mWsConn          :: !WebSocket
+  , mWsConnected     :: !Bool
+  , mProfile         :: Maybe Profile
+  , mNeedsUsername    :: !Bool
+  , mUsernameInput   :: !MisoString
+  , mInviteCode      :: Maybe MisoString
+  , mJoinCodeInput   :: !MisoString
+  , mOpponentName    :: Maybe MisoString
+  , mPlayerSide      :: Maybe Side
+  , mDrawOffered     :: !Bool
+  , mProfileDropdown :: !Bool
+  , mSidePreference  :: !MisoString
+  }
 
 instance Eq Model where
   a == b = mScreen a == mScreen b
@@ -160,6 +268,17 @@ instance Eq Model where
         && mGameId a == mGameId b
         && mIsPublic a == mIsPublic b
         && mReplayNotFound a == mReplayNotFound b
+        && mWsConnected a == mWsConnected b
+        && mProfile a == mProfile b
+        && mNeedsUsername a == mNeedsUsername b
+        && mUsernameInput a == mUsernameInput b
+        && mInviteCode a == mInviteCode b
+        && mJoinCodeInput a == mJoinCodeInput b
+        && mOpponentName a == mOpponentName b
+        && mPlayerSide a == mPlayerSide b
+        && mDrawOffered a == mDrawOffered b
+        && mProfileDropdown a == mProfileDropdown b
+        && mSidePreference a == mSidePreference b
 
 eqSession :: Maybe Session -> Maybe Session -> Bool
 eqSession Nothing Nothing = True
@@ -220,27 +339,45 @@ data Action
   | GameUpdated Value
   | GameUpdateError MisoString
   | CopyGameLink
-  deriving Show
+  -- Profile
+  | SetUsernameInput MisoString
+  | SubmitUsername
+  | ProfileCreated Value
+  | ProfileCreateError MisoString
+  | ProfileLoaded Value
+  | ProfileLoadError MisoString
+  | ToggleProfileDropdown
+  | GotoProfile
+  -- Multiplayer
+  | WsConnect MisoString
+  | WsConnected WebSocket
+  | WsClosed Closed
+  | WsError MisoString
+  | WsReceived ServerMsg
+  | WsSend ClientMsg
+  | CreateMultiplayerGame
+  | StartMultiplayerGame MisoString MisoString MisoString  -- invCode uuid wsUrl
+  | JoinMultiplayerGame
+  | StartJoinGame MisoString  -- wsUrl
+  | SetJoinCodeInput MisoString
+  | MoveRejected MisoString
+  | Resign
+  | OfferDraw
+  | AcceptDraw
+  | DeclineDraw
+  | SetSidePreference MisoString
 
 -- ---------------------------------------------------------------------------
 -- Routing
 -- ---------------------------------------------------------------------------
 
-data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute
+data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute | ProfileRoute
            | PlayRoute MisoString      -- /play/<uuid> active game
            | GameRoute MisoString      -- /games/<uuid> replay/permalink
+           | JoinRoute MisoString      -- /join/<invite_code>
 
-variantSlug :: BoardVariant -> MisoString
-variantSlug = \case
-  Brandubh      -> "brandubh"
-  Tablut        -> "tablut"
-  Classic       -> "copenhagen"
-  Line          -> "line"
-  Tawlbwrdd     -> "tawlbwrdd"
-  Lewis         -> "lewis"
-  Parlett       -> "parlett"
-  DamienWalker  -> "damien-walker"
-  AleaEvangelii -> "alea-evangelii"
+variantSlugMs :: BoardVariant -> MisoString
+variantSlugMs v = ms (variantSlug v)
 
 variantName :: BoardVariant -> MisoString
 variantName = \case
@@ -259,11 +396,14 @@ parseRoute uri = case uriPath uri of
   "sign-in"  -> SignInRoute
   "sign-up"  -> SignUpRoute
   "new-game" -> ConfigRoute
+  "profile"  -> ProfileRoute
   path
     | Just uuid <- msStripPrefix "play/" path
     , isUUID uuid -> PlayRoute uuid
     | Just uuid <- msStripPrefix "games/" path
     , isUUID uuid -> GameRoute uuid
+    | Just code <- msStripPrefix "join/" path
+    , not (null (fromMisoString code :: String)) -> JoinRoute code
     | otherwise   -> HomeRoute
 
 msStripPrefix :: String -> MisoString -> Maybe MisoString
@@ -279,7 +419,7 @@ isUUID s =
   in length str == 36 && all (\c -> c `elem` ("0123456789abcdef-" :: [Char])) str
 
 lookupVariant :: MisoString -> Maybe BoardVariant
-lookupVariant slug = lookup slug [ (variantSlug v, v) | v <- [minBound .. maxBound] ]
+lookupVariant slug = lookup slug [ (variantSlugMs v, v) | v <- [minBound .. maxBound] ]
 
 friendlyAuthError :: MisoString -> MisoString
 friendlyAuthError code = case (fromMisoString code :: String) of
@@ -306,6 +446,12 @@ playURI uuid = emptyURI { uriPath = "play/" <> uuid }
 gamePermalinkURI :: MisoString -> URI
 gamePermalinkURI uuid = emptyURI { uriPath = "games/" <> uuid }
 
+profileURI :: URI
+profileURI = emptyURI { uriPath = "profile" }
+
+joinURI :: MisoString -> URI
+joinURI code = emptyURI { uriPath = "join/" <> code }
+
 -- ---------------------------------------------------------------------------
 -- Entry point
 -- ---------------------------------------------------------------------------
@@ -326,6 +472,8 @@ foreign import javascript unsafe "globalThis.generateUUID()"
   js_generateUUID_raw :: IO JSVal
 foreign import javascript unsafe "globalThis.copyToClipboard($1)"
   js_copyToClipboard_raw :: JSVal -> IO ()
+foreign import javascript unsafe "globalThis.getWsUrl()"
+  js_getWsUrl_raw :: IO JSVal
 #else
 js_playMoveSound :: IO ()
 js_playMoveSound = pure ()
@@ -341,6 +489,8 @@ js_generateUUID_raw :: IO JSVal
 js_generateUUID_raw = toJSVal ("00000000-0000-0000-0000-000000000000" :: MisoString)
 js_copyToClipboard_raw :: JSVal -> IO ()
 js_copyToClipboard_raw _ = pure ()
+js_getWsUrl_raw :: IO JSVal
+js_getWsUrl_raw = toJSVal ("ws://localhost:3000" :: MisoString)
 #endif
 
 js_generateUUID :: IO MisoString
@@ -348,6 +498,17 @@ js_generateUUID = fromJSValUnchecked =<< js_generateUUID_raw
 
 js_copyToClipboard :: MisoString -> IO ()
 js_copyToClipboard s = toJSVal s >>= js_copyToClipboard_raw
+
+js_getWsUrl :: IO MisoString
+js_getWsUrl = fromJSValUnchecked =<< js_getWsUrl_raw
+
+-- | Generate a short random invite code (8 chars from UUID).
+generateInviteCode :: IO MisoString
+generateInviteCode = do
+  uuid <- js_generateUUID
+  let str = fromMisoString uuid :: String
+      code = filter (/= '-') (take 8 str)
+  pure (ms code)
 
 -- | Save a game record to localStorage via the Miso DSL.
 saveLocalGameIO :: Value -> IO ()
@@ -416,8 +577,20 @@ initModel = Model
   , mReplayStates  = []
   , mReplayIndex   = 0
   , mGameId        = Nothing
-  , mIsPublic      = False
-  , mReplayNotFound = False
+  , mIsPublic        = False
+  , mReplayNotFound  = False
+  , mWsConn          = emptyWebSocket
+  , mWsConnected     = False
+  , mProfile         = Nothing
+  , mNeedsUsername    = False
+  , mUsernameInput   = ""
+  , mInviteCode      = Nothing
+  , mJoinCodeInput   = ""
+  , mOpponentName    = Nothing
+  , mPlayerSide      = Nothing
+  , mDrawOffered     = False
+  , mProfileDropdown = False
+  , mSidePreference  = "defender"
   }
 
 -- ---------------------------------------------------------------------------
@@ -499,6 +672,11 @@ updateModel = \case
         modify $ \x -> x { mScreen = SignUpScreen, mAuthError = Nothing, mAuthMessage = Nothing }
       ConfigRoute ->
         modify $ \x -> x { mScreen = ConfigScreen, mMoveList = [], mGameId = Nothing }
+      ProfileRoute ->
+        modify $ \x -> x { mScreen = ProfileScreen }
+      JoinRoute code -> do
+        modify $ \x -> x { mJoinCodeInput = code }
+        withSink $ \sink -> sink JoinMultiplayerGame
 
   CellClicked coords -> do
     m <- get
@@ -507,7 +685,8 @@ updateModel = \case
         side  = turnSide gs
         piece = pieceAt board coords
         aiBlocked = mGameMode m == AiMode && mAiSide m == side
-    if finished (gsResult gs) || mAiThinking m || aiBlocked
+        mpBlocked = mGameMode m == MultiplayerMode && mPlayerSide m /= Just side
+    if finished (gsResult gs) || mAiThinking m || aiBlocked || mpBlocked
       then pure ()
       else case mSelected m of
         Just sel | coords `elem` mValidMoves m -> do
@@ -517,7 +696,10 @@ updateModel = \case
                              , mHistory = mHistory m ++ [gs]
                              , mMoveList = mMoveList m ++ [move] }
           io_ js_playMoveSound
-          when (finished (gsResult gs')) saveGame
+          -- In multiplayer, send the move to the server
+          when (mGameMode m == MultiplayerMode) $
+            withSink $ \sink -> sink (WsSend (CmMove move))
+          when (finished (gsResult gs') && mGameMode m /= MultiplayerMode) saveGame
           triggerAi
         Just sel | sel == coords ->
           modify $ const $ m { mSelected = Nothing, mValidMoves = [] }
@@ -618,6 +800,7 @@ updateModel = \case
           , mLocalGames   = []
           }
         migrateLocalGames sess
+        loadProfile sess
         io_ $ pushURI homeURI
       Nothing ->
         modify $ \m -> m
@@ -645,7 +828,9 @@ updateModel = \case
   SessionRestored mSess -> do
     modify $ \m -> m { mSession = mSess }
     case mSess of
-      Just _  -> loadPastGames
+      Just sess -> do
+        loadPastGames
+        loadProfile sess
       Nothing -> pure ()
 
   GameSaved _ -> loadPastGames
@@ -734,8 +919,9 @@ updateModel = \case
       Just sess -> do
         let uid = userId (sessionUser sess)
             gameModeStr' = case mGameMode m of
-              LocalMode -> "local" :: MisoString
-              AiMode    -> "ai"
+              LocalMode       -> "local" :: MisoString
+              AiMode          -> "ai"
+              MultiplayerMode -> "multiplayer"
             aiSideStr' = if mGameMode m == AiMode
               then Just (case mAiSide m of
                 AttackerSide -> "attacker" :: MisoString
@@ -797,6 +983,231 @@ updateModel = \case
           sink DismissToast
       Nothing -> pure ()
 
+  -- Profile actions
+  SetUsernameInput s ->
+    modify $ \m -> m { mUsernameInput = s }
+
+  SubmitUsername -> do
+    m <- get
+    case mSession m of
+      Just sess -> do
+        let uid = userId (sessionUser sess)
+            uname = mUsernameInput m
+        insert "profiles"
+          (object ["id" .= uid, "username" .= uname])
+          (InsertOptions Nothing Nothing)
+          ProfileCreated ProfileCreateError
+      Nothing -> pure ()
+
+  ProfileCreated _ -> do
+    m <- get
+    modify $ \x -> x
+      { mProfile = Just (Profile (mUsernameInput m) Nothing)
+      , mNeedsUsername = False
+      , mUsernameInput = ""
+      }
+
+  ProfileCreateError msg ->
+    modify $ \m -> m { mAuthError = Just msg }
+
+  ProfileLoaded val ->
+    case fromJSON val of
+      Success profiles -> case (profiles :: [Profile]) of
+        (p:_) ->
+          modify $ \m -> m { mProfile = Just p, mNeedsUsername = False }
+        [] ->
+          modify $ \m -> m { mNeedsUsername = True }
+      Error _ ->
+        modify $ \m -> m { mNeedsUsername = True }
+
+  ProfileLoadError _ ->
+    modify $ \m -> m { mNeedsUsername = True }
+
+  ToggleProfileDropdown ->
+    modify $ \m -> m { mProfileDropdown = not (mProfileDropdown m) }
+
+  GotoProfile ->
+    modify $ \m -> m { mScreen = ProfileScreen, mProfileDropdown = False }
+
+  -- Multiplayer actions
+  WsConnect wsUrl ->
+    connectJSON wsUrl WsConnected WsClosed WsReceived WsError
+
+  WsConnected ws -> do
+    modify $ \m -> m { mWsConn = ws, mWsConnected = True }
+    m <- get
+    -- After connecting, send auth + create/join
+    case mSession m of
+      Just sess -> do
+        let token = fromMisoString (sessionAccessToken sess) :: T.Text
+            gid   = maybe "" (\g -> fromMisoString g :: T.Text) (mGameId m)
+        sendJSON ws (CmAuth token gid)
+        -- Then send create or join
+        case mInviteCode m of
+          Just code -> do
+            let vSlug = variantSlug (mVariant m)
+                ic    = fromMisoString code :: T.Text
+            sendJSON ws (CmCreateGame vSlug ic)
+          Nothing
+            | mJoinCodeInput m /= "" -> do
+                let jc = fromMisoString (mJoinCodeInput m) :: T.Text
+                sendJSON ws (CmJoinGame jc)
+            | otherwise -> pure ()
+      Nothing -> pure ()
+
+  WsClosed _ ->
+    modify $ \m -> m { mWsConnected = False }
+
+  WsError msg ->
+    modify $ \m -> m { mToast = Just ("WebSocket error: " <> msg), mWsConnected = False }
+
+  WsReceived serverMsg -> do
+    m <- get
+    case serverMsg of
+      SmWaitingForOpponent ->
+        pure ()
+
+      SmGameStarted _gid opponent side -> do
+        modify $ \x -> x
+          { mPlayerSide  = Just side
+          , mOpponentName = Just (ms opponent)
+          , mScreen      = GameScreen
+          }
+
+      SmMoveMade move _caps _nextTurn -> do
+        -- If it's the opponent's move, apply it
+        let gs = mGameState m
+            myTurn = mPlayerSide m == Just (turnSide gs)
+        if not myTurn
+          then do
+            let gs' = act gs move
+            modify $ \x -> x
+              { mGameState = gs'
+              , mHistory   = mHistory m ++ [gs]
+              , mMoveList  = mMoveList m ++ [move]
+              }
+            io_ js_playMoveSound
+          else
+            -- It's confirmation of our own optimistic move; state already applied
+            pure ()
+
+      SmMoveRejected reason -> do
+        -- Roll back the optimistic move
+        case mHistory m of
+          [] -> pure ()
+          _  -> do
+            let prev = last (mHistory m)
+            modify $ \x -> x
+              { mGameState = prev
+              , mHistory   = init (mHistory m)
+              , mMoveList  = if null (mMoveList m) then [] else init (mMoveList m)
+              , mSelected  = Nothing
+              , mValidMoves = []
+              , mToast     = Just ("Move rejected: " <> ms reason)
+              }
+        withSink $ \sink -> do
+          threadDelay 3000000
+          sink DismissToast
+
+      SmGameOver result ->
+        modify $ \x -> x { mGameState = (mGameState x) { gsResult = result } }
+
+      SmDrawOffered ->
+        modify $ \x -> x { mDrawOffered = True }
+
+      SmDrawDeclined ->
+        modify $ \x -> x { mDrawOffered = False, mToast = Just "Draw declined" }
+
+      SmOpponentConnected ->
+        modify $ \x -> x { mToast = Just "Opponent connected" }
+
+      SmOpponentDisconnected ->
+        modify $ \x -> x { mToast = Just "Opponent disconnected" }
+
+      SmResigned _side -> pure ()  -- SmGameOver follows
+
+      SmError msg ->
+        modify $ \x -> x { mToast = Just (ms msg) }
+
+  WsSend clientMsg -> do
+    m <- get
+    sendJSON (mWsConn m) clientMsg
+
+  CreateMultiplayerGame -> do
+    m <- get
+    case mSession m of
+      Nothing -> modify $ \x -> x { mToast = Just "Sign in to play online" }
+      Just _ | mNeedsUsername m -> modify $ \x -> x { mToast = Just "Set a username first" }
+      Just _ -> io $ do
+        invCode <- generateInviteCode
+        uuid <- js_generateUUID
+        wsUrl <- js_getWsUrl
+        pure (StartMultiplayerGame invCode uuid wsUrl)
+
+  StartMultiplayerGame invCode uuid wsUrl -> do
+    m <- get
+    let gs = initialState (mVariant m)
+    modify $ \x -> x
+      { mGameId     = Just uuid
+      , mGameMode   = MultiplayerMode
+      , mGameState  = gs
+      , mSelected   = Nothing
+      , mValidMoves = []
+      , mHistory    = []
+      , mMoveList   = []
+      , mInviteCode = Just invCode
+      , mScreen     = GameScreen
+      , mIsPublic   = False
+      }
+    connectJSON wsUrl WsConnected WsClosed WsReceived WsError
+
+  JoinMultiplayerGame -> do
+    m <- get
+    case mSession m of
+      Nothing -> modify $ \x -> x { mToast = Just "Sign in to play online" }
+      Just _ | mNeedsUsername m -> modify $ \x -> x { mToast = Just "Set a username first" }
+      Just _ -> io $ do
+        wsUrl <- js_getWsUrl
+        pure (StartJoinGame wsUrl)
+
+  StartJoinGame wsUrl -> do
+    modify $ \x -> x
+      { mGameMode   = MultiplayerMode
+      , mInviteCode = Nothing  -- we're joining, not creating
+      }
+    connectJSON wsUrl WsConnected WsClosed WsReceived WsError
+
+  SetJoinCodeInput s ->
+    modify $ \m -> m { mJoinCodeInput = s }
+
+  MoveRejected msg ->
+    modify $ \m -> m { mToast = Just msg }
+
+  Resign -> do
+    m <- get
+    when (mGameMode m == MultiplayerMode && mWsConnected m) $
+      sendJSON (mWsConn m) CmResign
+
+  OfferDraw -> do
+    m <- get
+    when (mGameMode m == MultiplayerMode && mWsConnected m) $
+      sendJSON (mWsConn m) CmOfferDraw
+
+  AcceptDraw -> do
+    m <- get
+    when (mGameMode m == MultiplayerMode && mWsConnected m) $ do
+      sendJSON (mWsConn m) CmAcceptDraw
+      modify $ \x -> x { mDrawOffered = False }
+
+  DeclineDraw -> do
+    m <- get
+    when (mGameMode m == MultiplayerMode && mWsConnected m) $ do
+      sendJSON (mWsConn m) CmDeclineDraw
+      modify $ \x -> x { mDrawOffered = False }
+
+  SetSidePreference s ->
+    modify $ \m -> m { mSidePreference = s }
+
 -- | Check if the AI should move and trigger the search if so.
 triggerAi :: Effect ROOT () Model Action
 triggerAi = do
@@ -823,8 +1234,9 @@ saveGame = do
         AttackerSide -> "attacker" :: MisoString
         DefenderSide -> "defender") (winner result)
       gameModeStr = case mGameMode m of
-        LocalMode -> "local" :: MisoString
-        AiMode    -> "ai"
+        LocalMode       -> "local" :: MisoString
+        AiMode          -> "ai"
+        MultiplayerMode -> "multiplayer"
       aiSideStr = if mGameMode m == AiMode
         then Just (case mAiSide m of
           AttackerSide -> "attacker" :: MisoString
@@ -891,6 +1303,16 @@ migrateLocalGames sess =
       (\_ -> NoOp)
     js_loadLocalGames okCb errCb
 
+-- | Load the user's profile from Supabase.
+loadProfile :: Session -> Effect ROOT () Model Action
+loadProfile sess = do
+  let uid = userId (sessionUser sess)
+  selectWithFilters "profiles" "*"
+    [eq "id" uid]
+    (FetchOptions Nothing Nothing)
+    ProfileLoaded ProfileLoadError
+
+
 -- ---------------------------------------------------------------------------
 -- View: Top-level layout
 -- ---------------------------------------------------------------------------
@@ -907,13 +1329,16 @@ viewModel _ m =
         [ H.div_
             [ HP.class_ "flex flex-col items-center min-h-full pt-8 pb-12 px-4 mx-auto w-full max-w-7xl"
             ]
-            [ case mScreen m of
-                HomeScreen   -> viewHome m
-                SignInScreen -> viewSignIn m
-                SignUpScreen -> viewSignUp m
-                ConfigScreen -> viewConfig m
-                GameScreen   -> viewGame m
-                ReplayScreen -> viewReplay m
+            [ if mNeedsUsername m && mScreen m /= SignInScreen && mScreen m /= SignUpScreen
+                then viewUsernameGate m
+                else case mScreen m of
+                  HomeScreen    -> viewHome m
+                  SignInScreen  -> viewSignIn m
+                  SignUpScreen  -> viewSignUp m
+                  ConfigScreen  -> viewConfig m
+                  GameScreen    -> viewGame m
+                  ReplayScreen  -> viewReplay m
+                  ProfileScreen -> viewProfile m
             ]
         ]
     , viewToast m
@@ -1010,29 +1435,52 @@ navAuthButtons :: Model -> [View Model Action]
 navAuthButtons m =
     (case mSession m of
       Just _ ->
-        [ H.span_
-            [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
-            , style_ [("touch-action", "manipulation")]
-            , SVG.onClick DoSignOut
-            ]
-            [ SVG.svg_
-                [ HP.class_ "sm:hidden"
-                , SP.viewBox_ "0 0 24 24"
-                , HP.width_ "18"
-                , HP.height_ "18"
-                , SP.fill_ "none"
-                , SP.stroke_ "currentcolor"
-                , SP.strokeWidth_ "2"
-                , SP.strokeLinecap_ "round"
-                , SP.strokeLinejoin_ "round"
+        [ H.div_
+            [ style_ [("position", "relative")] ]
+            [ H.span_
+                [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer flex items-center gap-1"
+                , style_ [("touch-action", "manipulation")]
+                , SVG.onClick ToggleProfileDropdown
                 ]
-                [ SVG.path_ [ SP.d_ "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" ]
-                , SVG.polyline_ [ SP.points_ "16 17 21 12 16 7" ]
-                , SVG.line_ [ SP.x1_ "21", SP.y1_ "12", SP.x2_ "9", SP.y2_ "12" ]
+                [ -- User icon
+                  SVG.svg_
+                    [ SP.viewBox_ "0 0 24 24"
+                    , HP.width_ "18"
+                    , HP.height_ "18"
+                    , SP.fill_ "none"
+                    , SP.stroke_ "currentcolor"
+                    , SP.strokeWidth_ "2"
+                    , SP.strokeLinecap_ "round"
+                    , SP.strokeLinejoin_ "round"
+                    ]
+                    [ SVG.path_ [ SP.d_ "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" ]
+                    , SVG.circle_ [ SP.cx_ "12", SP.cy_ "7", SP.r_ "4" ]
+                    ]
+                , H.span_
+                    [ HP.class_ "hidden sm:inline" ]
+                    [ text (maybe "" pUsername (mProfile m)) ]
                 ]
-            , H.span_
-                [ HP.class_ "hidden sm:inline" ]
-                [ text "Logout" ]
+            , if mProfileDropdown m
+                then H.div_
+                  [ HP.class_ "card p-2 flex flex-col gap-1"
+                  , style_ [ ("position", "absolute"), ("right", "0"), ("top", "100%")
+                           , ("margin-top", "0.5em"), ("min-width", "8rem"), ("z-index", "50")
+                           ]
+                  ]
+                  [ H.button_
+                      [ HP.class_ "text-sm text-left px-3 py-1.5 rounded hover:bg-muted cursor-pointer bg-transparent border-0 text-foreground w-full"
+                      , style_ [("touch-action", "manipulation")]
+                      , SVG.onClick GotoProfile
+                      ]
+                      [ text "Profile" ]
+                  , H.button_
+                      [ HP.class_ "text-sm text-left px-3 py-1.5 rounded hover:bg-muted cursor-pointer bg-transparent border-0 text-foreground w-full"
+                      , style_ [("touch-action", "manipulation")]
+                      , SVG.onClick DoSignOut
+                      ]
+                      [ text "Logout" ]
+                  ]
+                else text ""
             ]
         ]
       Nothing ->
@@ -1044,16 +1492,13 @@ navAuthButtons m =
             [ text "Sign In" ]
         ]
     ) ++
-    case mSession m of
-      Just _ | null (mPastGames m), not (mGamesLoading m) -> []
-      _ ->
-        [ H.button_
-            [ HP.class_ "btn btn-sm"
-            , style_ [("touch-action", "manipulation")]
-            , SVG.onClick GotoConfig
-            ]
-            [ text "New Game" ]
+    [ H.button_
+        [ HP.class_ "btn btn-sm"
+        , style_ [("touch-action", "manipulation")]
+        , SVG.onClick GotoConfig
         ]
+        [ text "New Game" ]
+    ]
 
 -- ---------------------------------------------------------------------------
 -- Home Screen
@@ -1182,9 +1627,10 @@ viewGameRow gr =
         Just "defender" -> "Defenders won"
         _               -> "Draw"
       modeText = case grGameMode gr of
-        "ai"    -> "vs AI"
-        "local" -> "Local"
-        _       -> grGameMode gr
+        "ai"          -> "vs AI"
+        "local"       -> "Local"
+        "multiplayer" -> "Online"
+        _             -> grGameMode gr
       cells =
         [ H.td_ [] [ text (grVariant gr) ]
         , H.td_ [] [ text modeText ]
@@ -1366,12 +1812,19 @@ viewConfig m =
         , H.div_
             [ HP.class_ "mt-4 flex flex-col items-center gap-2"
             ]
-            [ H.button_
-                [ HP.class_ "btn w-full bg-green-600 hover:bg-green-700 text-white border-green-500 font-bold"
-                , style_ [("touch-action", "manipulation")]
-                , SVG.onClick StartGame
-                ]
-                [ text "Start Game" ]
+            [ if mGameMode m == MultiplayerMode
+                then H.button_
+                  [ HP.class_ "btn w-full bg-green-600 hover:bg-green-700 text-white border-green-500 font-bold"
+                  , style_ [("touch-action", "manipulation")]
+                  , SVG.onClick CreateMultiplayerGame
+                  ]
+                  [ text "Create Game" ]
+                else H.button_
+                  [ HP.class_ "btn w-full bg-green-600 hover:bg-green-700 text-white border-green-500 font-bold"
+                  , style_ [("touch-action", "manipulation")]
+                  , SVG.onClick StartGame
+                  ]
+                  [ text "Start Game" ]
             , H.span_
                 [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
                 , style_ [("touch-action", "manipulation")]
@@ -1388,8 +1841,9 @@ viewConfig m =
 viewConfigSummary :: Model -> View Model Action
 viewConfigSummary m =
   let modeText = case mGameMode m of
-        LocalMode -> "Local (2 players)"
-        AiMode    -> "vs AI"
+        LocalMode       -> "Local (2 players)"
+        AiMode          -> "vs AI"
+        MultiplayerMode -> "Online"
       boardText = variantName (mVariant m)
       aiInfo = if mGameMode m == AiMode
         then [ ("AI plays" :: MisoString, if mAiSide m == AttackerSide then "Attackers" else "Defenders")
@@ -1424,7 +1878,7 @@ viewConfigOptions m =
     [ setupSection "Mode"
         [ setupBtn (SetGameMode LocalMode) "Local" (mGameMode m == LocalMode)
         , setupBtn (SetGameMode AiMode) "vs AI" (mGameMode m == AiMode)
-        , setupBtnDisabled "Multiplayer (coming soon)"
+        , setupBtn (SetGameMode MultiplayerMode) "Online" (mGameMode m == MultiplayerMode)
         ]
     , setupSection "Board"
         [ setupBtn (SetVariant Brandubh) "Brandubh 7x7" (mVariant m == Brandubh)
@@ -1433,7 +1887,9 @@ viewConfigOptions m =
         , setupBtn (SetVariant Line) "Line 11x11" (mVariant m == Line)
         , setupBtn (SetVariant Tawlbwrdd) "Tawlbwrdd 11x11" (mVariant m == Tawlbwrdd)
         ]
-    , if mGameMode m == AiMode then viewSetupAi m else H.div_ [] []
+    , if mGameMode m == AiMode then viewSetupAi m
+      else if mGameMode m == MultiplayerMode then viewSetupMultiplayer m
+      else H.div_ [] []
     ]
 
 -- ---------------------------------------------------------------------------
@@ -1546,18 +2002,165 @@ viewSetupAi m =
     ]
 
 -- ---------------------------------------------------------------------------
+-- Multiplayer Setup (inside config options)
+-- ---------------------------------------------------------------------------
+
+viewSetupMultiplayer :: Model -> View Model Action
+viewSetupMultiplayer m =
+  H.div_
+    [ HP.class_ "text-center" ]
+    [ setupSection "Your Side"
+        [ setupBtn (SetSidePreference "attacker") "Attackers" (mSidePreference m == "attacker")
+        , setupBtn (SetSidePreference "defender") "Defenders" (mSidePreference m == "defender")
+        ]
+    , H.div_
+        [ HP.class_ "mt-4 pt-4 border-t border-border" ]
+        [ H.div_
+            [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase mb-2" ]
+            [ text "OR JOIN A GAME" ]
+        , H.div_
+            [ HP.class_ "flex gap-2 justify-center items-center" ]
+            [ H.input_
+                [ HP.class_ "input w-32 text-center"
+                , HP.type_ "text"
+                , HP.placeholder_ "Invite code"
+                , HP.value_ (mJoinCodeInput m)
+                , H.onInput SetJoinCodeInput
+                ]
+            , H.button_
+                [ HP.class_ "btn"
+                , style_ [("touch-action", "manipulation")]
+                , SVG.onClick JoinMultiplayerGame
+                ]
+                [ text "Join" ]
+            ]
+        ]
+    ]
+
+-- ---------------------------------------------------------------------------
+-- Username Registration Gate
+-- ---------------------------------------------------------------------------
+
+viewUsernameGate :: Model -> View Model Action
+viewUsernameGate m =
+  H.div_
+    [ HP.class_ "flex-1 flex items-center justify-center w-full"
+    ]
+    [ H.div_
+        [ HP.class_ "card p-6 w-full max-w-sm"
+        , style_ [("margin-top", "4em")]
+        ]
+        [ H.h2_
+            [ HP.class_ "text-xl font-bold mb-4 text-center" ]
+            [ text "Choose Your Username" ]
+        , H.p_
+            [ HP.class_ "text-sm text-muted-foreground mb-4 text-center" ]
+            [ text "3-20 characters, letters, numbers, and underscores only." ]
+        , H.form_
+            [ HP.class_ "flex flex-col gap-3"
+            , H.onSubmit SubmitUsername
+            ]
+            [ H.input_
+                [ HP.class_ "input w-full text-center"
+                , HP.type_ "text"
+                , HP.required_ True
+                , HP.value_ (mUsernameInput m)
+                , HP.placeholder_ "username"
+                , H.onInput SetUsernameInput
+                ]
+            , case mAuthError m of
+                Nothing  -> H.div_ [] []
+                Just err -> H.div_
+                  [ HP.class_ "text-destructive text-sm text-center" ]
+                  [ text err ]
+            , H.button_
+                [ HP.class_ "btn w-full" ]
+                [ text "Continue" ]
+            ]
+        ]
+    ]
+
+-- ---------------------------------------------------------------------------
+-- Profile Screen
+-- ---------------------------------------------------------------------------
+
+viewProfile :: Model -> View Model Action
+viewProfile m =
+  H.div_
+    [ HP.class_ "w-full flex flex-col items-center"
+    ]
+    [ H.div_
+        [ HP.class_ "card p-6 w-full max-w-md"
+        , style_ [("margin-top", "4em")]
+        ]
+        [ H.h2_
+            [ HP.class_ "text-xl font-bold mb-4 text-center" ]
+            [ text "Profile" ]
+        , case mProfile m of
+            Nothing ->
+              H.div_
+                [ HP.class_ "text-center text-muted-foreground" ]
+                [ text "Loading..." ]
+            Just profile ->
+              H.div_
+                [ HP.class_ "flex flex-col gap-3" ]
+                [ summaryRow ("Username", pUsername profile)
+                , summaryRow ("Display Name", maybe "-" id (pDisplayName profile))
+                , summaryRow ("Games Played", ms (show (length (mPastGames m))))
+                , let wins = length $ filter (\gr -> grWinner gr /= Nothing) (mPastGames m)
+                      total = length (mPastGames m)
+                      rate = if total > 0 then show (wins * 100 `div` total) <> "%" else "-"
+                  in summaryRow ("Win Rate", ms rate)
+                ]
+        ]
+    ]
+
+-- ---------------------------------------------------------------------------
 -- Game Screen
 -- ---------------------------------------------------------------------------
 
 viewGame :: Model -> View Model Action
-viewGame m =
-  H.div_
-    [ HP.class_ "w-full flex flex-col items-center"
-    ]
-    [ viewBoardPanel m
-    , viewStatus m
-    , viewMoveHistory m
-    ]
+viewGame m
+  -- Show waiting screen when multiplayer game waiting for opponent
+  | mGameMode m == MultiplayerMode, Nothing <- mOpponentName m =
+    H.div_
+      [ HP.class_ "w-full flex flex-col items-center"
+      ]
+      [ H.div_
+          [ HP.class_ "card p-6 w-full max-w-md text-center"
+          , style_ [("margin-top", "4em")]
+          ]
+          [ H.h2_
+              [ HP.class_ "text-xl font-bold mb-4" ]
+              [ text "Waiting for opponent..." ]
+          , H.div_
+              [ HP.class_ "animate-pulse text-muted-foreground mb-4" ]
+              [ text "Share the invite link to start" ]
+          , case mInviteCode m of
+              Just code -> H.div_
+                [ HP.class_ "flex flex-col gap-2 items-center" ]
+                [ H.div_
+                    [ HP.class_ "font-mono text-lg tracking-widest text-foreground" ]
+                    [ text code ]
+                , H.button_
+                    [ HP.class_ "btn btn-outline btn-sm text-foreground"
+                    , style_ [("touch-action", "manipulation")]
+                    , SVG.onClick (ShowToast ("Invite code: " <> code))
+                    ]
+                    [ text "Copy Invite Code" ]
+                ]
+              Nothing -> text ""
+          ]
+      ]
+  | otherwise =
+    H.div_
+      [ HP.class_ "w-full flex flex-col items-center"
+      ]
+      [ viewBoardPanel m
+      , viewStatus m
+      , if mGameMode m == MultiplayerMode then viewMultiplayerControls m else text ""
+      , viewMoveHistory m
+      ]
 
 -- ---------------------------------------------------------------------------
 -- Replay Screen
@@ -1909,7 +2512,8 @@ renderClickTarget m _n r c =
   let gs = mGameState m
       side = turnSide gs
       aiBlocked = mGameMode m == AiMode && mAiSide m == side
-      blocked = mAiThinking m || aiBlocked || finished (gsResult gs)
+      mpBlocked = mGameMode m == MultiplayerMode && mPlayerSide m /= Just side
+      blocked = mAiThinking m || aiBlocked || mpBlocked || finished (gsResult gs)
       cur = if blocked then "not-allowed" else "pointer"
   in SVG.rect_
     [ SP.x_ (ms (c * sqSize))
@@ -1933,6 +2537,8 @@ viewStatus m =
       side   = turnSide gs
       caps   = gsCaptures gs
       isAi   = mGameMode m == AiMode
+      isMp   = mGameMode m == MultiplayerMode
+      myTurn = mPlayerSide m == Just side
       (cls, msg)
         | finished result = case winner result of
             Just AttackerSide -> ("card p-3 my-4 w-full text-center font-bold text-destructive", "Attackers win! " <> desc result)
@@ -1942,6 +2548,9 @@ viewStatus m =
         | isAi && mAiSide m == side = ("text-center my-4 py-1 font-bold",
             (if side == AttackerSide then "Attacker's turn" else "Defender's turn") <> " (AI)")
         | isAi = ("text-center my-4 py-1 font-bold", "Your turn")
+        | isMp && myTurn = ("text-center my-4 py-1 font-bold", "Your turn")
+        | isMp = ("text-center my-4 py-1 text-muted-foreground font-bold",
+            maybe "Opponent" fromMisoString (mOpponentName m) <> "'s turn")
         | side == AttackerSide = ("text-center my-4 py-1 font-bold", "Attacker's turn")
         | otherwise            = ("text-center my-4 py-1 font-bold", "Defender's turn")
   in H.div_
@@ -1991,6 +2600,50 @@ viewShareSection m gid =
             Nothing -> text ""
         ]
     ]
+
+viewMultiplayerControls :: Model -> View Model Action
+viewMultiplayerControls m =
+  let gs = mGameState m
+      n = boardSize (gsBoard gs)
+      gameOver = finished (gsResult gs)
+  in if gameOver then text ""
+     else H.div_
+       [ HP.class_ "flex items-center justify-center gap-2"
+       , style_ [("max-width", ms (sqSize * n) <> "px")]
+       ]
+       ([ H.button_
+            [ HP.class_ "btn btn-outline btn-sm text-foreground"
+            , style_ [("touch-action", "manipulation")]
+            , SVG.onClick Resign
+            ]
+            [ text "Resign" ]
+        , if mDrawOffered m
+            then H.div_
+              [ HP.class_ "flex gap-1" ]
+              [ H.button_
+                  [ HP.class_ "btn btn-sm bg-green-600 hover:bg-green-700 text-white border-green-500"
+                  , style_ [("touch-action", "manipulation")]
+                  , SVG.onClick AcceptDraw
+                  ]
+                  [ text "Accept Draw" ]
+              , H.button_
+                  [ HP.class_ "btn btn-outline btn-sm text-foreground"
+                  , style_ [("touch-action", "manipulation")]
+                  , SVG.onClick DeclineDraw
+                  ]
+                  [ text "Decline" ]
+              ]
+            else H.button_
+              [ HP.class_ "btn btn-outline btn-sm text-foreground"
+              , style_ [("touch-action", "manipulation")]
+              , SVG.onClick OfferDraw
+              ]
+              [ text "Offer Draw" ]
+        ] ++ case mOpponentName m of
+          Just opp -> [ H.span_
+            [ HP.class_ "text-sm text-muted-foreground ml-2" ]
+            [ text ("vs " <> opp) ] ]
+          Nothing -> [])
 
 viewMoveHistory :: Model -> View Model Action
 viewMoveHistory m

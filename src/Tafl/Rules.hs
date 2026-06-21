@@ -1,11 +1,16 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 module Tafl.Rules
   ( -- * Default rule sets
     copenhagen
     -- * Board variants
   , BoardVariant(..)
   , variantDefaultRules
+  , variantSlug
+  , slugToVariant
   ) where
 
+import Data.Text (Text)
 import Tafl.Types (RuleSet(..), Side(..))
 
 -- | Copenhagen tafl rules — the standard modern ruleset.
@@ -43,3 +48,30 @@ data BoardVariant
 variantDefaultRules :: BoardVariant -> RuleSet
 variantDefaultRules AleaEvangelii = copenhagen { cornerBaseWidth = 2 }
 variantDefaultRules _             = copenhagen
+
+-- | URL-safe slug for a variant.
+variantSlug :: BoardVariant -> Text
+variantSlug = \case
+  Brandubh      -> "brandubh"
+  Tablut        -> "tablut"
+  Classic       -> "copenhagen"
+  Line          -> "line"
+  Tawlbwrdd     -> "tawlbwrdd"
+  Lewis         -> "lewis"
+  Parlett       -> "parlett"
+  DamienWalker  -> "damien-walker"
+  AleaEvangelii -> "alea-evangelii"
+
+-- | Look up a variant by its slug.
+slugToVariant :: Text -> Maybe BoardVariant
+slugToVariant = \case
+  "brandubh"       -> Just Brandubh
+  "tablut"         -> Just Tablut
+  "copenhagen"     -> Just Classic
+  "line"           -> Just Line
+  "tawlbwrdd"      -> Just Tawlbwrdd
+  "lewis"          -> Just Lewis
+  "parlett"        -> Just Parlett
+  "damien-walker"  -> Just DamienWalker
+  "alea-evangelii" -> Just AleaEvangelii
+  _                -> Nothing
