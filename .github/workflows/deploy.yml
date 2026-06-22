@@ -3,6 +3,10 @@ name: Deploy to Cloudflare Workers
 on:
   push:
     branches: [main, staging]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
 
 jobs:
   build-and-deploy:

@@ -1,6 +1,6 @@
 # Taflhouse
 
-A browser-based [Hnefatafl](https://en.wikipedia.org/wiki/Tafl_games) (Viking Chess) game built with [Haskell](https://www.haskell.org/) and the [Miso](https://github.com/dmjio/miso) framework. Compiles to WebAssembly and runs entirely in the browser.
+A browser-based [Hnefatafl](https://en.wikipedia.org/wiki/Tafl_games) game built with [Haskell](https://www.haskell.org/) and the [Miso](https://github.com/dmjio/miso) framework; compiles to WebAssembly and runs entirely in the browser.
 
 ## Features
 
