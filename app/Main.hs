@@ -18,7 +18,7 @@ import Miso.JSON (Value, FromJSON(..), ToJSON(..), fromJSON, Result(..), Parser,
                   object, (.=), (.:), (.:?), (.!=), withObject, withText, parseMaybe)
 import Data.List (isPrefixOf)
 import Data.Maybe (fromMaybe)
-import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, jsg, (#))
+import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, jsg, (#), asyncCallback, Function(..))
 import Supabase.Miso.Core (successCallback, errorCallback)
 import Supabase.Miso.Auth
   ( signUpEmail, signInWithPassword, signOut, signInAnonymously
@@ -35,7 +35,7 @@ import Tafl.Types
 import Tafl.Rules (BoardVariant(..), variantSlug)
 import Tafl.Move  (getPossibleMovesFrom)
 import Tafl.Game  (act, initialState)
-import Tafl.AI    (AiConfig(..), bestMove)
+import Tafl.AI    (AiConfig(..), bestMove, evaluate)
 
 -- ---------------------------------------------------------------------------
 -- Miso.JSON instances (Miso uses its own ToJSON/FromJSON, not Data.Aeson)
@@ -121,7 +121,7 @@ instance FromJSON GameRow where
 -- Model
 -- ---------------------------------------------------------------------------
 
-data GameMode = LocalMode | AiMode | MultiplayerMode
+data GameMode = PracticeMode | AiMode | MultiplayerMode
   deriving (Eq, Show)
 
 data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen
@@ -164,6 +164,9 @@ instance FromJSON GameRecord where
       <*> v .:? "moves"
 
 data DeferredMpAction = DeferCreate | DeferJoin
+  deriving (Eq, Show)
+
+data ViewMode = NormalView | ZenView
   deriving (Eq, Show)
 
 data Model = Model
@@ -214,6 +217,10 @@ data Model = Model
   , mEditUsername    :: !MisoString
   , mEditDisplayName :: !MisoString
   , mDeferredMpAction :: Maybe DeferredMpAction
+  , mEvalScore        :: !Int
+  , mViewMode         :: !ViewMode
+  , mIsFullscreen     :: !Bool
+  , mZenHint          :: !Bool
   }
 
 instance Eq Model where
@@ -262,6 +269,10 @@ instance Eq Model where
         && mEditUsername a == mEditUsername b
         && mEditDisplayName a == mEditDisplayName b
         && mDeferredMpAction a == mDeferredMpAction b
+        && mEvalScore a == mEvalScore b
+        && mViewMode a == mViewMode b
+        && mIsFullscreen a == mIsFullscreen b
+        && mZenHint a == mZenHint b
 
 eqSession :: Maybe Session -> Maybe Session -> Bool
 eqSession Nothing Nothing = True
@@ -361,6 +372,10 @@ data Action
   | DeclineDraw
   | SetSidePreference MisoString
   | CopyInviteCode MisoString
+  | ToggleZenMode
+  | DismissZenHint
+  | DocumentDblClick
+  | ToggleFullscreen
 
 -- ---------------------------------------------------------------------------
 -- Routing
@@ -484,6 +499,10 @@ foreign import javascript unsafe "globalThis.generateUUID()"
   js_generateUUID_raw :: IO JSVal
 foreign import javascript unsafe "globalThis.copyToClipboard($1)"
   js_copyToClipboard_raw :: JSVal -> IO ()
+foreign import javascript unsafe "globalThis.toggleFullscreen()"
+  js_toggleFullscreen :: IO ()
+foreign import javascript unsafe "globalThis.onDocumentDblClick($1)"
+  js_onDocumentDblClick :: Function -> IO ()
 #else
 js_playMoveSound :: IO ()
 js_playMoveSound = pure ()
@@ -499,6 +518,10 @@ js_generateUUID_raw :: IO JSVal
 js_generateUUID_raw = toJSVal ("00000000-0000-0000-0000-000000000000" :: MisoString)
 js_copyToClipboard_raw :: JSVal -> IO ()
 js_copyToClipboard_raw _ = pure ()
+js_toggleFullscreen :: IO ()
+js_toggleFullscreen = pure ()
+js_onDocumentDblClick :: Function -> IO ()
+js_onDocumentDblClick _ = pure ()
 #endif
 
 js_generateUUID :: IO MisoString
@@ -542,6 +565,9 @@ main = startApp defaultEvents app
                                errCb <- errorCallback sink
                                  (\_ -> SessionRestored Nothing)
                                js_getSupabaseSession okCb errCb
+                           , \sink -> do
+                               cb <- Function <$> asyncCallback (sink DocumentDblClick)
+                               js_onDocumentDblClick cb
                            ]
       , styles           = []
       , scripts          = []
@@ -602,6 +628,10 @@ initModel = Model
   , mEditUsername    = ""
   , mEditDisplayName = ""
   , mDeferredMpAction = Nothing
+  , mEvalScore        = 0
+  , mViewMode         = NormalView
+  , mIsFullscreen     = False
+  , mZenHint          = False
   }
 
 -- ---------------------------------------------------------------------------
@@ -732,7 +762,8 @@ updateModel = \case
               gs' = act gs move
           modify $ const $ m { mGameState = gs', mSelected = Nothing, mValidMoves = []
                              , mHistory = mHistory m ++ [gs]
-                             , mMoveList = mMoveList m ++ [move] }
+                             , mMoveList = mMoveList m ++ [move]
+                             , mEvalScore = evaluate gs' }
           io_ js_playMoveSound
           -- In multiplayer, update the game row in Supabase
           when (mGameMode m == MultiplayerMode) $ do
@@ -783,7 +814,8 @@ updateModel = \case
           { mGameState = gs', mSelected = Nothing
           , mValidMoves = [], mAiThinking = False
           , mHistory = mHistory m ++ [gs]
-          , mMoveList = mMoveList m ++ [move] }
+          , mMoveList = mMoveList m ++ [move]
+          , mEvalScore = evaluate gs' }
         io_ js_playMoveSound
         when (finished (gsResult gs')) saveGame
       else pure ()
@@ -809,6 +841,7 @@ updateModel = \case
           , mSelected   = Nothing
           , mValidMoves = []
           , mAiThinking = False
+          , mEvalScore  = evaluate (allStates !! i)
           }
       else pure ()
 
@@ -826,6 +859,7 @@ updateModel = \case
           , mSelected   = Nothing
           , mValidMoves = []
           , mAiThinking = False
+          , mEvalScore  = evaluate prev
           }
 
   -- Auth actions
@@ -919,6 +953,7 @@ updateModel = \case
       , mProfile         = Nothing
       , mNeedsUsername    = False
       , mProfileDropdown = False
+      , mViewMode        = NormalView
       , mGuestName       = Nothing
       , mRealtimeChannel = Nothing
       }
@@ -990,6 +1025,7 @@ updateModel = \case
                 { mReplayGame   = Just gr
                 , mReplayStates = states
                 , mReplayIndex  = length states - 1
+                , mEvalScore    = evaluate (last states)
                 }
             _ -> modify $ \m -> m
               { mReplayGame   = Just gr
@@ -1004,7 +1040,9 @@ updateModel = \case
   ReplayGotoMove i -> do
     m <- get
     let maxIdx = length (mReplayStates m) - 1
-    modify $ \x -> x { mReplayIndex = max 0 (min maxIdx i) }
+        idx = max 0 (min maxIdx i)
+    modify $ \x -> x { mReplayIndex = idx
+                      , mEvalScore = evaluate (mReplayStates m !! idx) }
 
   InitGame uuid -> do
     m <- get
@@ -1018,12 +1056,13 @@ updateModel = \case
       , mAiThinking = False
       , mHistory    = []
       , mMoveList   = []
+      , mEvalScore  = evaluate gs
       }
     case mSession m of
       Just sess -> do
         let uid = userId (sessionUser sess)
             gameModeStr' = case mGameMode m of
-              LocalMode       -> "local" :: MisoString
+              PracticeMode       -> "local" :: MisoString
               AiMode          -> "ai"
               MultiplayerMode -> "multiplayer"
             aiSideStr' = if mGameMode m == AiMode
@@ -1391,6 +1430,7 @@ updateModel = \case
                 , mMoveList     = grwMoves gr
                 , mPlayerSide   = mySide
                 , mOpponentName = oppName
+                , mEvalScore    = evaluate gs
                 , mInviteCode   = grwInviteCode gr
                 , mScreen       = GameScreen
                 }
@@ -1480,6 +1520,28 @@ updateModel = \case
       threadDelay 3000000
       sink DismissToast
 
+  ToggleZenMode -> do
+    m <- get
+    let entering = mViewMode m == NormalView
+    modify $ \x -> x { mViewMode = if entering then ZenView else NormalView
+                      , mZenHint = entering }
+    when entering $ do
+      withSink $ \sink -> do
+        threadDelay 4000000
+        sink DismissZenHint
+
+  DismissZenHint ->
+    modify $ \m -> m { mZenHint = False }
+
+  DocumentDblClick -> do
+    m <- get
+    when (mScreen m `elem` [GameScreen, ReplayScreen]) $
+      updateModel ToggleZenMode
+
+  ToggleFullscreen -> do
+    modify $ \m -> m { mIsFullscreen = not (mIsFullscreen m) }
+    io_ js_toggleFullscreen
+
 -- | Check if the AI should move and trigger the search if so.
 triggerAi :: Effect ROOT () Model Action
 triggerAi = do
@@ -1522,7 +1584,7 @@ saveGame = do
         AttackerSide -> "attacker" :: MisoString
         DefenderSide -> "defender") (winner result)
       gameModeStr = case mGameMode m of
-        LocalMode       -> "local" :: MisoString
+        PracticeMode       -> "local" :: MisoString
         AiMode          -> "ai"
         MultiplayerMode -> "multiplayer"
       aiSideStr = if mGameMode m == AiMode
@@ -1607,15 +1669,18 @@ loadProfile sess = do
 
 viewModel :: () -> Model -> View Model Action
 viewModel _ m =
-  H.div_
+  let zen = mViewMode m == ZenView && mScreen m `elem` [GameScreen, ReplayScreen]
+  in H.div_
     [ HP.class_ "fixed inset-0 flex flex-col bg-background font-sans"
     ]
-    [ viewNavbar m
+    [ if zen then text "" else viewNavbar m
     , H.div_
         [ HP.class_ (if mScreen m == HomeScreen then "flex-1" else "flex-1 overflow-y-auto overscroll-none")
         ]
         [ H.div_
-            [ HP.class_ "flex flex-col items-center min-h-full pt-8 pb-12 px-4 mx-auto w-full max-w-7xl"
+            [ HP.class_ (if zen
+                then "flex flex-col items-center justify-center min-h-full px-4 mx-auto w-full max-w-7xl"
+                else "flex flex-col items-center min-h-full pt-8 pb-12 px-4 mx-auto w-full max-w-7xl")
             ]
             [ if mNeedsUsername m && mGuestName m == Nothing && mScreen m /= SignInScreen && mScreen m /= SignUpScreen
                 then viewUsernameGate m
@@ -1632,6 +1697,7 @@ viewModel _ m =
             ]
         ]
     , viewToast m
+    , viewZenHint m
     ]
 
 viewToast :: Model -> View Model Action
@@ -1670,9 +1736,36 @@ viewNavbar m =
           H.div_
             [ HP.class_ "flex items-center gap-4"
             ]
-            (themeToggleBtn : navAuthButtons m)
+            (fullscreenToggleBtn m : themeToggleBtn : navAuthButtons m)
         ]
     ]
+
+fullscreenToggleBtn :: Model -> View Model Action
+fullscreenToggleBtn m
+  | mScreen m `elem` [GameScreen, ReplayScreen] =
+    H.button_
+      [ HP.class_ "p-2 rounded-md text-foreground hover:bg-muted cursor-pointer"
+      , style_ [("touch-action", "manipulation"), ("background", "none"), ("border", "none")]
+      , SVG.onClick ToggleFullscreen
+      , HP.title_ "Fullscreen"
+      ]
+      [ SVG.svg_
+          [ SP.viewBox_ "0 0 24 24"
+          , HP.width_ "18"
+          , HP.height_ "18"
+          , SP.fill_ "none"
+          , SP.stroke_ "currentcolor"
+          , SP.strokeWidth_ "2"
+          , SP.strokeLinecap_ "round"
+          , SP.strokeLinejoin_ "round"
+          ]
+          [ SVG.path_ [ SP.d_ "M8 3H5a2 2 0 0 0-2 2v3" ]
+          , SVG.path_ [ SP.d_ "M21 8V5a2 2 0 0 0-2-2h-3" ]
+          , SVG.path_ [ SP.d_ "M3 16v3a2 2 0 0 0 2 2h3" ]
+          , SVG.path_ [ SP.d_ "M16 21h3a2 2 0 0 0 2-2v-3" ]
+          ]
+      ]
+  | otherwise = text ""
 
 themeToggleBtn :: View Model Action
 themeToggleBtn =
@@ -1993,7 +2086,7 @@ viewGameRow gr =
         _               -> "Draw"
       modeText = case grGameMode gr of
         "ai"          -> "vs AI"
-        "local"       -> "Local"
+        "local"       -> "Practice"
         "multiplayer" -> "Multiplayer"
         _             -> grGameMode gr
       cells =
@@ -2206,7 +2299,7 @@ viewConfig m =
 viewConfigSummary :: Model -> View Model Action
 viewConfigSummary m =
   let modeText = case mGameMode m of
-        LocalMode       -> "Local (2 players)"
+        PracticeMode       -> "Practice (2 players)"
         AiMode          -> "vs AI"
         MultiplayerMode -> "Multiplayer"
       boardText = variantName (mVariant m)
@@ -2241,7 +2334,7 @@ viewConfigOptions m =
     [ HP.class_ "mt-4 pt-4 border-t border-border flex flex-col gap-4"
     ]
     [ setupSection "Mode"
-        [ setupBtn (SetGameMode LocalMode) "Local" (mGameMode m == LocalMode)
+        [ setupBtn (SetGameMode PracticeMode) "Practice" (mGameMode m == PracticeMode)
         , setupBtn (SetGameMode AiMode) "vs AI" (mGameMode m == AiMode)
         , setupBtn (SetGameMode MultiplayerMode) "Multiplayer" (mGameMode m == MultiplayerMode)
         ]
@@ -2565,13 +2658,22 @@ viewGame m
           ]
       ]
   | otherwise =
-    H.div_
+    let zen = mViewMode m == ZenView
+        showEval = mGameMode m /= MultiplayerMode
+    in H.div_
       [ HP.class_ "w-full flex flex-col items-center"
       ]
-      [ viewBoardPanel m
-      , viewStatus m
-      , if mGameMode m == MultiplayerMode then viewMultiplayerControls m else text ""
-      , viewMoveHistory m
+      [ H.div_
+          [ HP.class_ "flex flex-row items-stretch justify-center gap-2"
+          , style_ [("margin-top", "4em")]
+          ]
+          [ if showEval && not zen then viewEvalBar m else text ""
+          , viewBoardPanel m
+          ]
+      , if zen then text "" else viewStatus m
+      , if zen then text ""
+        else if mGameMode m == MultiplayerMode then viewMultiplayerControls m else text ""
+      , if zen then text "" else viewMoveHistory m
       ]
 
 -- ---------------------------------------------------------------------------
@@ -2591,10 +2693,11 @@ viewReplay m
       ]
       [ text "Loading game..." ]
   | Just gr <- mReplayGame m =
-    H.div_
+    let zen = mViewMode m == ZenView
+    in H.div_
       [ HP.class_ "w-full flex flex-col items-center"
       ]
-      [ viewReplayHeader gr
+      [ if zen then text "" else viewReplayHeader gr
       , case mReplayStates m of
           [] -> H.div_
             [ HP.class_ "card p-6 text-center mt-4"
@@ -2606,9 +2709,15 @@ viewReplay m
             in H.div_
               [ HP.class_ "w-full flex flex-col items-center"
               ]
-              [ viewReplayBoardPanel gs
+              [ H.div_
+                  [ HP.class_ "flex flex-row items-stretch justify-center gap-2"
+                  , style_ [("margin-top", "1em")]
+                  ]
+                  [ if not zen then viewEvalBar m else text ""
+                  , viewReplayBoardPanel m gs
+                  ]
               , viewReplayControls m n
-              , viewReplayMoveList m n
+              , if zen then text "" else viewReplayMoveList m n
               ]
       ]
 
@@ -2630,13 +2739,20 @@ viewReplayHeader gr =
         [ text (winText <> " \x00B7 " <> ms (show (grTotalMoves gr)) <> " moves") ]
     ]
 
-viewReplayBoardPanel :: GameState -> View Model Action
-viewReplayBoardPanel gs =
+viewReplayBoardPanel :: Model -> GameState -> View Model Action
+viewReplayBoardPanel m gs =
   let n = boardSize (gsBoard gs)
       totalPx = sqSize * n
+      fs = mIsFullscreen m
+      zen = mViewMode m == ZenView
+      fsSize = if zen
+        then "85vmin"
+        else "min(85vmin, calc(100vh - 29rem))"
   in H.div_
-    [ HP.class_ "relative shadow-2xl rounded overflow-hidden border-2 border-border w-full"
-    , style_ [("max-width", ms totalPx <> "px"), ("margin-top", "1em")]
+    [ HP.class_ "relative shadow-2xl rounded overflow-hidden border-2 border-border"
+    , style_ (if fs
+        then [("width", fsSize), ("height", fsSize)]
+        else [("max-width", ms totalPx <> "px"), ("width", ms totalPx <> "px")])
     ]
     [ viewReplaySVGBoard gs ]
 
@@ -2689,6 +2805,7 @@ viewReplayControls m n =
         [ text (ms (show idx) <> " / " <> ms (show maxIdx)) ]
     , replayBtn (ReplayGotoMove (idx + 1)) ">" (idx < maxIdx)
     , replayBtn (ReplayGotoMove maxIdx) ">|" (idx < maxIdx)
+    , replayBtn ToggleZenMode "Zen" True
     ]
 
 replayBtn :: Action -> MisoString -> Bool -> View Model Action
@@ -2758,13 +2875,70 @@ replayMoveBtn idx (MoveAction f t) n isCurrent states =
 sqSize :: Int
 sqSize = 54
 
+-- | Evaluation bar shown left of the board. Positive = attackers favored, negative = defenders.
+viewEvalBar :: Model -> View Model Action
+viewEvalBar m =
+  let score = mEvalScore m
+      -- Clamp score to [-1500, 1500], then map to attacker % (0-100)
+      clamped = max (-1500) (min 1500 score)
+      attackerPct = 50.0 + fromIntegral clamped / 1500.0 * 50.0 :: Double
+      defenderPct = 100.0 - attackerPct :: Double
+      -- Display score divided by 100 for readability
+      displayScore = if score >= 0
+        then "+" <> ms (showScore score)
+        else ms (showScore score)
+  in H.div_
+    [ HP.class_ "flex-col rounded overflow-hidden border border-border hidden sm:flex"
+    , style_ [ ("width", "20px"), ("flex-shrink", "0"), ("position", "relative") ]
+    ]
+    [ -- Attacker portion (dark, top)
+      H.div_
+        [ HP.class_ "w-full transition-all duration-300"
+        , style_ [ ("height", ms (showPct attackerPct) <> "%")
+                 , ("background", "#2a2a2a") ]
+        ] []
+    , -- Defender portion (light, bottom)
+      H.div_
+        [ HP.class_ "w-full transition-all duration-300"
+        , style_ [ ("height", ms (showPct defenderPct) <> "%")
+                 , ("background", "#e8e0d0") ]
+        ] []
+    , -- Score label overlay
+      H.div_
+        [ HP.class_ "absolute text-center"
+        , style_ [ ("font-size", "9px"), ("line-height", "1"), ("width", "20px")
+                 , ("top", "50%"), ("transform", "translateY(-50%)")
+                 , ("color", "var(--muted-foreground)"), ("pointer-events", "none")
+                 , ("mix-blend-mode", "difference"), ("font-weight", "bold") ]
+        ]
+        [ text displayScore ]
+    ]
+
+showScore :: Int -> String
+showScore s =
+  let (q, r) = abs s `divMod` 100
+      sign = if s < 0 then "-" else ""
+  in sign ++ show q ++ "." ++ (if r < 10 then "0" else "") ++ show r
+
+showPct :: Double -> String
+showPct d =
+  let n = round d :: Int
+  in show n
+
 viewBoardPanel :: Model -> View Model Action
 viewBoardPanel m =
   let n = boardSize (gsBoard (mGameState m))
       totalPx = sqSize * n
+      fs = mIsFullscreen m
+      zen = mViewMode m == ZenView
+      fsSize = if zen
+        then "85vmin"
+        else "min(85vmin, calc(100vh - 29rem))"
   in H.div_
-    [ HP.class_ "relative shadow-2xl rounded overflow-hidden border-2 border-border w-full"
-    , style_ [("max-width", ms totalPx <> "px"), ("margin-top", "4em")]
+    [ HP.class_ "relative shadow-2xl rounded overflow-hidden border-2 border-border"
+    , style_ (if fs
+        then [("width", fsSize), ("height", fsSize)]
+        else [("max-width", ms totalPx <> "px"), ("width", ms totalPx <> "px")])
     ]
     [ viewSVGBoard m ]
 
@@ -2953,9 +3127,9 @@ viewStatus m =
       myTurn = mPlayerSide m == Just side
       (cls, msg)
         | finished result = case winner result of
-            Just AttackerSide -> ("card p-3 my-4 w-full text-center font-bold text-destructive", "Attackers win! " <> desc result)
-            Just DefenderSide -> ("card p-3 my-4 w-full text-center font-bold", "Defenders win! " <> desc result)
-            Nothing           -> ("card p-3 my-4 w-full text-center font-bold", "Draw! " <> desc result)
+            Just AttackerSide -> ("card px-3 pt-3 pb-1 my-4 w-full text-center font-bold text-destructive", "Attackers win! " <> desc result)
+            Just DefenderSide -> ("card px-3 pt-3 pb-1 my-4 w-full text-center font-bold", "Defenders win! " <> desc result)
+            Nothing           -> ("card px-3 pt-3 pb-1 my-4 w-full text-center font-bold", "Draw! " <> desc result)
         | mAiThinking m = ("text-center my-4 py-1 text-muted-foreground animate-pulse font-bold", "AI thinking...")
         | isAi && mAiSide m == side = ("text-center my-4 py-1 font-bold",
             (if side == AttackerSide then "Attacker's turn" else "Defender's turn") <> " (AI)")
@@ -2984,14 +3158,18 @@ viewStatus m =
     ]
 
 viewShareSection :: Model -> MisoString -> View Model Action
-viewShareSection m gid =
-  let shortGid = ms (take 8 (fromMisoString gid :: String))
+viewShareSection _m gid =
+  let url = "https://taflhouse.com/games/" <> gid
   in H.div_
-    [ HP.class_ "mt-3 pt-3 border-t border-border font-normal"
+    [ HP.class_ "mt-3 border-t border-border font-normal"
+    , style_ [("padding-top", "0.2em")]
     ]
-    [ H.div_
-        [ HP.class_ "text-sm text-muted-foreground text-center mb-2" ]
-        [ text ("taflhouse.com/games/" <> shortGid <> "\x2026") ]
+    [ H.input_
+        [ HP.class_ "input input-sm text-center text-muted-foreground bg-transparent border-none w-full mb-2"
+        , HP.readonly_ True
+        , HP.value_ url
+        , style_ [("font-size", "0.8rem"), ("padding-top", "0.5em"), ("padding-bottom", "0.5em")]
+        ]
     , H.div_
         [ HP.class_ "flex justify-center gap-2" ]
         [ H.button_
@@ -3049,7 +3227,13 @@ viewMultiplayerControls m =
 
 viewMoveHistory :: Model -> View Model Action
 viewMoveHistory m
-  | null (mHistory m) = H.div_ [] []
+  | null (mHistory m) =
+      let n = boardSize (gsBoard (mGameState m))
+      in H.div_
+        [ HP.class_ "flex justify-center items-center w-full"
+        , style_ [("max-width", ms (sqSize * n) <> "px"), ("margin-top", "0.5em")]
+        ]
+        [ ctrlBtn ToggleZenMode "Zen" ]
   | otherwise =
       let allStates = mHistory m ++ [mGameState m]
           n = boardSize (gsBoard (mGameState m))
@@ -3065,7 +3249,11 @@ viewMoveHistory m
             [ H.span_
                 [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase" ]
                 [ text "HISTORY" ]
-            , ctrlBtn Undo "Undo"
+            , H.div_
+                [ HP.class_ "flex gap-1" ]
+                [ ctrlBtn ToggleZenMode "Zen"
+                , ctrlBtn Undo "Undo"
+                ]
             ]
         , H.div_
             [ HP.class_ "flex gap-0.5 overflow-y-auto p-2 w-full rounded border border-border"
@@ -3081,7 +3269,7 @@ moveBtn m idx gs n isCurrent =
   let moveSide = opponentSide gs  -- side that made this move
       isHuman = case gsLastAction gs of
         Nothing -> False
-        Just _  -> mGameMode m == LocalMode || mAiSide m /= moveSide
+        Just _  -> mGameMode m == PracticeMode || mAiSide m /= moveSide
       -- Current position: > prefix; human moves: bold; AI moves: dim
       pointer = if isCurrent then "> " else "  "
       moveLabel = case gsLastAction gs of
@@ -3114,3 +3302,16 @@ ctrlBtn action label =
     , SVG.onClick action
     ]
     [ text label ]
+
+viewZenHint :: Model -> View Model Action
+viewZenHint m
+  | mZenHint m =
+    H.div_
+      [ HP.class_ "card px-4 py-2 text-sm text-muted-foreground shadow-lg"
+      , style_ [ ("position", "fixed"), ("bottom", "1.5rem"), ("left", "50%")
+               , ("transform", "translateX(-50%)"), ("z-index", "9999")
+               , ("pointer-events", "none")
+               ]
+      ]
+      [ text "Double-click board to exit zen mode" ]
+  | otherwise = text ""

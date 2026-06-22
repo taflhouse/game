@@ -1,4 +1,4 @@
-module Tafl.AI (AiConfig(..), defaultAiConfig, bestMove) where
+module Tafl.AI (AiConfig(..), defaultAiConfig, bestMove, evaluate) where
 
 import Data.List (sortBy, foldl')
 import Data.Ord (comparing, Down(..))

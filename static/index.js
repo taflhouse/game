@@ -33,6 +33,22 @@ globalThis.copyToClipboard = function(text) {
   navigator.clipboard.writeText(text).catch(function() {});
 };
 
+globalThis.toggleFullscreen = () => {
+  if (document.fullscreenElement) {
+    document.exitFullscreen().catch(() => {});
+  } else {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+};
+
+globalThis.onDocumentDblClick = (cb) => {
+  document.addEventListener('dblclick', (e) => {
+    if (!e.target.closest('svg')) return;
+    window.getSelection()?.removeAllRanges();
+    cb();
+  });
+};
+
 globalThis.playMoveSound = () => {
   const audio = new Audio('/chess_move_on_alabaster.wav');
   audio.play().catch(() => {});
