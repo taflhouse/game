@@ -507,6 +507,8 @@ foreign import javascript unsafe "globalThis.toggleFullscreen()"
   js_toggleFullscreen :: IO ()
 foreign import javascript unsafe "globalThis.onDocumentDblClick($1)"
   js_onDocumentDblClick :: Function -> IO ()
+foreign import javascript unsafe "globalThis.onKeyboardShortcut($1)"
+  js_onKeyboardShortcut :: Function -> IO ()
 #else
 js_playMoveSound :: IO ()
 js_playMoveSound = pure ()
@@ -526,6 +528,8 @@ js_toggleFullscreen :: IO ()
 js_toggleFullscreen = pure ()
 js_onDocumentDblClick :: Function -> IO ()
 js_onDocumentDblClick _ = pure ()
+js_onKeyboardShortcut :: Function -> IO ()
+js_onKeyboardShortcut _ = pure ()
 #endif
 
 js_generateUUID :: IO MisoString
@@ -572,6 +576,9 @@ main = startApp defaultEvents app
                            , \sink -> do
                                cb <- Function <$> asyncCallback (sink DocumentDblClick)
                                js_onDocumentDblClick cb
+                           , \sink -> do
+                               undoCb <- Function <$> asyncCallback (sink Undo)
+                               js_onKeyboardShortcut undoCb
                            ]
       , styles           = []
       , scripts          = []

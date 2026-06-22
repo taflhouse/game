@@ -41,6 +41,17 @@ globalThis.toggleFullscreen = () => {
   }
 };
 
+globalThis.onKeyboardShortcut = (undoCb) => {
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    // Ctrl+Z or Cmd+Z for undo
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+      e.preventDefault();
+      undoCb();
+    }
+  });
+};
+
 globalThis.onDocumentDblClick = (cb) => {
   document.addEventListener('dblclick', (e) => {
     if (!e.target.closest('svg')) return;
