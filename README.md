@@ -4,7 +4,7 @@ A browser-based [Hnefatafl](https://en.wikipedia.org/wiki/Tafl_games) (Viking Ch
 
 ## Features
 
-- **Game engine** — pure Haskell implementation of Hnefatafl rules including movement, captures, shield walls, exit forts, surrounding, and draw detection across 9 historical board variants.
+- **Game engine** — pure Haskell implementation of Hnefatafl rules including movement, captures, shield walls, exit forts, surrounding, and draw detection across 5 board variants.
 - **AI opponent** — minimax search with alpha-beta pruning, configurable difficulty levels.
 - **Online multiplayer** — real-time games via Supabase Realtime. Game state persists in the database; page refreshes and reconnections work naturally.
 - **Accounts** — anonymous or email-based auth via Supabase. Player profiles with display names.
@@ -17,12 +17,8 @@ A browser-based [Hnefatafl](https://en.wikipedia.org/wiki/Tafl_games) (Viking Ch
 | Brandubh | 7×7 |
 | Tablut | 9×9 |
 | Copenhagen | 11×11 |
-| Line | 11×11 |
-| Tawlbwrdd | 11×11 |
-| Lewis | 11×11 |
 | Parlett | 13×13 |
 | Damien Walker | 15×15 |
-| Alea Evangelii | 19×19 |
 
 ## Prerequisites
 

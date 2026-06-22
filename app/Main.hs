@@ -386,10 +386,10 @@ variantName = \case
   Classic       -> "Copenhagen 11x11"
   Line          -> "Line 11x11"
   Tawlbwrdd     -> "Tawlbwrdd 11x11"
-  Lewis         -> "Lewis"
-  Parlett       -> "Parlett"
-  DamienWalker  -> "Damien Walker"
-  AleaEvangelii -> "Alea Evangelii"
+  Lewis         -> "Lewis 11x11"
+  Parlett       -> "Parlett 13x13"
+  DamienWalker  -> "Damien Walker 15x15"
+  AleaEvangelii -> "Alea Evangelii 19x19"
 
 parseRoute :: URI -> Route
 parseRoute uri = case uriPath uri of
@@ -2274,8 +2274,8 @@ viewConfigOptions m =
         [ setupBtn (SetVariant Brandubh) "Brandubh 7x7" (mVariant m == Brandubh)
         , setupBtn (SetVariant Tablut) "Tablut 9x9" (mVariant m == Tablut)
         , setupBtn (SetVariant Classic) "Copenhagen 11x11" (mVariant m == Classic)
-        , setupBtn (SetVariant Line) "Line 11x11" (mVariant m == Line)
-        , setupBtn (SetVariant Tawlbwrdd) "Tawlbwrdd 11x11" (mVariant m == Tawlbwrdd)
+        , setupBtn (SetVariant Parlett) "Parlett 13x13" (mVariant m == Parlett)
+        , setupBtn (SetVariant DamienWalker) "Damien Walker 15x15" (mVariant m == DamienWalker)
         ]
     , if mGameMode m == AiMode then viewSetupAi m
       else if mGameMode m == MultiplayerMode then viewSetupMultiplayer m
