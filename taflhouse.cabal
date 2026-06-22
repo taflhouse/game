@@ -21,6 +21,13 @@ library
                       , aeson
   default-language:     GHC2021
 
+test-suite tests
+  type:               exitcode-stdio-1.0
+  hs-source-dirs:     test
+  main-is:            Main.hs
+  build-depends:      base, taflhouse
+  default-language:   GHC2021
+
 executable app
   if !arch(wasm32)
     buildable: False

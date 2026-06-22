@@ -811,6 +811,7 @@ updateModel = \case
       then put $ m
           { mGameState  = allStates !! i
           , mHistory    = take i allStates
+          , mMoveList   = take i (mMoveList m)
           , mSelected   = Nothing
           , mValidMoves = []
           , mAiThinking = False
@@ -823,9 +824,11 @@ updateModel = \case
       [] -> pure ()
       _  -> do
         let prev = last (mHistory m)
+            newHistory = init (mHistory m)
         put $ m
           { mGameState  = prev
-          , mHistory    = init (mHistory m)
+          , mHistory    = newHistory
+          , mMoveList   = take (length newHistory) (mMoveList m)
           , mSelected   = Nothing
           , mValidMoves = []
           , mAiThinking = False

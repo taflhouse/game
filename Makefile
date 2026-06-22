@@ -1,7 +1,7 @@
 # Environment: source .env.local, .env.staging, or .envrc before running
 ENV ?= local
 
-.PHONY: update build optim serve clean db-start db-stop db-reset
+.PHONY: update build optim serve clean test db-start db-stop db-reset
 
 all: clean update build optim
 
@@ -40,6 +40,9 @@ db-reset:
 
 staging-push:
 	npx supabase db push --linked
+
+test:
+	cabal test "taflhouse:test:tests" --project-file=cabal.project.test
 
 clean:
 	rm -rf dist-newstyle public
