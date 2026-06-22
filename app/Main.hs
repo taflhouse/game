@@ -191,6 +191,7 @@ data Model = Model
   , mGamesLoading   :: !Bool
   , mConfigExpanded :: !Bool
   , mShowQuoteRef  :: !Bool
+  , mQuoteRefGen   :: !Int
   , mToast         :: Maybe MisoString
   , mShowDepthInfo :: !Bool
   , mShowNodesInfo :: !Bool
@@ -245,6 +246,7 @@ instance Eq Model where
         && mGamesLoading a == mGamesLoading b
         && mConfigExpanded a == mConfigExpanded b
         && mShowQuoteRef a == mShowQuoteRef b
+        && mQuoteRefGen a == mQuoteRefGen b
         && mToast a == mToast b
         && mShowDepthInfo a == mShowDepthInfo b
         && mShowNodesInfo a == mShowNodesInfo b
@@ -319,6 +321,8 @@ data Action
   | GamesLoadError MisoString
   | ToggleTheme
   | ToggleQuoteRef
+  | DismissQuoteRef
+  | DismissQuoteRefTimed Int
   | ShowToast MisoString
   | DismissToast
   | ToggleDepthInfo
@@ -603,6 +607,7 @@ initModel = Model
   , mGamesLoading   = False
   , mConfigExpanded = False
   , mShowQuoteRef  = False
+  , mQuoteRefGen   = 0
   , mToast         = Nothing
   , mShowDepthInfo = False
   , mShowNodesInfo = False
@@ -671,13 +676,28 @@ updateModel = \case
   ToggleConfigExpand ->
     modify $ \m -> m { mConfigExpanded = not (mConfigExpanded m) }
 
-  ToggleQuoteRef ->
-    modify $ \m -> m { mShowQuoteRef = not (mShowQuoteRef m) }
+  ToggleQuoteRef -> do
+    m <- get
+    let opening = not (mShowQuoteRef m)
+        gen = mQuoteRefGen m + 1
+    modify $ \x -> x { mShowQuoteRef = opening, mQuoteRefGen = gen }
+    when opening $ do
+      withSink $ \sink -> do
+        threadDelay 5000000
+        sink (DismissQuoteRefTimed gen)
+
+  DismissQuoteRef ->
+    modify $ \m -> m { mShowQuoteRef = False }
+
+  DismissQuoteRefTimed gen -> do
+    m <- get
+    when (mQuoteRefGen m == gen) $
+      modify $ \x -> x { mShowQuoteRef = False }
 
   ShowToast msg -> do
     modify $ \m -> m { mToast = Just msg }
     withSink $ \sink -> do
-      threadDelay 3000000
+      threadDelay 5000000
       sink DismissToast
 
   DismissToast ->
@@ -1704,14 +1724,20 @@ viewToast :: Model -> View Model Action
 viewToast m = case mToast m of
   Nothing -> text ""
   Just msg ->
-    H.div_
-      [ HP.class_ "card px-4 py-2 text-sm text-foreground shadow-lg"
-      , style_ [ ("position", "fixed"), ("bottom", "1.5rem"), ("left", "50%")
-               , ("transform", "translateX(-50%)"), ("z-index", "9999")
-               , ("user-select", "text"), ("cursor", "text")
-               ]
+    H.div_ []
+      [ H.div_
+          [ style_ [ ("position", "fixed"), ("inset", "0"), ("z-index", "9998") ]
+          , SVG.onClick DismissToast
+          ] []
+      , H.div_
+          [ HP.class_ "card px-4 py-2 text-sm text-foreground shadow-lg"
+          , style_ [ ("position", "fixed"), ("bottom", "1.5rem"), ("left", "50%")
+                   , ("transform", "translateX(-50%)"), ("z-index", "9999")
+                   , ("user-select", "text"), ("cursor", "text")
+                   ]
+          ]
+          [ text msg ]
       ]
-      [ text msg ]
 
 -- ---------------------------------------------------------------------------
 -- Navbar
@@ -2034,16 +2060,22 @@ viewHome m = case mSession m of
               ]
               [ text "\"They played tafl in the meadow and were merry,\"" ]
           , if mShowQuoteRef m
-              then H.div_
-                [ HP.class_ "card p-4 text-left"
-                , style_ [ ("position", "absolute"), ("top", "100%"), ("left", "50%")
-                         , ("transform", "translateX(-50%)"), ("margin-top", "0.5em")
-                         , ("width", "18rem"), ("z-index", "50")
-                         ]
-                ]
-                [ H.p_
-                    [ HP.class_ "text-sm text-muted-foreground" ]
-                    [ text "V\x01EBlusp\x00E1, stanza 8" ]
+              then H.div_ []
+                [ H.div_
+                    [ style_ [ ("position", "fixed"), ("inset", "0"), ("z-index", "49") ]
+                    , SVG.onClick DismissQuoteRef
+                    ] []
+                , H.div_
+                    [ HP.class_ "card p-4 text-left"
+                    , style_ [ ("position", "absolute"), ("top", "100%"), ("left", "50%")
+                             , ("transform", "translateX(-50%)"), ("margin-top", "0.5em")
+                             , ("width", "18rem"), ("z-index", "50")
+                             ]
+                    ]
+                    [ H.p_
+                        [ HP.class_ "text-sm text-muted-foreground" ]
+                        [ text "V\x01EBlusp\x00E1, stanza 8" ]
+                    ]
                 ]
               else text ""
           ]
