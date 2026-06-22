@@ -1,0 +1,9 @@
+name = "taflhouse-staging"
+compatibility_date = "2026-06-22"
+routes = [
+  { pattern = "qa.taflhouse.com", custom_domain = true }
+]
+
+[assets]
+directory = "./public"
+not_found_handling = "single-page-application"

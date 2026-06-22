@@ -1,7 +1,7 @@
 # Environment: source .env.local, .env.staging, or .envrc before running
 ENV ?= local
 
-.PHONY: update build optim serve serve-server clean db-start db-stop db-reset
+.PHONY: update build optim serve clean db-start db-stop db-reset
 
 all: clean update build optim
 
@@ -24,9 +24,6 @@ optim:
 
 serve:
 	http-server public
-
-serve-server:
-	cabal --project-file=cabal.project.server run server
 
 # --- Local Supabase ---
 

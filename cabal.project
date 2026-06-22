@@ -1,7 +1,5 @@
 packages:
   .
-  /Users/hnmatlock/local/supabase-miso
-  /Users/hnmatlock/local/miso.ui
 
 allow-newer:
   all:base
@@ -14,3 +12,13 @@ source-repository-package
   type: git
   location: https://github.com/dmjio/miso
   tag: 1.11.0
+
+source-repository-package
+  type: git
+  location: https://github.com/heath/supabase-miso.git
+  tag: c6cf9e910eb3e39c6120056597c9c265206fd0ca
+
+source-repository-package
+  type: git
+  location: https://github.com/haskell-miso/miso.ui.git
+  tag: 2e8a99c503d90b0334ae180050b96971857a40c6

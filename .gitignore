@@ -3,3 +3,4 @@ public
 *~
 .envrc
 .env.*
+cabal.project.local

@@ -1,0 +1,65 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches: [main, staging]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.107.0
+
+      - name: Push database migrations
+        run: supabase db push --db-url "$DATABASE_URL"
+        env:
+          DATABASE_URL: ${{ github.ref_name == 'main' && secrets.PROD_DATABASE_URL || secrets.STAGING_DATABASE_URL }}
+
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Cache nix store
+        uses: actions/cache@v4
+        with:
+          path: /nix/store
+          key: nix-${{ hashFiles('flake.lock') }}
+          restore-keys: nix-
+
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: ~/.cabal/store
+          key: cabal-${{ hashFiles('cabal.project', '*.cabal') }}
+          restore-keys: cabal-
+
+      - name: Build
+        run: |
+          nix develop .#wasm --command bash -c '
+            wasm32-wasi-cabal update
+            wasm32-wasi-cabal build
+            rm -rf public
+            cp -r static public
+            sed -i "s|__SUPABASE_URL__|$SUPABASE_URL|g" public/index.js
+            sed -i "s|__SUPABASE_KEY__|$SUPABASE_KEY|g" public/index.js
+            MY_WASM=$(wasm32-wasi-cabal list-bin app | tail -n 1)
+            $(wasm32-wasi-ghc --print-libdir)/post-link.mjs --input "$MY_WASM" --output public/ghc_wasm_jsffi.js
+            cp "$MY_WASM" public/
+            wasm-opt -all -O2 public/app.wasm -o public/app.wasm
+            wasm-tools strip -o public/app.wasm public/app.wasm
+          '
+        env:
+          SUPABASE_URL: ${{ github.ref_name == 'main' && secrets.PROD_SUPABASE_URL || secrets.STAGING_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ github.ref_name == 'main' && secrets.PROD_SUPABASE_KEY || secrets.STAGING_SUPABASE_KEY }}
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config ${{ github.ref_name == 'main' && 'wrangler.production.toml' || 'wrangler.staging.toml' }}
