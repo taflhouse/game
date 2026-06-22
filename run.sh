@@ -37,7 +37,7 @@ tmux new-session -d -s "$SESSION" -c "$DIR" \
    nix --extra-experimental-features \"nix-command flakes\" develop .#wasm --command \
    npx http-server public -p 8080 -c-1 --proxy \"http://localhost:8080?\"; exec bash'"
 
-# Watch & rebuild on source changes (middle pane)
+# Watch & rebuild on source changes (bottom pane)
 tmux split-window -t "$SESSION" -v -c "$DIR" \
   "bash -c 'source .env.local 2>/dev/null; \
    echo \"==> Watching for changes (app/ src/ static/)...\" && \
@@ -46,12 +46,6 @@ tmux split-window -t "$SESSION" -v -c "$DIR" \
      nix --extra-experimental-features \"nix-command flakes\" develop .#wasm --command make \
        && echo \"==> Build complete\" || echo \"==> Build failed\"; \
    done; exec bash'"
-
-# WebSocket server (bottom pane)
-tmux split-window -t "$SESSION" -v -c "$DIR" \
-  "bash -c 'source .env.local 2>/dev/null; \
-   echo \"==> WS server: localhost:\${PORT:-3000}\" && \
-   make serve-server; exec bash'"
 
 # Even out pane heights
 tmux select-layout -t "$SESSION" even-vertical
@@ -62,7 +56,6 @@ tmux select-pane -t "$SESSION":0.0
 echo ""
 echo "==> All services running in tmux session '$SESSION'"
 echo "    Frontend:  http://localhost:8080"
-echo "    WS Server: localhost:${PORT:-3000}"
 echo "    Supabase:  http://localhost:54323 (Studio)"
 echo "    Watch:     auto-rebuilds on app/ src/ static/ changes"
 echo ""

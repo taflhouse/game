@@ -111,14 +111,16 @@ globalThis.runSupabaseSelect = function (
   successCallback,
   errorCallback
 ) {
-  console.log("[runSupabaseSelect]", table, columns, args);
   let query = globalThis.supabase.from(table).select(columns);
 
   const filters = args[0] || [];
   const fetchOptions = args[1] || {};
 
+  console.log("[runSupabaseSelect]", table, columns, "filters:", JSON.stringify(filters), "fetchOptions:", fetchOptions);
+
   // Apply filters
   filters.forEach((filter) => {
+    console.log("[runSupabaseSelect] applying filter:", filter.operator, filter.column, JSON.stringify(filter.value));
     query = query[filter.operator](filter.column, filter.value);
   });
 
@@ -181,12 +183,17 @@ globalThis["runSupabaseQuery"] = function (
   successful,
   errorful
 ) {
+  console.log("[runSupabaseQuery]", from, fnName, JSON.stringify(args));
   globalThis["supabase"]
     ["from"](from)
     [fnName](...args)
     .then(({ data, error }) => {
+      console.log("[runSupabaseQuery] result", from, fnName, "data:", data, "error:", error ? JSON.stringify(error) : null);
       if (error) errorful(error.message);
       else successful(data || []);
+    }).catch((err) => {
+      console.error("[runSupabaseQuery] catch", from, fnName, err);
+      errorful(err.message || String(err));
     });
 };
 
@@ -196,9 +203,21 @@ globalThis.getSupabaseSession = function(successCb, errorCb) {
   console.log("[getSupabaseSession] fetching...");
   globalThis.supabase.auth.getSession().then(({ data, error }) => {
     console.log("[getSupabaseSession] result", { data, error });
-    if (error) errorCb(error.message || 'Session error');
-    else if (data && data.session) successCb(data.session);
-    else successCb(null);
+    if (error) { errorCb(error.message || 'Session error'); return; }
+    if (!data || !data.session) { successCb(null); return; }
+    // Validate session server-side; if the user was deleted (e.g. db reset),
+    // clear the stale JWT so the app can re-authenticate.
+    globalThis.supabase.auth.getUser().then(({ data: userData, error: userError }) => {
+      if (userError || !userData || !userData.user) {
+        console.warn("[getSupabaseSession] stale session detected, signing out");
+        globalThis.supabase.auth.signOut().then(() => successCb(null)).catch(() => successCb(null));
+      } else {
+        successCb(data.session);
+      }
+    }).catch(() => {
+      console.warn("[getSupabaseSession] getUser failed, clearing session");
+      globalThis.supabase.auth.signOut().then(() => successCb(null)).catch(() => successCb(null));
+    });
   }).catch(err => {
     console.error("[getSupabaseSession] catch", err);
     errorCb(String(err));
@@ -227,10 +246,23 @@ globalThis.clearLocalGames = function() {
   localStorage.removeItem('taflhouse_local_games');
 };
 
-// -- WebSocket URL config --
+// -- Supabase Realtime (Postgres Changes) --
 
-const WS_URL = '__WS_URL__';
-globalThis.getWsUrl = function() { return WS_URL; };
+globalThis["subscribePostgresChanges"] = function(channelName, table, filter, changeCb, subscribedCb, errorCb) {
+  var opts = { event: '*', schema: 'public', table: table };
+  if (filter && filter !== '') { opts.filter = filter; }
+  var channel = globalThis["supabase"]
+    .channel(channelName)
+    .on('postgres_changes', opts, function(payload) { changeCb(payload); })
+    .subscribe(function(status) {
+      if (status === 'SUBSCRIBED') subscribedCb(channel);
+      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') errorCb(status);
+    });
+};
+
+globalThis["removeChannel"] = function(channel) {
+  globalThis["supabase"].removeChannel(channel);
+};
 
 // -- WASI / WASM loading --
 

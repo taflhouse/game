@@ -15,7 +15,7 @@ import qualified Miso.Svg as SVG
 import qualified Miso.Svg.Property as SP
 
 import Miso.JSON (Value, FromJSON(..), ToJSON(..), fromJSON, Result(..), Parser,
-                  object, (.=), (.:), (.:?), withObject, withText)
+                  object, (.=), (.:), (.:?), (.!=), withObject, withText, parseMaybe)
 import Data.List (isPrefixOf)
 import Data.Maybe (fromMaybe)
 import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, jsg, (#))
@@ -27,8 +27,7 @@ import Supabase.Miso.Auth
   , AuthResponse(..), AuthData(..), Session(..), User(..), AppMetadata(..)
   )
 import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq, neq)
-
-import Miso.WebSocket (connectJSON, sendJSON, WebSocket, emptyWebSocket, Closed)
+import Supabase.Miso.Realtime (subscribeToTable, removeChannel, Channel(..))
 
 import qualified Data.Text as T
 
@@ -37,7 +36,6 @@ import Tafl.Rules (BoardVariant(..), variantSlug)
 import Tafl.Move  (getPossibleMovesFrom)
 import Tafl.Game  (act, initialState)
 import Tafl.AI    (AiConfig(..), bestMove)
-import Tafl.Protocol (ClientMsg(..), ServerMsg(..))
 
 -- ---------------------------------------------------------------------------
 -- Miso.JSON instances (Miso uses its own ToJSON/FromJSON, not Data.Aeson)
@@ -80,71 +78,44 @@ instance FromJSON GameResult where
   parseJSON = withObject "GameResult" $ \v ->
     GameResult <$> v .: "finished" <*> v .: "winner" <*> v .: "desc"
 
--- | Helper to build a tagged JSON object for Miso.JSON.
-misoTagged :: MisoString -> [(MisoString, Value)] -> Value
-misoTagged t ps = object (("type" .= t) : ps)
+-- ---------------------------------------------------------------------------
+-- GameRow: parsing game rows from Realtime payloads and DB queries
+-- ---------------------------------------------------------------------------
 
--- | Convert Text to MisoString for JSON serialization.
-txt :: T.Text -> MisoString
-txt = ms
+data GameRow = GameRow
+  { grwId           :: !MisoString
+  , grwVariant      :: !MisoString
+  , grwStatus       :: !MisoString
+  , grwMoves        :: [MoveAction]
+  , grwCurrentTurn  :: !MisoString
+  , grwAttackerId   :: Maybe MisoString
+  , grwAttackerName :: Maybe MisoString
+  , grwDefenderId   :: Maybe MisoString
+  , grwDefenderName :: Maybe MisoString
+  , grwDrawOfferedBy :: Maybe MisoString
+  , grwResultDesc   :: !MisoString
+  , grwWinner       :: Maybe MisoString
+  , grwTotalMoves   :: !Int
+  , grwInviteCode   :: Maybe MisoString
+  } deriving (Eq, Show)
 
-instance ToJSON ClientMsg where
-  toJSON = \case
-    CmAuth token gid mName -> misoTagged "auth"       ["token" .= txt token, "game_id" .= txt gid, "display_name" .= fmap txt mName]
-    CmCreateGame v ic   -> misoTagged "create_game"  ["variant" .= txt v, "invite_code" .= txt ic]
-    CmJoinGame ic       -> misoTagged "join_game"    ["invite_code" .= txt ic]
-    CmMove ma           -> misoTagged "move"         ["action" .= ma]
-    CmResign            -> misoTagged "resign"       []
-    CmOfferDraw         -> misoTagged "offer_draw"   []
-    CmAcceptDraw        -> misoTagged "accept_draw"  []
-    CmDeclineDraw       -> misoTagged "decline_draw" []
-
-instance FromJSON ClientMsg where
-  parseJSON = withObject "ClientMsg" $ \v -> do
-    tag <- v .: "type" :: Parser T.Text
-    case tag of
-      "auth"         -> CmAuth <$> v .: "token" <*> v .: "game_id" <*> v .:? "display_name"
-      "create_game"  -> CmCreateGame <$> v .: "variant" <*> v .: "invite_code"
-      "join_game"    -> CmJoinGame <$> v .: "invite_code"
-      "move"         -> CmMove <$> v .: "action"
-      "resign"       -> pure CmResign
-      "offer_draw"   -> pure CmOfferDraw
-      "accept_draw"  -> pure CmAcceptDraw
-      "decline_draw" -> pure CmDeclineDraw
-      _              -> fail ("unknown ClientMsg type: " <> show tag)
-
-instance ToJSON ServerMsg where
-  toJSON = \case
-    SmError msg            -> misoTagged "error"                 ["message" .= txt msg]
-    SmAuthOk               -> misoTagged "auth_ok"               []
-    SmWaitingForOpponent   -> misoTagged "waiting"               []
-    SmGameStarted g u s    -> misoTagged "game_started"          ["game_id" .= txt g, "opponent" .= txt u, "side" .= s]
-    SmMoveMade ma cs nt    -> misoTagged "move_made"             ["action" .= ma, "captures" .= cs, "next_turn" .= nt]
-    SmMoveRejected msg     -> misoTagged "move_rejected"         ["message" .= txt msg]
-    SmGameOver r           -> misoTagged "game_over"             ["result" .= r]
-    SmDrawOffered          -> misoTagged "draw_offered"          []
-    SmDrawDeclined         -> misoTagged "draw_declined"         []
-    SmOpponentConnected    -> misoTagged "opponent_connected"    []
-    SmOpponentDisconnected -> misoTagged "opponent_disconnected" []
-    SmResigned s           -> misoTagged "resigned"              ["side" .= s]
-
-instance FromJSON ServerMsg where
-  parseJSON = withObject "ServerMsg" $ \v -> do
-    tag <- v .: "type" :: Parser T.Text
-    case tag of
-      "error"                 -> SmError <$> v .: "message"
-      "auth_ok"               -> pure SmAuthOk
-      "waiting"               -> pure SmWaitingForOpponent
-      "game_started"          -> SmGameStarted <$> v .: "game_id" <*> v .: "opponent" <*> v .: "side"
-      "move_made"             -> SmMoveMade <$> v .: "action" <*> v .: "captures" <*> v .: "next_turn"
-      "move_rejected"         -> SmMoveRejected <$> v .: "message"
-      "game_over"             -> SmGameOver <$> v .: "result"
-      "draw_offered"          -> pure SmDrawOffered
-      "draw_declined"         -> pure SmDrawDeclined
-      "opponent_connected"    -> pure SmOpponentConnected
-      "opponent_disconnected" -> pure SmOpponentDisconnected
-      "resigned"              -> SmResigned <$> v .: "side"
-      _                       -> fail ("unknown ServerMsg type: " <> show tag)
+instance FromJSON GameRow where
+  parseJSON = withObject "GameRow" $ \v ->
+    GameRow
+      <$> v .: "id"
+      <*> v .: "variant"
+      <*> v .: "status"
+      <*> v .:? "moves" .!= []
+      <*> v .:? "current_turn" .!= "attacker"
+      <*> v .:? "attacker_id"
+      <*> v .:? "attacker_name"
+      <*> v .:? "defender_id"
+      <*> v .:? "defender_name"
+      <*> v .:? "draw_offered_by"
+      <*> v .:? "result_desc" .!= "in_progress"
+      <*> v .:? "winner"
+      <*> v .:? "total_moves" .!= 0
+      <*> v .:? "invite_code"
 
 -- ---------------------------------------------------------------------------
 -- Model
@@ -232,8 +203,7 @@ data Model = Model
   , mReplayNotFound  :: !Bool
   -- Multiplayer
   , mGuestName        :: Maybe MisoString
-  , mWsConn          :: !WebSocket
-  , mWsConnected     :: !Bool
+  , mRealtimeChannel :: Maybe Channel
   , mProfile         :: Maybe Profile
   , mNeedsUsername    :: !Bool
   , mUsernameInput   :: !MisoString
@@ -283,7 +253,6 @@ instance Eq Model where
         && mIsPublic a == mIsPublic b
         && mReplayNotFound a == mReplayNotFound b
         && mGuestName a == mGuestName b
-        && mWsConnected a == mWsConnected b
         && mProfile a == mProfile b
         && mNeedsUsername a == mNeedsUsername b
         && mUsernameInput a == mUsernameInput b
@@ -376,18 +345,21 @@ data Action
   | ProfileUpdated Value
   | ProfileUpdateError MisoString
   -- Multiplayer
-  | WsConnect MisoString
-  | WsConnected WebSocket
-  | WsClosed Closed
-  | WsError MisoString
-  | WsReceived ServerMsg
-  | WsSend ClientMsg
   | CreateMultiplayerGame
-  | StartMultiplayerGame MisoString MisoString MisoString  -- invCode uuid wsUrl
+  | InitMultiplayerGame MisoString MisoString  -- invCode uuid
   | JoinMultiplayerGame
-  | StartJoinGame MisoString  -- wsUrl
+  | GameFoundToJoin Value
+  | GameJoinError MisoString
+  | GameJoinedOk Value
+  | GameJoinUpdateError MisoString
+  | RealtimeChange Value
+  | RealtimeSubscribed Channel
+  | RealtimeError MisoString
+  | MoveUpdated Value
+  | MoveUpdateError MisoString
+  | ResumeGameLoaded Value
+  | ResumeGameLoadError MisoString
   | SetJoinCodeInput MisoString
-  | MoveRejected MisoString
   | Resign
   | OfferDraw
   | AcceptDraw
@@ -451,6 +423,15 @@ isUUID s =
 lookupVariant :: MisoString -> Maybe BoardVariant
 lookupVariant slug = lookup slug [ (variantSlugMs v, v) | v <- [minBound .. maxBound] ]
 
+-- | Replay a list of moves from an initial state, returning
+--   (intermediateStates, finalState) so both mHistory and mGameState
+--   can be populated in one pass.
+replayMoves :: GameState -> [MoveAction] -> ([GameState], GameState)
+replayMoves gs0 moves =
+  let states = scanl act gs0 moves        -- gs0 : gs1 : ... : gsN
+  in  (init states, last states)           -- history = all but last, final = last
+  -- scanl always produces at least one element (gs0), so these are safe
+
 friendlyAuthError :: MisoString -> MisoString
 friendlyAuthError code = case (fromMisoString code :: String) of
   "email_not_confirmed" -> "Please check your email and confirm your account before signing in."
@@ -508,8 +489,6 @@ foreign import javascript unsafe "globalThis.generateUUID()"
   js_generateUUID_raw :: IO JSVal
 foreign import javascript unsafe "globalThis.copyToClipboard($1)"
   js_copyToClipboard_raw :: JSVal -> IO ()
-foreign import javascript unsafe "globalThis.getWsUrl()"
-  js_getWsUrl_raw :: IO JSVal
 #else
 js_playMoveSound :: IO ()
 js_playMoveSound = pure ()
@@ -525,8 +504,6 @@ js_generateUUID_raw :: IO JSVal
 js_generateUUID_raw = toJSVal ("00000000-0000-0000-0000-000000000000" :: MisoString)
 js_copyToClipboard_raw :: JSVal -> IO ()
 js_copyToClipboard_raw _ = pure ()
-js_getWsUrl_raw :: IO JSVal
-js_getWsUrl_raw = toJSVal ("ws://localhost:3000" :: MisoString)
 #endif
 
 js_generateUUID :: IO MisoString
@@ -534,9 +511,6 @@ js_generateUUID = fromJSValUnchecked =<< js_generateUUID_raw
 
 js_copyToClipboard :: MisoString -> IO ()
 js_copyToClipboard s = toJSVal s >>= js_copyToClipboard_raw
-
-js_getWsUrl :: IO MisoString
-js_getWsUrl = fromJSValUnchecked =<< js_getWsUrl_raw
 
 -- | Generate a short random invite code (8 chars from UUID).
 generateInviteCode :: IO MisoString
@@ -620,8 +594,7 @@ initModel = Model
   , mIsPublic        = False
   , mReplayNotFound  = False
   , mGuestName        = Nothing
-  , mWsConn          = emptyWebSocket
-  , mWsConnected     = False
+  , mRealtimeChannel = Nothing
   , mProfile         = Nothing
   , mNeedsUsername    = False
   , mUsernameInput   = ""
@@ -698,7 +671,12 @@ updateModel = \case
     case parseRoute uri of
       PlayRoute uuid
         | mGameId m == Just uuid && mScreen m == GameScreen -> pure ()
-        | otherwise -> io_ $ pushURI (gamePermalinkURI uuid)
+        | otherwise -> do
+            modify $ \x -> x { mScreen = GameScreen, mGameId = Just uuid }
+            selectWithFilters "games" "*"
+              [eq "id" uuid]
+              (FetchOptions Nothing Nothing)
+              ResumeGameLoaded ResumeGameLoadError
       GameRoute uuid -> do
         modify $ \x -> x
           { mScreen = ReplayScreen
@@ -712,7 +690,13 @@ updateModel = \case
           (FetchOptions Nothing Nothing)
           ReplayLoaded ReplayLoadError
       HomeRoute -> do
-        modify $ \x -> x { mScreen = HomeScreen, mAiThinking = False, mGameId = Nothing }
+        m' <- get
+        case mRealtimeChannel m' of
+          Just ch -> io_ $ removeChannel ch
+          Nothing -> pure ()
+        modify $ \x -> x { mScreen = HomeScreen, mAiThinking = False, mGameId = Nothing
+                         , mRealtimeChannel = Nothing, mOpponentName = Nothing, mPlayerSide = Nothing
+                         , mInviteCode = Nothing, mDrawOffered = False }
         loadPastGames
       SignInRoute ->
         modify $ \x -> x { mScreen = SignInScreen, mAuthError = Nothing, mAuthMessage = Nothing }
@@ -756,9 +740,35 @@ updateModel = \case
                              , mHistory = mHistory m ++ [gs]
                              , mMoveList = mMoveList m ++ [move] }
           io_ js_playMoveSound
-          -- In multiplayer, send the move to the server
-          when (mGameMode m == MultiplayerMode) $
-            withSink $ \sink -> sink (WsSend (CmMove move))
+          -- In multiplayer, update the game row in Supabase
+          when (mGameMode m == MultiplayerMode) $ do
+            let newMoves = mMoveList m ++ [move]
+                nextTurn = case turnSide gs' of
+                  AttackerSide -> "attacker" :: MisoString
+                  DefenderSide -> "defender"
+            case mGameId m of
+              Just gid -> do
+                let updateData = if finished (gsResult gs')
+                      then object
+                        [ "moves"       .= newMoves
+                        , "current_turn" .= nextTurn
+                        , "total_moves" .= length newMoves
+                        , "result_desc" .= ms (desc (gsResult gs'))
+                        , "winner"      .= fmap (\s -> case s of
+                            AttackerSide -> "attacker" :: MisoString
+                            DefenderSide -> "defender") (winner (gsResult gs'))
+                        , "status"      .= ("finished" :: MisoString)
+                        ]
+                      else object
+                        [ "moves"       .= newMoves
+                        , "current_turn" .= nextTurn
+                        , "total_moves" .= length newMoves
+                        ]
+                updateTable "games" updateData
+                  [eq "id" gid]
+                  (UpdateOptions Nothing)
+                  MoveUpdated MoveUpdateError
+              Nothing -> pure ()
           when (finished (gsResult gs') && mGameMode m /= MultiplayerMode) saveGame
           triggerAi
         Just sel | sel == coords ->
@@ -898,8 +908,12 @@ updateModel = \case
     modify $ \m -> m { mToast = Just ("Sign-in failed: " <> msg), mDeferredMpAction = Nothing }
 
   DoSignOut -> do
+    m <- get
+    case mRealtimeChannel m of
+      Just ch -> io_ $ removeChannel ch
+      Nothing -> pure ()
     signOut defaultSignOutOptions SignOutSuccess AuthError
-    modify $ \m -> m
+    modify $ \x -> x
       { mSession         = Nothing
       , mScreen          = HomeScreen
       , mPastGames       = []
@@ -909,6 +923,7 @@ updateModel = \case
       , mNeedsUsername    = False
       , mProfileDropdown = False
       , mGuestName       = Nothing
+      , mRealtimeChannel = Nothing
       }
     io_ $ pushURI homeURI
 
@@ -1164,112 +1179,6 @@ updateModel = \case
     modify $ \m -> m { mAuthError = Just "Something went wrong. Please try again." }
 
   -- Multiplayer actions
-  WsConnect wsUrl ->
-    connectJSON wsUrl WsConnected WsClosed WsReceived WsError
-
-  WsConnected ws -> do
-    modify $ \m -> m { mWsConn = ws, mWsConnected = True }
-    m <- get
-    -- Send auth; server will reply with SmAuthOk, then we send create/join
-    case mSession m of
-      Just sess -> do
-        let token = sessionAccessToken sess
-            gid   = maybe "" id (mGameId m)
-            mName = mGuestName m
-        sendJSON ws (CmAuth (fromMisoString token) (fromMisoString gid) (fmap fromMisoString mName))
-      Nothing -> pure ()
-
-  WsClosed _ ->
-    modify $ \m -> m { mWsConnected = False }
-
-  WsError _msg ->
-    modify $ \m -> m { mToast = Just "The server is having difficulty. Please try again soon.", mWsConnected = False }
-
-  WsReceived serverMsg -> do
-    m <- get
-    case serverMsg of
-      SmAuthOk -> do
-        -- Auth succeeded, now send the create/join message
-        let ws = mWsConn m
-        case mInviteCode m of
-          Just code ->
-            let vSlug = variantSlug (mVariant m)
-                ic    = fromMisoString code :: T.Text
-            in sendJSON ws (CmCreateGame vSlug ic)
-          Nothing
-            | mJoinCodeInput m /= "" ->
-                let jc = fromMisoString (mJoinCodeInput m) :: T.Text
-                in sendJSON ws (CmJoinGame jc)
-            | otherwise -> pure ()
-
-      SmWaitingForOpponent ->
-        pure ()
-
-      SmGameStarted _gid opponent side -> do
-        modify $ \x -> x
-          { mPlayerSide  = Just side
-          , mOpponentName = Just (ms opponent)
-          , mScreen      = GameScreen
-          }
-
-      SmMoveMade move _caps _nextTurn -> do
-        -- If it's the opponent's move, apply it
-        let gs = mGameState m
-            myTurn = mPlayerSide m == Just (turnSide gs)
-        if not myTurn
-          then do
-            let gs' = act gs move
-            modify $ \x -> x
-              { mGameState = gs'
-              , mHistory   = mHistory m ++ [gs]
-              , mMoveList  = mMoveList m ++ [move]
-              }
-            io_ js_playMoveSound
-          else
-            -- It's confirmation of our own optimistic move; state already applied
-            pure ()
-
-      SmMoveRejected reason -> do
-        -- Roll back the optimistic move
-        case mHistory m of
-          [] -> pure ()
-          _  -> do
-            let prev = last (mHistory m)
-            modify $ \x -> x
-              { mGameState = prev
-              , mHistory   = init (mHistory m)
-              , mMoveList  = if null (mMoveList m) then [] else init (mMoveList m)
-              , mSelected  = Nothing
-              , mValidMoves = []
-              , mToast     = Just ("Move rejected: " <> ms reason)
-              }
-        withSink $ \sink -> do
-          threadDelay 3000000
-          sink DismissToast
-
-      SmGameOver result ->
-        modify $ \x -> x { mGameState = (mGameState x) { gsResult = result } }
-
-      SmDrawOffered ->
-        modify $ \x -> x { mDrawOffered = True }
-
-      SmDrawDeclined ->
-        modify $ \x -> x { mDrawOffered = False, mToast = Just "Draw declined" }
-
-      SmOpponentConnected ->
-        modify $ \x -> x { mToast = Just "Opponent connected" }
-
-      SmOpponentDisconnected ->
-        modify $ \x -> x { mToast = Just "Opponent disconnected" }
-
-      SmResigned _side -> pure ()  -- SmGameOver follows
-
-      SmError msg ->
-        modify $ \x -> x { mToast = Just (ms msg) }
-
-  WsSend clientMsg -> do
-    m <- get
-    sendJSON (mWsConn m) clientMsg
 
   CreateMultiplayerGame -> do
     m <- get
@@ -1280,25 +1189,60 @@ updateModel = \case
       Just _ -> io $ do
         invCode <- generateInviteCode
         uuid <- js_generateUUID
-        wsUrl <- js_getWsUrl
-        pure (StartMultiplayerGame invCode uuid wsUrl)
+        pure (InitMultiplayerGame invCode uuid)
 
-  StartMultiplayerGame invCode uuid wsUrl -> do
+  InitMultiplayerGame invCode uuid -> do
     m <- get
     let gs = initialState (mVariant m)
-    modify $ \x -> x
-      { mGameId     = Just uuid
-      , mGameMode   = MultiplayerMode
-      , mGameState  = gs
-      , mSelected   = Nothing
-      , mValidMoves = []
-      , mHistory    = []
-      , mMoveList   = []
-      , mInviteCode = Just invCode
-      , mScreen     = GameScreen
-      , mIsPublic   = False
-      }
-    connectJSON wsUrl WsConnected WsClosed WsReceived WsError
+        mySide = case mSidePreference m of
+          "attacker" -> AttackerSide
+          _          -> DefenderSide
+    case mSession m of
+      Just sess -> do
+        let uid = userId (sessionUser sess)
+            displayName = case mGuestName m of
+              Just gn -> gn
+              Nothing -> maybe "" pUsername (mProfile m)
+            (atkId, atkName, defId, defName) = case mySide of
+              AttackerSide -> (Just uid, Just displayName, Nothing :: Maybe MisoString, Nothing :: Maybe MisoString)
+              DefenderSide -> (Nothing :: Maybe MisoString, Nothing :: Maybe MisoString, Just uid, Just displayName)
+            gameData = object
+              [ "id"            .= uuid
+              , "user_id"       .= uid
+              , "variant"       .= variantSlug (mVariant m)
+              , "result_desc"   .= ("in_progress" :: MisoString)
+              , "total_moves"   .= (0 :: Int)
+              , "game_mode"     .= ("multiplayer" :: MisoString)
+              , "moves"         .= ([] :: [MoveAction])
+              , "status"        .= ("waiting" :: MisoString)
+              , "invite_code"   .= invCode
+              , "current_turn"  .= ("attacker" :: MisoString)
+              , "attacker_id"   .= atkId
+              , "attacker_name" .= atkName
+              , "defender_id"   .= defId
+              , "defender_name" .= defName
+              ]
+        modify $ \x -> x
+          { mGameId     = Just uuid
+          , mGameMode   = MultiplayerMode
+          , mGameState  = gs
+          , mSelected   = Nothing
+          , mValidMoves = []
+          , mHistory    = []
+          , mMoveList   = []
+          , mInviteCode = Just invCode
+          , mScreen     = GameScreen
+          , mIsPublic   = False
+          , mPlayerSide = Just mySide
+          , mOpponentName = Nothing
+          }
+        insert "games" gameData
+          (InsertOptions Nothing Nothing)
+          GameCreated GameCreateError
+        subscribeToTable ("game:" <> uuid) "games" ("id=eq." <> uuid)
+          RealtimeChange RealtimeSubscribed RealtimeError
+        io_ $ pushURI (playURI uuid)
+      Nothing -> pure ()
 
   JoinMultiplayerGame -> do
     m <- get
@@ -1306,44 +1250,247 @@ updateModel = \case
       Nothing -> do
         modify $ \x -> x { mDeferredMpAction = Just DeferJoin }
         signInAnonymously defaultSignInAnonymouslyOptions AnonAuthSuccess AnonAuthError
-      Just _ -> io $ do
-        wsUrl <- js_getWsUrl
-        pure (StartJoinGame wsUrl)
+      Just _ -> do
+        let code = mJoinCodeInput m
+        when (code /= "") $
+          selectWithFilters "games" "*"
+            [eq "invite_code" code, eq "status" ("waiting" :: MisoString)]
+            (FetchOptions Nothing Nothing)
+            GameFoundToJoin GameJoinError
 
-  StartJoinGame wsUrl -> do
-    modify $ \x -> x
-      { mGameMode   = MultiplayerMode
-      , mInviteCode = Nothing  -- we're joining, not creating
-      }
-    connectJSON wsUrl WsConnected WsClosed WsReceived WsError
+  GameFoundToJoin val -> do
+    m <- get
+    case fromJSON val of
+      Success rows -> case (rows :: [GameRow]) of
+        (gr:_) -> do
+          case mSession m of
+            Just sess -> do
+              let uid = userId (sessionUser sess)
+                  displayName = case mGuestName m of
+                    Just gn -> gn
+                    Nothing -> maybe "" pUsername (mProfile m)
+                  -- Determine which side is open
+                  (mySide, updateData) = case grwAttackerId gr of
+                    Nothing -> (AttackerSide, object
+                      [ "attacker_id"   .= uid
+                      , "attacker_name" .= displayName
+                      , "status"        .= ("active" :: MisoString)
+                      ])
+                    Just _ -> (DefenderSide, object
+                      [ "defender_id"   .= uid
+                      , "defender_name" .= displayName
+                      , "status"        .= ("active" :: MisoString)
+                      ])
+                  variant = fromMaybe Tablut (lookupVariant (grwVariant gr))
+                  gs0 = initialState variant
+                  (hist, gs) = replayMoves gs0 (grwMoves gr)
+                  oppName = case mySide of
+                    AttackerSide -> grwDefenderName gr
+                    DefenderSide -> grwAttackerName gr
+                  gid = grwId gr
+              modify $ \x -> x
+                { mGameId       = Just gid
+                , mGameMode     = MultiplayerMode
+                , mGameState    = gs
+                , mVariant      = variant
+                , mSelected     = Nothing
+                , mValidMoves   = []
+                , mHistory      = hist
+                , mMoveList     = grwMoves gr
+                , mPlayerSide   = Just mySide
+                , mOpponentName = oppName
+                , mScreen       = GameScreen
+                , mInviteCode   = Nothing
+                , mIsPublic     = False
+                }
+              updateTable "games" updateData
+                [eq "id" gid]
+                (UpdateOptions Nothing)
+                GameJoinedOk GameJoinUpdateError
+              subscribeToTable ("game:" <> gid) "games" ("id=eq." <> gid)
+                RealtimeChange RealtimeSubscribed RealtimeError
+              io_ $ pushURI (playURI gid)
+            Nothing -> pure ()
+        [] ->
+          modify $ \x -> x { mToast = Just "No waiting game found with that code." }
+      Error _ ->
+        modify $ \x -> x { mToast = Just "Failed to look up game." }
+
+  GameJoinError msg ->
+    modify $ \m -> m { mToast = Just ("Join error: " <> msg) }
+
+  GameJoinedOk _ -> pure ()
+
+  GameJoinUpdateError msg ->
+    modify $ \m -> m { mToast = Just ("Failed to join: " <> msg) }
+
+  RealtimeChange val -> do
+    m <- get
+    -- Parse the new row from the Realtime payload
+    case parseRealtimeRow val of
+      Nothing -> pure ()
+      Just gr -> do
+        let remoteMoves = grwMoves gr
+            localMoves  = mMoveList m
+            variant     = fromMaybe (mVariant m) (lookupVariant (grwVariant gr))
+
+        -- Opponent joined: status changed to active, we have no opponent name yet
+        when (grwStatus gr == "active" && mOpponentName m == Nothing) $ do
+          let oppName = case mPlayerSide m of
+                Just AttackerSide -> grwDefenderName gr
+                Just DefenderSide -> grwAttackerName gr
+                Nothing           -> Nothing
+          modify $ \x -> x { mOpponentName = oppName }
+
+        -- Opponent moved: remote has more moves than local
+        when (length remoteMoves > length localMoves) $ do
+          let gs0 = initialState variant
+              (hist, gs) = replayMoves gs0 remoteMoves
+          modify $ \x -> x
+            { mGameState = gs
+            , mHistory   = hist
+            , mMoveList  = remoteMoves
+            , mSelected  = Nothing
+            , mValidMoves = []
+            }
+          io_ js_playMoveSound
+
+        -- Draw offered by opponent
+        case grwDrawOfferedBy gr of
+          Just offeredBy | Just mySide <- mPlayerSide m
+                         , sideStr mySide /= offeredBy
+                         -> modify $ \x -> x { mDrawOffered = True }
+          Nothing        -> modify $ \x -> x { mDrawOffered = False }
+          _              -> pure ()
+
+        -- Game over (result changed from in_progress)
+        when (grwResultDesc gr /= "in_progress" && grwStatus gr == "finished") $ do
+          let winSide = case grwWinner gr of
+                Just "attacker" -> Just AttackerSide
+                Just "defender" -> Just DefenderSide
+                _               -> Nothing
+              result = GameResult True winSide (fromMisoString (grwResultDesc gr))
+          modify $ \x -> x { mGameState = (mGameState x) { gsResult = result } }
+
+  RealtimeSubscribed ch ->
+    modify $ \m -> m { mRealtimeChannel = Just ch }
+
+  RealtimeError msg ->
+    modify $ \m -> m { mToast = Just ("Realtime error: " <> msg) }
+
+  MoveUpdated _ -> pure ()
+  MoveUpdateError msg ->
+    modify $ \m -> m { mToast = Just ("Move update failed: " <> msg) }
+
+  ResumeGameLoaded val -> do
+    m <- get
+    case fromJSON val of
+      Success rows -> case (rows :: [GameRow]) of
+        (gr:_) -> do
+          let variant = fromMaybe Tablut (lookupVariant (grwVariant gr))
+              gs0 = initialState variant
+              (hist, gs) = replayMoves gs0 (grwMoves gr)
+              gid = grwId gr
+          case mSession m of
+            Just sess -> do
+              let uid = userId (sessionUser sess)
+                  mySide
+                    | grwAttackerId gr == Just uid = Just AttackerSide
+                    | grwDefenderId gr == Just uid = Just DefenderSide
+                    | otherwise = Nothing
+                  oppName = case mySide of
+                    Just AttackerSide -> grwDefenderName gr
+                    Just DefenderSide -> grwAttackerName gr
+                    Nothing           -> Nothing
+                  isMultiplayer = grwStatus gr `elem` ["waiting", "active"]
+                                 || (grwStatus gr == "finished" && fromMaybe "" (grwInviteCode gr) /= "")
+              modify $ \x -> x
+                { mGameId       = Just gid
+                , mGameMode     = if isMultiplayer then MultiplayerMode else mGameMode x
+                , mVariant      = variant
+                , mGameState    = gs
+                , mHistory      = hist
+                , mMoveList     = grwMoves gr
+                , mPlayerSide   = mySide
+                , mOpponentName = oppName
+                , mInviteCode   = grwInviteCode gr
+                , mScreen       = GameScreen
+                }
+              -- Subscribe if game is still active
+              when (grwStatus gr `elem` ["waiting", "active"]) $
+                subscribeToTable ("game:" <> gid) "games" ("id=eq." <> gid)
+                  RealtimeChange RealtimeSubscribed RealtimeError
+            Nothing -> pure ()
+        [] -> modify $ \x -> x { mToast = Just "Game not found." }
+      Error _ -> modify $ \x -> x { mToast = Just "Failed to load game." }
+
+  ResumeGameLoadError msg ->
+    modify $ \m -> m { mToast = Just ("Load error: " <> msg) }
 
   SetJoinCodeInput s ->
     modify $ \m -> m { mJoinCodeInput = s }
 
-  MoveRejected msg ->
-    modify $ \m -> m { mToast = Just msg }
-
   Resign -> do
     m <- get
-    when (mGameMode m == MultiplayerMode && mWsConnected m) $
-      sendJSON (mWsConn m) CmResign
+    when (mGameMode m == MultiplayerMode) $
+      case (mSession m, mGameId m, mPlayerSide m) of
+        (Just _, Just gid, Just mySide) -> do
+          let winnerSide = case mySide of
+                AttackerSide -> "defender" :: MisoString
+                DefenderSide -> "attacker"
+              resignDesc = sideStr mySide <> " resigned"
+              updateData = object
+                [ "result_desc" .= resignDesc
+                , "winner"      .= winnerSide
+                , "status"      .= ("finished" :: MisoString)
+                ]
+          updateTable "games" updateData
+            [eq "id" gid]
+            (UpdateOptions Nothing)
+            MoveUpdated MoveUpdateError
+        _ -> pure ()
 
   OfferDraw -> do
     m <- get
-    when (mGameMode m == MultiplayerMode && mWsConnected m) $
-      sendJSON (mWsConn m) CmOfferDraw
+    when (mGameMode m == MultiplayerMode) $
+      case (mGameId m, mPlayerSide m) of
+        (Just gid, Just mySide) ->
+          updateTable "games"
+            (object ["draw_offered_by" .= sideStr mySide])
+            [eq "id" gid]
+            (UpdateOptions Nothing)
+            MoveUpdated MoveUpdateError
+        _ -> pure ()
 
   AcceptDraw -> do
     m <- get
-    when (mGameMode m == MultiplayerMode && mWsConnected m) $ do
-      sendJSON (mWsConn m) CmAcceptDraw
-      modify $ \x -> x { mDrawOffered = False }
+    when (mGameMode m == MultiplayerMode) $
+      case mGameId m of
+        Just gid -> do
+          let updateData = object
+                [ "result_desc"    .= ("Draw agreed" :: MisoString)
+                , "status"         .= ("finished" :: MisoString)
+                , "draw_offered_by" .= (Nothing :: Maybe MisoString)
+                ]
+          updateTable "games" updateData
+            [eq "id" gid]
+            (UpdateOptions Nothing)
+            MoveUpdated MoveUpdateError
+          modify $ \x -> x { mDrawOffered = False }
+        Nothing -> pure ()
 
   DeclineDraw -> do
     m <- get
-    when (mGameMode m == MultiplayerMode && mWsConnected m) $ do
-      sendJSON (mWsConn m) CmDeclineDraw
-      modify $ \x -> x { mDrawOffered = False }
+    when (mGameMode m == MultiplayerMode) $
+      case mGameId m of
+        Just gid -> do
+          updateTable "games"
+            (object ["draw_offered_by" .= (Nothing :: Maybe MisoString)])
+            [eq "id" gid]
+            (UpdateOptions Nothing)
+            MoveUpdated MoveUpdateError
+          modify $ \x -> x { mDrawOffered = False }
+        Nothing -> pure ()
 
   SetSidePreference s ->
     modify $ \m -> m { mSidePreference = s }
@@ -1370,6 +1517,22 @@ triggerAi = do
           Nothing   -> sink NoOp
           Just move -> sink (AiMoveComplete move)
     else pure ()
+
+-- | Convert a Side to its DB string representation.
+sideStr :: Side -> MisoString
+sideStr AttackerSide = "attacker"
+sideStr DefenderSide = "defender"
+
+-- | Parse the "new" row from a Supabase Realtime Postgres Changes payload.
+parseRealtimeRow :: Value -> Maybe GameRow
+parseRealtimeRow val =
+  case parseMaybe parsePayload val of
+    Just gr -> Just gr
+    Nothing -> Nothing
+  where
+    parsePayload = withObject "RealtimePayload" $ \o -> do
+      newVal <- o .: "new"
+      parseJSON newVal
 
 -- | Save the current finished game (Supabase update if authenticated with gameId, localStorage if guest).
 saveGame :: Effect ROOT () Model Action
