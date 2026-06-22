@@ -12,17 +12,17 @@ A browser-based [Hnefatafl](https://en.wikipedia.org/wiki/Tafl_games) (Viking Ch
 
 ## Board Variants
 
-| Variant | Size | Origin |
-|---|---|---|
-| Brandubh | 7×7 | Irish |
-| Tablut | 9×9 | Saami |
-| Copenhagen | 11×11 | Copenhagen rules |
-| Line | 11×11 | Linear defender formation |
-| Tawlbwrdd | 11×11 | Welsh |
-| Lewis | 11×11 | Lewis variant |
-| Parlett | 13×13 | David Parlett variant |
-| Damien Walker | 15×15 | Damien Walker variant |
-| Alea Evangelii | 19×19 | Historical manuscript |
+| Variant | Size |
+|---|---|
+| Brandubh | 7×7 |
+| Tablut | 9×9 |
+| Copenhagen | 11×11 |
+| Line | 11×11 |
+| Tawlbwrdd | 11×11 |
+| Lewis | 11×11 |
+| Parlett | 13×13 |
+| Damien Walker | 15×15 |
+| Alea Evangelii | 19×19 |
 
 ## Prerequisites
 
