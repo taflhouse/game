@@ -147,7 +147,6 @@ data GameRecord = GameRecord
   , grTotalMoves :: !Int
   , grAiDepth    :: Maybe Int
   , grMoves      :: Maybe [MoveAction]
-  , grIsPublic   :: !Bool
   } deriving (Eq, Show)
 
 instance FromJSON GameRecord where
@@ -163,7 +162,6 @@ instance FromJSON GameRecord where
       <*> v .: "total_moves"
       <*> v .: "ai_depth"
       <*> v .:? "moves"
-      <*> (maybe False id <$> v .:? "is_public")
 
 data DeferredMpAction = DeferCreate | DeferJoin
   deriving (Eq, Show)
@@ -199,7 +197,6 @@ data Model = Model
   , mReplayStates  :: [GameState]
   , mReplayIndex   :: !Int
   , mGameId        :: Maybe MisoString
-  , mIsPublic        :: !Bool
   , mReplayNotFound  :: !Bool
   -- Multiplayer
   , mGuestName        :: Maybe MisoString
@@ -250,7 +247,6 @@ instance Eq Model where
         && mReplayStates a == mReplayStates b
         && mReplayIndex a == mReplayIndex b
         && mGameId a == mGameId b
-        && mIsPublic a == mIsPublic b
         && mReplayNotFound a == mReplayNotFound b
         && mGuestName a == mGuestName b
         && mProfile a == mProfile b
@@ -325,7 +321,6 @@ data Action
   | InitGame MisoString
   | GameCreated Value
   | GameCreateError MisoString
-  | ToggleGamePublic
   | GameUpdated Value
   | GameUpdateError MisoString
   | CopyGameLink
@@ -591,7 +586,6 @@ initModel = Model
   , mReplayStates  = []
   , mReplayIndex   = 0
   , mGameId        = Nothing
-  , mIsPublic        = False
   , mReplayNotFound  = False
   , mGuestName        = Nothing
   , mRealtimeChannel = Nothing
@@ -1017,7 +1011,6 @@ updateModel = \case
     let gs = initialState (mVariant m)
     put $ m
       { mGameId     = Just uuid
-      , mIsPublic   = False
       , mScreen     = GameScreen
       , mGameState  = gs
       , mSelected   = Nothing
@@ -1063,22 +1056,6 @@ updateModel = \case
 
   GameCreateError _ ->
     pure ()
-
-  ToggleGamePublic -> do
-    m <- get
-    case (mSession m, mGameId m) of
-      (Just _, Just gid) -> do
-        let newVal = not (mIsPublic m)
-        modify $ \x -> x { mIsPublic = newVal, mToast = Just (if newVal then "Game is now public" else "Game is now private") }
-        updateTable "games"
-          (object ["is_public" .= newVal])
-          [eq "id" gid]
-          (UpdateOptions Nothing)
-          GameUpdated GameUpdateError
-        withSink $ \sink -> do
-          threadDelay 3000000
-          sink DismissToast
-      _ -> pure ()
 
   GameUpdated _ -> pure ()
   GameUpdateError _ -> pure ()
@@ -1235,7 +1212,6 @@ updateModel = \case
           , mMoveList   = []
           , mInviteCode = Just invCode
           , mScreen     = GameScreen
-          , mIsPublic   = False
           , mPlayerSide = Just mySide
           , mOpponentName = Nothing
           }
@@ -1304,7 +1280,6 @@ updateModel = \case
                 , mOpponentName = oppName
                 , mScreen       = GameScreen
                 , mInviteCode   = Nothing
-                , mIsPublic     = False
                 }
               updateTable "games" updateData
                 [eq "id" gid]
@@ -3025,16 +3000,6 @@ viewShareSection m gid =
             , SVG.onClick CopyGameLink
             ]
             [ text "Copy Link" ]
-        , case mSession m of
-            Just _ -> H.button_
-              [ HP.class_ (if mIsPublic m
-                  then "btn btn-sm bg-green-600 hover:bg-green-700 text-white border-green-500"
-                  else "btn btn-outline btn-sm text-foreground")
-              , style_ [("touch-action", "manipulation")]
-              , SVG.onClick ToggleGamePublic
-              ]
-              [ text (if mIsPublic m then "\x25CF Public" else "\x25CB Private") ]
-            Nothing -> text ""
         ]
     ]
 
