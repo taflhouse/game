@@ -2664,8 +2664,9 @@ viewGame m
       [ HP.class_ "w-full flex flex-col items-center"
       ]
       [ H.div_
-          [ HP.class_ "flex flex-row items-stretch justify-center gap-2"
-          , style_ [("margin-top", "4em")]
+          -- margin-top set via #board-row in styles.css (reduced in fullscreen+zen on small screens)
+          [ HP.id_ "board-row"
+          , HP.class_ ("flex flex-row items-stretch justify-center gap-2" <> if zen then " zen" else "")
           ]
           [ if showEval && not zen then viewEvalBar m else text ""
           , viewBoardPanel m
@@ -2747,12 +2748,12 @@ viewReplayBoardPanel m gs =
       zen = mViewMode m == ZenView
       fsSize = if zen
         then "85vmin"
-        else "min(85vmin, calc(100vh - 29rem))"
+        else "clamp(50vmin, calc(100vh - 29rem), 85vmin)"
   in H.div_
     [ HP.class_ "relative shadow-2xl rounded overflow-hidden border-2 border-border"
     , style_ (if fs
         then [("width", fsSize), ("height", fsSize)]
-        else [("max-width", ms totalPx <> "px"), ("width", ms totalPx <> "px")])
+        else [("max-width", ms totalPx <> "px"), ("width", "100%")])
     ]
     [ viewReplaySVGBoard gs ]
 
@@ -2933,12 +2934,12 @@ viewBoardPanel m =
       zen = mViewMode m == ZenView
       fsSize = if zen
         then "85vmin"
-        else "min(85vmin, calc(100vh - 29rem))"
+        else "clamp(50vmin, calc(100vh - 29rem), 85vmin)"
   in H.div_
     [ HP.class_ "relative shadow-2xl rounded overflow-hidden border-2 border-border"
     , style_ (if fs
         then [("width", fsSize), ("height", fsSize)]
-        else [("max-width", ms totalPx <> "px"), ("width", ms totalPx <> "px")])
+        else [("max-width", ms totalPx <> "px"), ("width", "100%")])
     ]
     [ viewSVGBoard m ]
 
