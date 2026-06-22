@@ -2792,7 +2792,7 @@ viewReplayBoardPanel m gs =
     [ HP.class_ "relative shadow-2xl rounded overflow-hidden border-2 border-border"
     , style_ (if fs
         then [("width", fsSize), ("height", fsSize)]
-        else [("max-width", ms totalPx <> "px"), ("width", "100%")])
+        else [("width", ms totalPx <> "px"), ("max-width", "calc(100vw - 3rem)")])
     ]
     [ viewReplaySVGBoard gs ]
 
@@ -2978,7 +2978,7 @@ viewBoardPanel m =
     [ HP.class_ "relative shadow-2xl rounded overflow-hidden border-2 border-border"
     , style_ (if fs
         then [("width", fsSize), ("height", fsSize)]
-        else [("max-width", ms totalPx <> "px"), ("width", "100%")])
+        else [("width", ms totalPx <> "px"), ("max-width", "calc(100vw - 3rem)")])
     ]
     [ viewSVGBoard m ]
 
