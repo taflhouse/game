@@ -2981,7 +2981,7 @@ viewEvalBar m =
         then "+" <> ms (showScore score)
         else ms (showScore score)
   in H.div_
-    [ HP.class_ "flex-col rounded overflow-hidden border border-border hidden sm:flex"
+    [ HP.class_ "flex flex-col rounded overflow-hidden border border-border"
     , style_ [ ("width", "20px"), ("flex-shrink", "0"), ("position", "relative") ]
     ]
     [ -- Attacker portion (top)
