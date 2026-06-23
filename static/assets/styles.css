@@ -2265,6 +2265,13 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+  --piece-attacker: oklch(0.55 0.18 22);
+  --piece-attacker-fg: white;
+  --piece-defender: oklch(0.48 0.16 288);
+  --piece-defender-fg: white;
+  --piece-king: oklch(0.58 0.14 82);
+  --piece-king-fg: #333;
+  --piece-king-stroke: oklch(0.45 0.10 78);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -2307,6 +2314,13 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+  --piece-attacker: oklch(0.70 0.20 25);
+  --piece-attacker-fg: white;
+  --piece-defender: oklch(0.68 0.18 290);
+  --piece-defender-fg: white;
+  --piece-king: oklch(0.85 0.17 90);
+  --piece-king-fg: #333;
+  --piece-king-stroke: oklch(0.55 0.12 85);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -5729,6 +5743,13 @@ code.hljs {
   --border: oklch(0.9022 0.0052 247.8822);
   --input: oklch(0.9700 0.0029 264.5420);
   --ring: oklch(0.6397 0.1720 36.4421);
+  --piece-attacker: oklch(0.55 0.18 22);
+  --piece-attacker-fg: white;
+  --piece-defender: oklch(0.48 0.16 288);
+  --piece-defender-fg: white;
+  --piece-king: oklch(0.58 0.14 82);
+  --piece-king-fg: #333;
+  --piece-king-stroke: oklch(0.45 0.10 78);
   --chart-1: oklch(0.7156 0.0605 248.6845);
   --chart-2: oklch(0.7875 0.0917 35.9616);
   --chart-3: oklch(0.5778 0.0759 254.1573);
@@ -5784,6 +5805,13 @@ code.hljs {
   --border: oklch(0.3843 0.0301 269.7337);
   --input: oklch(0.3843 0.0301 269.7337);
   --ring: oklch(0.6397 0.1720 36.4421);
+  --piece-attacker: oklch(0.70 0.20 25);
+  --piece-attacker-fg: white;
+  --piece-defender: oklch(0.68 0.18 290);
+  --piece-defender-fg: white;
+  --piece-king: oklch(0.85 0.17 90);
+  --piece-king-fg: #333;
+  --piece-king-stroke: oklch(0.55 0.12 85);
   --chart-1: oklch(0.7156 0.0605 248.6845);
   --chart-2: oklch(0.7693 0.0876 34.1875);
   --chart-3: oklch(0.5778 0.0759 254.1573);
@@ -5839,6 +5867,13 @@ code.hljs {
     --border: oklch(0.9115 0.0216 285.9625);
     --input: oklch(0.9115 0.0216 285.9625);
     --ring: oklch(0.5417 0.1790 288.0332);
+    --piece-attacker: oklch(0.55 0.18 22);
+    --piece-attacker-fg: white;
+    --piece-defender: oklch(0.48 0.16 288);
+    --piece-defender-fg: white;
+    --piece-king: oklch(0.58 0.14 82);
+    --piece-king-fg: #333;
+    --piece-king-stroke: oklch(0.45 0.10 78);
     --chart-1: oklch(0.5417 0.1790 288.0332);
     --chart-2: oklch(0.7042 0.1602 288.9880);
     --chart-3: oklch(0.5679 0.2113 276.7065);
@@ -5894,6 +5929,13 @@ code.hljs {
     --border: oklch(0.3261 0.0597 282.5832);
     --input: oklch(0.3261 0.0597 282.5832);
     --ring: oklch(0.7162 0.1597 290.3962);
+    --piece-attacker: oklch(0.70 0.20 25);
+    --piece-attacker-fg: white;
+    --piece-defender: oklch(0.68 0.18 290);
+    --piece-defender-fg: white;
+    --piece-king: oklch(0.85 0.17 90);
+    --piece-king-fg: #333;
+    --piece-king-stroke: oklch(0.55 0.12 85);
     --chart-1: oklch(0.7162 0.1597 290.3962);
     --chart-2: oklch(0.6382 0.1047 274.9117);
     --chart-3: oklch(0.7482 0.1235 244.7492);
@@ -5949,6 +5991,13 @@ code.hljs {
     --border: oklch(0.88 0.01 97.36);
     --input: oklch(0.76 0.02 98.35);
     --ring: oklch(0.59 0.17 253.06);
+    --piece-attacker: oklch(0.55 0.18 22);
+    --piece-attacker-fg: white;
+    --piece-defender: oklch(0.48 0.16 288);
+    --piece-defender-fg: white;
+    --piece-king: oklch(0.58 0.14 82);
+    --piece-king-fg: #333;
+    --piece-king-stroke: oklch(0.45 0.10 78);
     --chart-1: oklch(0.56 0.13 43.00);
     --chart-2: oklch(0.69 0.16 290.41);
     --chart-3: oklch(0.88 0.03 93.13);
@@ -5995,6 +6044,13 @@ code.hljs {
     --border: oklch(0.36 0.01 106.89);
     --input: oklch(0.43 0.01 100.22);
     --ring: oklch(0.59 0.17 253.06);
+    --piece-attacker: oklch(0.70 0.20 25);
+    --piece-attacker-fg: white;
+    --piece-defender: oklch(0.68 0.18 290);
+    --piece-defender-fg: white;
+    --piece-king: oklch(0.85 0.17 90);
+    --piece-king-fg: #333;
+    --piece-king-stroke: oklch(0.55 0.12 85);
     --chart-1: oklch(0.56 0.13 43.00);
     --chart-2: oklch(0.69 0.16 290.41);
     --chart-3: oklch(0.21 0.01 95.42);
@@ -6044,6 +6100,13 @@ code.hljs {
     --border: oklch(0.90 0 0);
     --input: oklch(0.90 0 0);
     --ring: oklch(0.83 0.13 160.91);
+    --piece-attacker: oklch(0.55 0.18 22);
+    --piece-attacker-fg: white;
+    --piece-defender: oklch(0.48 0.16 288);
+    --piece-defender-fg: white;
+    --piece-king: oklch(0.58 0.14 82);
+    --piece-king-fg: #333;
+    --piece-king-stroke: oklch(0.45 0.10 78);
     --chart-1: oklch(0.83 0.13 160.91);
     --chart-2: oklch(0.62 0.19 259.81);
     --chart-3: oklch(0.61 0.22 292.72);
@@ -6091,6 +6154,13 @@ code.hljs {
     --border: oklch(0.28 0 0);
     --input: oklch(0.28 0 0);
     --ring: oklch(0.80 0.18 151.71);
+    --piece-attacker: oklch(0.70 0.20 25);
+    --piece-attacker-fg: white;
+    --piece-defender: oklch(0.68 0.18 290);
+    --piece-defender-fg: white;
+    --piece-king: oklch(0.85 0.17 90);
+    --piece-king-fg: #333;
+    --piece-king-stroke: oklch(0.55 0.12 85);
     --chart-1: oklch(0.80 0.18 151.71);
     --chart-2: oklch(0.71 0.14 254.62);
     --chart-3: oklch(0.71 0.16 293.54);
@@ -6121,6 +6191,7 @@ code.hljs {
     letter-spacing: var(--tracking-normal);
   }
 }
+
 @property --tw-translate-x {
   syntax: "*";
   inherits: false;

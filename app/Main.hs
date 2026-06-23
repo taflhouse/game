@@ -2820,12 +2820,17 @@ renderReplayLastMove :: GameState -> Int -> [View Model Action]
 renderReplayLastMove gs _n = case gsLastAction gs of
   Nothing -> []
   Just (MoveAction f t) ->
-    [ SVG.rect_
+    let movedPiece = pieceAt (gsBoard gs) t
+        hlColor = case movedPiece of
+          King     -> "color-mix(in oklch, var(--piece-king) 40%, transparent)"
+          Attacker -> "color-mix(in oklch, var(--piece-attacker) 30%, transparent)"
+          _        -> "color-mix(in oklch, var(--piece-defender) 50%, transparent)"
+    in [ SVG.rect_
         [ SP.x_ (ms (col sq * sqSize))
         , SP.y_ (ms (row sq * sqSize))
         , HP.width_ (ms sqSize)
         , HP.height_ (ms sqSize)
-        , SP.fill_ "rgba(200,200,80,0.3)"
+        , SP.fill_ hlColor
         ]
     | sq <- [f, t]
     ]
@@ -2889,24 +2894,30 @@ viewReplayMoveList m n =
         ]
 
 replayMoveBtn :: Int -> MoveAction -> Int -> Bool -> [GameState] -> View Model Action
-replayMoveBtn idx (MoveAction f t) n isCurrent states =
+replayMoveBtn idx (MoveAction _f t) n isCurrent states =
   let gs = if idx < length states then states !! idx else states !! (length states - 1)
       moveSide = opponentSide gs
+      movedPiece = pieceAt (gsBoard gs) t
       pointer = if isCurrent then "> " else "  "
       sideChar = case moveSide of
-        AttackerSide -> "A"
-        DefenderSide -> "D"
-      label = pointer <> ms (show idx) <> ". " <> sideChar <> " "
-            <> ms (coordStr n f) <> "-" <> ms (coordStr n t)
-      activeCls = if isCurrent
-        then " text-green-500 dark:text-green-400 border-l-2 border-green-500 dark:border-green-400"
-        else " border-l-2 border-transparent"
+          AttackerSide -> "A"
+          DefenderSide -> "D"
+      la = case gsLastAction gs of
+        Just (MoveAction f' t') -> pointer <> ms (show idx) <> ". " <> sideChar <> " "
+              <> ms (coordStr n f') <> "-" <> ms (coordStr n t')
+        _ -> pointer <> ms (show idx) <> ". " <> sideChar
+      (textColor, borderColor) = case movedPiece of
+        Attacker -> ("var(--piece-attacker)", "var(--piece-attacker)")
+        King     -> ("var(--piece-king)", "var(--piece-king)")
+        _        -> ("var(--piece-defender)", "var(--piece-defender)")
+      activeCls = " border-l-2"
+      moveStyle = [("color", textColor), ("border-left-color", borderColor)]
   in H.button_
     [ HP.class_ ("text-xs font-mono text-left w-full py-1 px-2 rounded hover:bg-muted/50 cursor-pointer bg-transparent border-0 text-foreground" <> activeCls)
-    , style_ [("touch-action", "manipulation")]
+    , style_ (("touch-action", "manipulation") : moveStyle)
     , SVG.onClick (ReplayGotoMove idx)
     ]
-    [ text label ]
+    [ text la ]
 
 -- ---------------------------------------------------------------------------
 -- Board
@@ -2931,17 +2942,17 @@ viewEvalBar m =
     [ HP.class_ "flex-col rounded overflow-hidden border border-border hidden sm:flex"
     , style_ [ ("width", "20px"), ("flex-shrink", "0"), ("position", "relative") ]
     ]
-    [ -- Attacker portion (dark, top)
+    [ -- Attacker portion (top)
       H.div_
         [ HP.class_ "w-full transition-all duration-300"
         , style_ [ ("height", ms (showPct attackerPct) <> "%")
-                 , ("background", "#2a2a2a") ]
+                 , ("background", "var(--piece-attacker)") ]
         ] []
-    , -- Defender portion (light, bottom)
+    , -- Defender portion (bottom)
       H.div_
         [ HP.class_ "w-full transition-all duration-300"
         , style_ [ ("height", ms (showPct defenderPct) <> "%")
-                 , ("background", "#e8e0d0") ]
+                 , ("background", "var(--piece-defender)") ]
         ] []
     , -- Score label overlay
       H.div_
@@ -3054,46 +3065,64 @@ renderSpecialSquares gs n =
           , SP.strokeWidth_ "2"
           , SP.rx_ "3"
           ]
-  in map (\pos -> markSquare pos "var(--destructive)") corners
-     ++ [markSquare (center, center) "var(--primary)"]
+  in map (\pos -> markSquare pos "var(--piece-king)") corners
+     ++ [markSquare (center, center) "var(--piece-defender)"]
 
--- Highlight selected square
+-- Highlight selected square (colored by selected piece)
 renderHighlights :: Model -> Int -> [View Model Action]
 renderHighlights m _n = case mSelected m of
   Nothing -> []
-  Just (Coords r c) ->
-    [ SVG.rect_
+  Just sc@(Coords r c) ->
+    let hlColor = case pieceAt (gsBoard (mGameState m)) sc of
+          Attacker -> "color-mix(in oklch, var(--piece-attacker) 45%, transparent)"
+          Defender -> "color-mix(in oklch, var(--piece-defender) 45%, transparent)"
+          King     -> "color-mix(in oklch, var(--piece-king) 45%, transparent)"
+          _        -> "rgba(80,200,120,0.45)"
+    in [ SVG.rect_
         [ SP.x_ (ms (c * sqSize))
         , SP.y_ (ms (r * sqSize))
         , HP.width_ (ms sqSize)
         , HP.height_ (ms sqSize)
-        , SP.fill_ "rgba(80,200,120,0.45)"
+        , SP.fill_ hlColor
         ]
     ]
 
--- Valid move dots
+-- Valid move dots (colored by selected piece)
 renderValidDots :: Model -> Int -> [View Model Action]
 renderValidDots m _n =
-  [ SVG.circle_
+  let dotColor = case mSelected m of
+        Nothing -> "rgba(80,200,120,0.6)"
+        Just sc -> case pieceAt (gsBoard (mGameState m)) sc of
+          Attacker -> "color-mix(in oklch, var(--piece-attacker) 60%, transparent)"
+          Defender -> "color-mix(in oklch, var(--piece-defender) 60%, transparent)"
+          King     -> "color-mix(in oklch, var(--piece-king) 60%, transparent)"
+          _        -> "rgba(80,200,120,0.6)"
+  in [ SVG.circle_
       [ SP.cx_ (ms (col coord * sqSize + sqSize `div` 2))
       , SP.cy_ (ms (row coord * sqSize + sqSize `div` 2))
       , SP.r_ (ms (sqSize `div` 5))
-      , SP.fill_ "rgba(80,200,120,0.6)"
+      , SP.fill_ dotColor
       ]
   | coord <- mValidMoves m
   ]
 
--- Last move indicators
+-- Last move indicators (colored by the side that moved)
 renderLastMove :: Model -> Int -> [View Model Action]
 renderLastMove m _n = case gsLastAction (mGameState m) of
   Nothing -> []
   Just (MoveAction f t) ->
-    [ SVG.rect_
+    let gs = mGameState m
+        movedPiece = pieceAt (gsBoard gs) t
+        hlColor = case movedPiece of
+          King     -> "color-mix(in oklch, var(--piece-king) 40%, transparent)"
+          Attacker -> "color-mix(in oklch, var(--piece-attacker) 30%, transparent)"
+          _        -> "color-mix(in oklch, var(--piece-defender) 50%, transparent)"
+    in [ SVG.rect_
         [ SP.x_ (ms (col sq * sqSize))
         , SP.y_ (ms (row sq * sqSize))
         , HP.width_ (ms sqSize)
         , HP.height_ (ms sqSize)
-        , SP.fill_ "rgba(200,200,80,0.3)"
+        , SP.fill_ hlColor
         ]
     | sq <- [f, t]
     ]
@@ -3105,9 +3134,9 @@ renderPiece _n r c piece =
       cy = r * sqSize + sqSize `div` 2
       radius = sqSize `div` 2 - 4
       (fill, stroke, label) = case piece of
-        Attacker -> ("#2a2a2a", "#111", "A" :: MisoString)
-        Defender -> ("#e8e0d0", "#555", "D")
-        King     -> ("#ffd700", "#8b6914", "K")
+        Attacker -> ("var(--piece-attacker)", "var(--border)", "A" :: MisoString)
+        Defender -> ("var(--piece-defender)", "var(--border)", "D")
+        King     -> ("var(--piece-king)", "var(--piece-king-stroke)", "K")
         Empty    -> ("#000", "#000", "")
   in SVG.g_
     [ SP.filter_ "url(#pieceShadow)" ]
@@ -3126,7 +3155,11 @@ renderPiece _n r c piece =
         , SP.dominantBaseline_ "central"
         , SP.fontSize_ (ms (sqSize `div` 3))
         , SP.fontWeight_ "bold"
-        , SP.fill_ (if piece == Attacker then "#ccc" else "#333")
+        , SP.fill_ (case piece of
+            Attacker -> "var(--piece-attacker-fg)"
+            King     -> "var(--piece-king-fg)"
+            Defender -> "var(--piece-defender-fg)"
+            _        -> "#333")
         , SP.fontFamily_ "Arial, sans-serif"
         ]
         [ text label ]
@@ -3179,9 +3212,13 @@ viewStatus m =
             maybe "Opponent" fromMisoString (mOpponentName m) <> "'s turn")
         | side == AttackerSide = ("text-center my-4 py-1 font-bold", "Attacker's turn")
         | otherwise            = ("text-center my-4 py-1 font-bold", "Defender's turn")
+      winBorder = case winner result of
+        Just AttackerSide -> [("border", "1px solid var(--piece-attacker)")]
+        Just DefenderSide -> [("border", "1px solid var(--piece-defender)")]
+        _                 -> []
   in H.div_
     [ HP.class_ cls
-    , style_ [("max-width", ms (sqSize * n) <> "px")]
+    , style_ (("max-width", ms (sqSize * n) <> "px") : winBorder)
     ]
     [ text (ms msg)
     , if not (null caps) && not (finished result)
@@ -3310,22 +3347,33 @@ moveBtn m idx gs n isCurrent =
       isHuman = case gsLastAction gs of
         Nothing -> False
         Just _  -> mGameMode m == PracticeMode || mAiSide m /= moveSide
+      -- Determine piece type that moved (check destination square)
+      movedPiece = case gsLastAction gs of
+        Nothing            -> Empty
+        Just (MoveAction _ t) -> pieceAt (gsBoard gs) t
       -- Current position: > prefix; human moves: bold; AI moves: dim
       pointer = if isCurrent then "> " else "  "
       moveLabel = case gsLastAction gs of
         Nothing -> "Start"
         Just (MoveAction f t) ->
           let sideChar = case moveSide of
-                AttackerSide -> "A"
-                DefenderSide -> "D"
+                  AttackerSide -> "A"
+                  DefenderSide -> "D"
           in ms (show idx) <> ". " <> sideChar <> " "
                <> ms (coordStr n f) <> "-" <> ms (coordStr n t)
       label = pointer <> moveLabel
-      activeCls = if isCurrent then " text-green-500 dark:text-green-400 border-l-2 border-green-500 dark:border-green-400" else " border-l-2 border-transparent"
-      boldCls = if isHuman || isCurrent then " font-bold" else " text-muted-foreground"
+      -- Color-code border and text by piece type for all moves
+      (textColor, borderColor) = case movedPiece of
+        Attacker -> ("var(--piece-attacker)", "var(--piece-attacker)")
+        King     -> ("var(--piece-king)", "var(--piece-king)")
+        Defender -> ("var(--piece-defender)", "var(--piece-defender)")
+        Empty    -> ("var(--foreground)", "transparent")
+      activeCls = " border-l-2"
+      moveStyle = [("color", textColor), ("border-left-color", borderColor)]
+      boldCls = if isHuman || isCurrent then " font-bold" else ""
   in H.button_
     [ HP.class_ ("text-xs font-mono text-left w-full py-1 px-2 rounded hover:bg-muted/50 cursor-pointer bg-transparent border-0 text-foreground" <> activeCls <> boldCls)
-    , style_ [("touch-action", "manipulation")]
+    , style_ (("touch-action", "manipulation") : moveStyle)
     , SVG.onClick (GotoMove idx)
     ]
     [ text label ]
