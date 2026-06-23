@@ -1062,7 +1062,7 @@ updateModel = \case
         [] -> modify $ \m -> m { mReplayNotFound = True }
       Error _ -> modify $ \m -> m { mReplayNotFound = True }
 
-  ReplayLoadError _ -> pure ()
+  ReplayLoadError _ -> modify $ \m -> m { mReplayNotFound = True }
 
   ReplayGotoMove i -> do
     m <- get
@@ -3228,9 +3228,12 @@ viewStatus m =
           [ text (ms ("Last move captured " ++ show (length caps) ++ " piece(s)")) ]
         else text ""
     , if finished result
-        then case mGameId m of
-          Just gid -> viewShareSection m gid
-          Nothing  -> text ""
+        then case (mGameId m, mSession m) of
+          (Just gid, Just sess)
+            | amProvider (userAppMetadata (sessionUser sess)) /= "anonymous"
+              || mGameMode m == MultiplayerMode
+              -> viewShareSection m gid
+          _   -> text ""
         else text ""
     ]
 
