@@ -17,7 +17,7 @@ import qualified Miso.Svg.Property as SP
 import Miso.JSON (Value, FromJSON(..), ToJSON(..), fromJSON, Result(..), Parser,
                   object, (.=), (.:), (.:?), (.!=), withObject, withText, parseMaybe)
 import Data.List (isPrefixOf)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, jsg, (#), asyncCallback, Function(..))
 import Supabase.Miso.Core (successCallback, errorCallback)
 import Supabase.Miso.Auth
@@ -219,6 +219,8 @@ data Model = Model
   , mEditDisplayName :: !MisoString
   , mDeferredMpAction :: Maybe DeferredMpAction
   , mEvalScore        :: !Int
+  , mFullHistory      :: Maybe [GameState]   -- ^ Preserved full state list for browsing
+  , mFullMoveList     :: Maybe [MoveAction]  -- ^ Preserved full move list for browsing
   , mViewMode         :: !ViewMode
   , mIsFullscreen     :: !Bool
   , mZenHint          :: !Bool
@@ -272,6 +274,8 @@ instance Eq Model where
         && mEditDisplayName a == mEditDisplayName b
         && mDeferredMpAction a == mDeferredMpAction b
         && mEvalScore a == mEvalScore b
+        && mFullHistory a == mFullHistory b
+        && mFullMoveList a == mFullMoveList b
         && mViewMode a == mViewMode b
         && mIsFullscreen a == mIsFullscreen b
         && mZenHint a == mZenHint b
@@ -641,6 +645,8 @@ initModel = Model
   , mEditDisplayName = ""
   , mDeferredMpAction = Nothing
   , mEvalScore        = 0
+  , mFullHistory      = Nothing
+  , mFullMoveList     = Nothing
   , mViewMode         = NormalView
   , mIsFullscreen     = False
   , mZenHint          = False
@@ -790,6 +796,7 @@ updateModel = \case
           modify $ const $ m { mGameState = gs', mSelected = Nothing, mValidMoves = []
                              , mHistory = mHistory m ++ [gs]
                              , mMoveList = mMoveList m ++ [move]
+                             , mFullHistory = Nothing, mFullMoveList = Nothing
                              , mEvalScore = evaluate gs' }
           io_ js_playMoveSound
           -- In multiplayer, update the game row in Supabase
@@ -842,6 +849,7 @@ updateModel = \case
           , mValidMoves = [], mAiThinking = False
           , mHistory = mHistory m ++ [gs]
           , mMoveList = mMoveList m ++ [move]
+          , mFullHistory = Nothing, mFullMoveList = Nothing
           , mEvalScore = evaluate gs' }
         io_ js_playMoveSound
         when (finished (gsResult gs')) saveGame
@@ -858,17 +866,37 @@ updateModel = \case
 
   GotoMove i -> do
     m <- get
-    let allStates = mHistory m ++ [mGameState m]
-        currentIdx = length allStates - 1
-    if i >= 0 && i < currentIdx
+    -- Use the full history snapshot if browsing, otherwise current state
+    let fullStates = case mFullHistory m of
+          Just fs -> fs
+          Nothing -> mHistory m ++ [mGameState m]
+        fullMoves = case mFullMoveList m of
+          Just fm -> fm
+          Nothing -> mMoveList m
+        lastIdx = length fullStates - 1
+        canBrowse = finished (gsResult (last fullStates))
+                    || mGameMode m `elem` [PracticeMode, AiMode]
+    if canBrowse && i >= 0 && i <= lastIdx
       then put $ m
-          { mGameState  = allStates !! i
-          , mHistory    = take i allStates
+          { mGameState    = fullStates !! i
+          , mHistory      = take i fullStates
+          , mMoveList     = take i fullMoves
+          , mFullHistory  = Just fullStates
+          , mFullMoveList = Just fullMoves
+          , mSelected     = Nothing
+          , mValidMoves   = []
+          , mAiThinking   = False
+          , mEvalScore    = evaluate (fullStates !! i)
+          }
+      else if i >= 0 && i < length (mHistory m ++ [mGameState m])
+      then put $ m
+          { mGameState  = (mHistory m ++ [mGameState m]) !! i
+          , mHistory    = take i (mHistory m ++ [mGameState m])
           , mMoveList   = take i (mMoveList m)
           , mSelected   = Nothing
           , mValidMoves = []
           , mAiThinking = False
-          , mEvalScore  = evaluate (allStates !! i)
+          , mEvalScore  = evaluate ((mHistory m ++ [mGameState m]) !! i)
           }
       else pure ()
 
@@ -879,14 +907,27 @@ updateModel = \case
       _  -> do
         let prev = last (mHistory m)
             newHistory = init (mHistory m)
+            canBrowse = finished (gsResult (mGameState m))
+                        || mGameMode m `elem` [PracticeMode, AiMode]
+            -- Snapshot full state on first undo if browsable
+            fh = case mFullHistory m of
+              Just fs -> Just fs
+              Nothing | canBrowse -> Just (mHistory m ++ [mGameState m])
+              _       -> Nothing
+            fm = case mFullMoveList m of
+              Just ms' -> Just ms'
+              Nothing | canBrowse -> Just (mMoveList m)
+              _        -> Nothing
         put $ m
-          { mGameState  = prev
-          , mHistory    = newHistory
-          , mMoveList   = take (length newHistory) (mMoveList m)
-          , mSelected   = Nothing
-          , mValidMoves = []
-          , mAiThinking = False
-          , mEvalScore  = evaluate prev
+          { mGameState    = prev
+          , mHistory      = newHistory
+          , mMoveList     = take (length newHistory) (mMoveList m)
+          , mFullHistory  = fh
+          , mFullMoveList = fm
+          , mSelected     = Nothing
+          , mValidMoves   = []
+          , mAiThinking   = False
+          , mEvalScore    = evaluate prev
           }
 
   -- Auth actions
@@ -3307,7 +3348,7 @@ viewMultiplayerControls m =
 
 viewMoveHistory :: Model -> View Model Action
 viewMoveHistory m
-  | null (mHistory m) =
+  | null (mHistory m) && isNothing (mFullHistory m) =
       let n = boardSize (gsBoard (mGameState m))
       in H.div_
         [ HP.class_ "flex justify-center items-center w-full"
@@ -3315,9 +3356,11 @@ viewMoveHistory m
         ]
         [ ctrlBtn ToggleZenMode "Zen" ]
   | otherwise =
-      let allStates = mHistory m ++ [mGameState m]
+      let displayStates = case mFullHistory m of
+            Just fs -> fs
+            Nothing -> mHistory m ++ [mGameState m]
           n = boardSize (gsBoard (mGameState m))
-          currentIdx = length allStates - 1
+          viewIdx = length (mHistory m)  -- current viewing position
       in H.div_
         [ HP.class_ "flex flex-col gap-1 items-center w-full"
         , style_ [("max-width", ms (sqSize * n) <> "px")]
@@ -3339,8 +3382,8 @@ viewMoveHistory m
             [ HP.class_ "flex gap-0.5 overflow-y-auto p-2 w-full rounded border border-border"
             , style_ [("max-height", "10rem"), ("flex-direction", "column-reverse")]
             ]
-            [ moveBtn m i gs n (i == currentIdx)
-            | (i, gs) <- reverse (zip [0..] allStates)
+            [ moveBtn m i gs n (i == viewIdx)
+            | (i, gs) <- reverse (zip [0..] displayStates)
             ]
         ]
 

@@ -23,7 +23,10 @@ make serve             # http-server public on :8080
 
 Environment variables `SUPABASE_URL` and `SUPABASE_KEY` must be set before `make build` — they get substituted into `public/index.js` via sed. Local values are in `.envrc`.
 
-There are no tests.
+```bash
+# Run tests (uses cabal.project.test to avoid WASM-only dependencies)
+cabal test --project-file=cabal.project.test
+```
 
 ## Architecture
 
