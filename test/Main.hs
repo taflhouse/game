@@ -11,16 +11,20 @@ import Tafl.Move (getPossibleActions)
 
 -- | The subset of Model state relevant to the history invariant.
 data SimModel = SimModel
-  { simGameState :: GameState
-  , simHistory   :: [GameState]
-  , simMoveList  :: [MoveAction]
+  { simGameState   :: GameState
+  , simHistory     :: [GameState]
+  , simMoveList    :: [MoveAction]
+  , simFullHistory :: Maybe [GameState]
+  , simFullMoveList :: Maybe [MoveAction]
   } deriving (Show)
 
 initModel :: BoardVariant -> SimModel
 initModel v = SimModel
-  { simGameState = initialState v
-  , simHistory   = []
-  , simMoveList  = []
+  { simGameState   = initialState v
+  , simHistory     = []
+  , simMoveList    = []
+  , simFullHistory = Nothing
+  , simFullMoveList = Nothing
   }
 
 -- | Apply a move (mirrors CellClicked handler).
@@ -28,9 +32,11 @@ applyMove :: SimModel -> MoveAction -> SimModel
 applyMove m move =
   let gs  = simGameState m
       gs' = act gs move
-  in m { simGameState = gs'
-       , simHistory   = simHistory m ++ [gs]
-       , simMoveList  = simMoveList m ++ [move]
+  in m { simGameState   = gs'
+       , simHistory     = simHistory m ++ [gs]
+       , simMoveList    = simMoveList m ++ [move]
+       , simFullHistory = Nothing
+       , simFullMoveList = Nothing
        }
 
 -- | Undo one move (mirrors Undo handler).
@@ -40,22 +46,59 @@ undo m = case simHistory m of
   _  ->
     let prev       = last (simHistory m)
         newHistory  = init (simHistory m)
-    in m { simGameState = prev
-         , simHistory   = newHistory
-         , simMoveList  = take (length newHistory) (simMoveList m)
+        fh = case simFullHistory m of
+          Just fs -> Just fs
+          Nothing -> Just (simHistory m ++ [simGameState m])
+        fm = case simFullMoveList m of
+          Just ms' -> Just ms'
+          Nothing  -> Just (simMoveList m)
+    in m { simGameState   = prev
+         , simHistory     = newHistory
+         , simMoveList    = take (length newHistory) (simMoveList m)
+         , simFullHistory = fh
+         , simFullMoveList = fm
          }
 
--- | Go to a specific move index (mirrors GotoMove handler).
+-- | Go to a specific move index (mirrors GotoMove handler with browse support).
 gotoMove :: Int -> SimModel -> SimModel
 gotoMove i m =
-  let allStates  = simHistory m ++ [simGameState m]
-      currentIdx = length allStates - 1
-  in if i >= 0 && i < currentIdx
-     then m { simGameState = allStates !! i
-            , simHistory   = take i allStates
-            , simMoveList  = take i (simMoveList m)
+  let fullStates = case simFullHistory m of
+        Just fs -> fs
+        Nothing -> simHistory m ++ [simGameState m]
+      fullMoves = case simFullMoveList m of
+        Just fm -> fm
+        Nothing -> simMoveList m
+      lastIdx = length fullStates - 1
+  in if i >= 0 && i <= lastIdx
+     then m { simGameState   = fullStates !! i
+            , simHistory     = take i fullStates
+            , simMoveList    = take i fullMoves
+            , simFullHistory = Just fullStates
+            , simFullMoveList = Just fullMoves
             }
      else m
+
+-- | The true game result, accounting for history browsing.
+-- Mirrors the logic in viewMultiplayerControls: check the final state
+-- from the full history snapshot, not the currently viewed state.
+trueGameResult :: SimModel -> GameResult
+trueGameResult m = case simFullHistory m of
+  Just fs -> gsResult (last fs)
+  Nothing -> gsResult (simGameState m)
+
+-- | Is the game truly over? Must be correct even when browsing history.
+isGameOver :: SimModel -> Bool
+isGameOver = finished . trueGameResult
+
+-- | All states available for browsing (full history if browsing, otherwise current).
+allBrowseStates :: SimModel -> [GameState]
+allBrowseStates m = case simFullHistory m of
+  Just fs -> fs
+  Nothing -> simHistory m ++ [simGameState m]
+
+-- | Can navigate forward from current position?
+canGoForward :: SimModel -> Bool
+canGoForward m = length (simHistory m) < length (allBrowseStates m) - 1
 
 -- ---------------------------------------------------------------------------
 -- Invariant
@@ -86,6 +129,15 @@ applyNMoves 0 m = m
 applyNMoves n m = case firstLegalMove m of
   Nothing   -> m
   Just move -> applyNMoves (n - 1) (applyMove m move)
+
+-- | Play until the game ends or a move limit is reached.
+playToEnd :: Int -> SimModel -> SimModel
+playToEnd 0 m = m
+playToEnd n m
+  | finished (gsResult (simGameState m)) = m
+  | otherwise = case firstLegalMove m of
+      Nothing   -> m
+      Just move -> playToEnd (n - 1) (applyMove m move)
 
 -- ---------------------------------------------------------------------------
 -- Tests
@@ -190,6 +242,56 @@ main = do
       runTest "all variants start clean" $ do
         let variants = [minBound .. maxBound] :: [BoardVariant]
         mapM_ (\v -> checkInvariant (initModel v) (show v)) variants
+
+    -- Browse / forward navigation tests
+    , runTest "forward navigation after goto" $ do
+        let m5 = applyNMoves 5 m0
+            m2 = gotoMove 2 m5
+        if canGoForward m2 then Right ()
+        else Left "cannot go forward after goto"
+
+    , runTest "forward to last move after goto" $ do
+        let m5 = applyNMoves 5 m0
+            m2 = gotoMove 2 m5
+            m5' = gotoMove 5 m2
+        checkInvariant m5' "goto-forward"
+
+    , runTest "goto back then forward preserves states" $ do
+        let m5 = applyNMoves 5 m0
+            m2 = gotoMove 2 m5
+            total = length (allBrowseStates m2)
+        if total == 6 then Right ()  -- 5 moves + initial = 6 states
+        else Left $ "expected 6 browse states, got " ++ show total
+
+    , runTest "new move clears forward history" $ do
+        let m5 = applyNMoves 5 m0
+            m2 = gotoMove 2 m5
+            m3 = applyNMoves 1 m2
+        if simFullHistory m3 == Nothing then Right ()
+        else Left "forward history not cleared after new move"
+
+    -- Game-over invariant: browsing history must not change game outcome
+    , runTest "game over persists when browsing back" $ do
+        let mDone = playToEnd 500 m0
+        if not (isGameOver mDone) then Right ()  -- game might not end in 500 moves, skip
+        else let m2 = gotoMove 2 mDone
+             in if isGameOver m2 then Right ()
+                else Left "game no longer over after browsing back"
+
+    , runTest "game over persists after undo" $ do
+        let mDone = playToEnd 500 m0
+        if not (isGameOver mDone) then Right ()
+        else let m' = undo mDone
+             in if isGameOver m' then Right ()
+                else Left "game no longer over after undo"
+
+    , runTest "game over persists after multiple gotos" $ do
+        let mDone = playToEnd 500 m0
+        if not (isGameOver mDone) then Right ()
+        else let m0' = gotoMove 0 mDone
+                 m1' = gotoMove 1 m0'
+             in if isGameOver m1' then Right ()
+                else Left "game no longer over after multiple gotos"
     ]
 
   putStrLn ""

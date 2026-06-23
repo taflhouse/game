@@ -2752,9 +2752,10 @@ viewGame m
           , viewBoardPanel m
           ]
       , if zen then text "" else viewStatus m
+      , if zen then text "" else viewMoveHistory m
       , if zen then text ""
         else if mGameMode m == MultiplayerMode then viewMultiplayerControls m else text ""
-      , if zen then text "" else viewMoveHistory m
+      , if zen then text "" else viewShareLink m
       ]
 
 -- ---------------------------------------------------------------------------
@@ -3239,27 +3240,34 @@ viewStatus m =
       isAi   = mGameMode m == AiMode
       isMp   = mGameMode m == MultiplayerMode
       myTurn = mPlayerSide m == Just side
+      baseCls = "text-center my-4 font-bold card px-3 pt-3 pb-1 w-full"
       (cls, msg)
         | finished result = case winner result of
-            Just AttackerSide -> ("card px-3 pt-3 pb-1 my-4 w-full text-center font-bold text-destructive", "Attackers win! " <> desc result)
-            Just DefenderSide -> ("card px-3 pt-3 pb-1 my-4 w-full text-center font-bold", "Defenders win! " <> desc result)
-            Nothing           -> ("card px-3 pt-3 pb-1 my-4 w-full text-center font-bold", "Draw! " <> desc result)
-        | mAiThinking m = ("text-center my-4 py-1 text-muted-foreground animate-pulse font-bold", "AI thinking...")
-        | isAi && mAiSide m == side = ("text-center my-4 py-1 font-bold",
+            Just AttackerSide -> (baseCls <> " text-destructive", "Attackers win! " <> desc result)
+            Just DefenderSide -> (baseCls, "Defenders win! " <> desc result)
+            Nothing           -> (baseCls, "Draw! " <> desc result)
+        | mAiThinking m = (baseCls <> " text-muted-foreground animate-pulse", "AI thinking...")
+        | isAi && mAiSide m == side = (baseCls,
             (if side == AttackerSide then "Attacker's turn" else "Defender's turn") <> " (AI)")
-        | isAi = ("text-center my-4 py-1 font-bold", "Your turn")
-        | isMp && myTurn = ("text-center my-4 py-1 font-bold", "Your turn")
-        | isMp = ("text-center my-4 py-1 text-muted-foreground font-bold",
+        | isAi = (baseCls, "Your turn")
+        | isMp && myTurn = (baseCls, "Your turn")
+        | isMp = (baseCls <> " text-muted-foreground",
             maybe "Opponent" fromMisoString (mOpponentName m) <> "'s turn")
-        | side == AttackerSide = ("text-center my-4 py-1 font-bold", "Attacker's turn")
-        | otherwise            = ("text-center my-4 py-1 font-bold", "Defender's turn")
-      winBorder = case winner result of
-        Just AttackerSide -> [("border", "1px solid var(--piece-attacker)")]
-        Just DefenderSide -> [("border", "1px solid var(--piece-defender)")]
-        _                 -> []
+        | side == AttackerSide = (baseCls, "Attacker's turn")
+        | otherwise            = (baseCls, "Defender's turn")
+      borderColor
+        | not (finished result) = "transparent"
+        | otherwise = case winner result of
+            Just AttackerSide -> "var(--piece-attacker)"
+            Just DefenderSide -> "var(--piece-defender)"
+            _                 -> "var(--muted-foreground)"
   in H.div_
     [ HP.class_ cls
-    , style_ (("max-width", ms (sqSize * n) <> "px") : winBorder)
+    , style_ [ ("max-width", ms (sqSize * n) <> "px")
+             , ("min-height", "3.5rem")
+             , ("border", "1px solid " <> borderColor)
+             , ("border-radius", "0.375rem")
+             ]
     ]
     [ text (ms msg)
     , if not (null caps) && not (finished result)
@@ -3268,48 +3276,54 @@ viewStatus m =
           ]
           [ text (ms ("Last move captured " ++ show (length caps) ++ " piece(s)")) ]
         else text ""
-    , if finished result
-        then case (mGameId m, mSession m) of
-          (Just gid, Just sess)
-            | amProvider (userAppMetadata (sessionUser sess)) /= "anonymous"
-              || mGameMode m == MultiplayerMode
-              -> viewShareSection m gid
-          _   -> text ""
-        else text ""
     ]
 
+viewShareLink :: Model -> View Model Action
+viewShareLink m =
+  let result = gsResult (mGameState m)
+  in if finished result
+       then case (mGameId m, mSession m) of
+         (Just gid, Just sess)
+           | amProvider (userAppMetadata (sessionUser sess)) /= "anonymous"
+             || mGameMode m == MultiplayerMode
+             -> viewShareSection m gid
+         _   -> text ""
+       else text ""
+
 viewShareSection :: Model -> MisoString -> View Model Action
-viewShareSection _m gid =
+viewShareSection m gid =
   let url = "https://taflhouse.com/games/" <> gid
+      n   = boardSize (gsBoard (mGameState m))
   in H.div_
-    [ HP.class_ "mt-3 border-t border-border font-normal"
-    , style_ [("padding-top", "0.2em")]
+    [ HP.class_ "flex items-center gap-2 w-full mt-4"
+    , style_ [("max-width", ms (sqSize * n) <> "px")]
     ]
     [ H.input_
-        [ HP.class_ "input input-sm text-center text-muted-foreground bg-transparent border-none w-full mb-2"
+        [ HP.class_ "input input-sm text-muted-foreground bg-transparent border border-border rounded flex-1"
         , HP.readonly_ True
         , HP.value_ url
-        , style_ [("font-size", "0.8rem"), ("padding-top", "0.5em"), ("padding-bottom", "0.5em")]
+        , style_ [("font-size", "0.8rem"), ("padding", "0.4rem 0.6rem")]
         ]
-    , H.div_
-        [ HP.class_ "flex justify-center gap-2" ]
-        [ H.button_
-            [ HP.class_ "btn btn-outline btn-sm text-foreground"
-            , style_ [("touch-action", "manipulation")]
-            , SVG.onClick CopyGameLink
-            ]
-            [ text "Copy Link" ]
+    , H.button_
+        [ HP.class_ "btn btn-outline btn-sm text-foreground"
+        , style_ [("touch-action", "manipulation"), ("white-space", "nowrap")]
+        , SVG.onClick CopyGameLink
         ]
+        [ text "Copy Link" ]
     ]
 
 viewMultiplayerControls :: Model -> View Model Action
 viewMultiplayerControls m =
   let gs = mGameState m
       n = boardSize (gsBoard gs)
-      gameOver = finished (gsResult gs)
+      -- Check final state, not viewed state when browsing history
+      finalResult = case mFullHistory m of
+        Just fs -> gsResult (last fs)
+        Nothing -> gsResult gs
+      gameOver = finished finalResult
   in if gameOver then text ""
      else H.div_
-       [ HP.class_ "flex items-center justify-center gap-2"
+       [ HP.class_ "flex items-center justify-center gap-2 mt-4"
        , style_ [("max-width", ms (sqSize * n) <> "px")]
        ]
        ([ H.button_
@@ -3418,7 +3432,7 @@ moveBtn m idx gs n isCurrent =
       moveStyle = [("color", textColor), ("border-left-color", borderColor)]
       boldCls = if isHuman || isCurrent then " font-bold" else ""
   in H.button_
-    [ HP.class_ ("text-xs font-mono text-left w-full py-1 px-2 rounded hover:bg-muted/50 cursor-pointer bg-transparent border-0 text-foreground" <> activeCls <> boldCls)
+    [ HP.class_ ("text-xs font-mono text-left w-full py-1 px-2 rounded hover:bg-muted cursor-pointer bg-transparent border-0 text-foreground" <> activeCls <> boldCls)
     , style_ (("touch-action", "manipulation") : moveStyle)
     , SVG.onClick (GotoMove idx)
     ]
