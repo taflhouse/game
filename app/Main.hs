@@ -3461,5 +3461,7 @@ viewZenHint m
                , ("pointer-events", "none")
                ]
       ]
-      [ text "Triple-click board to exit zen mode" ]
+      [ H.span_ [ HP.class_ "hidden sm:inline" ] [ text "Triple-click board to exit zen mode" ]
+      , H.span_ [ HP.class_ "sm:hidden" ] [ text "Triple-tap board to exit zen mode" ]
+      ]
   | otherwise = text ""
