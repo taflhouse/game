@@ -3404,5 +3404,5 @@ viewZenHint m
                , ("pointer-events", "none")
                ]
       ]
-      [ text "Double-click board to exit zen mode" ]
+      [ text "Triple-click board to exit zen mode" ]
   | otherwise = text ""

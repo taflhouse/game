@@ -53,10 +53,19 @@ globalThis.onKeyboardShortcut = (undoCb) => {
 };
 
 globalThis.onDocumentDblClick = (cb) => {
-  document.addEventListener('dblclick', (e) => {
-    if (!e.target.closest('svg')) return;
-    window.getSelection()?.removeAllRanges();
-    cb();
+  let clickCount = 0;
+  let clickTimer = null;
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('svg')) { clickCount = 0; return; }
+    clickCount++;
+    clearTimeout(clickTimer);
+    if (clickCount >= 3) {
+      clickCount = 0;
+      window.getSelection()?.removeAllRanges();
+      cb();
+    } else {
+      clickTimer = setTimeout(() => { clickCount = 0; }, 500);
+    }
   });
 };
 
