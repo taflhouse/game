@@ -3173,7 +3173,7 @@ renderClickTarget m _n r c =
       aiBlocked = mGameMode m == AiMode && mAiSide m == side
       mpBlocked = mGameMode m == MultiplayerMode && mPlayerSide m /= Just side
       blocked = mAiThinking m || aiBlocked || mpBlocked || finished (gsResult gs)
-      cur = if blocked then "not-allowed" else "pointer"
+      cur = if blocked then "default" else "pointer"
   in SVG.rect_
     [ SP.x_ (ms (c * sqSize))
     , SP.y_ (ms (r * sqSize))
