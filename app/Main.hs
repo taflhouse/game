@@ -1092,8 +1092,8 @@ updateModel = \case
               modify $ \m -> m
                 { mReplayGame   = Just gr
                 , mReplayStates = states
-                , mReplayIndex  = length states - 1
-                , mEvalScore    = evaluate (last states)
+                , mReplayIndex  = 0
+                , mEvalScore    = evaluate initial
                 }
             _ -> modify $ \m -> m
               { mReplayGame   = Just gr
