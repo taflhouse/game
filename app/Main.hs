@@ -3240,7 +3240,7 @@ viewStatus m =
       isAi   = mGameMode m == AiMode
       isMp   = mGameMode m == MultiplayerMode
       myTurn = mPlayerSide m == Just side
-      baseCls = "text-center my-4 font-bold card px-3 pt-3 pb-1 w-full"
+      baseCls = "text-center my-4 font-bold card px-3 w-full flex justify-center items-center"
       (cls, msg)
         | finished result = case winner result of
             Just AttackerSide -> (baseCls <> " text-destructive", "Attackers win! " <> desc result)
@@ -3261,6 +3261,12 @@ viewStatus m =
             Just AttackerSide -> "var(--piece-attacker)"
             Just DefenderSide -> "var(--piece-defender)"
             _                 -> "var(--muted-foreground)"
+      capSuffix :: T.Text
+      capSuffix
+        | finished result || null caps = ""
+        | otherwise = let c = length caps
+                      in " · Captured " <> T.pack (show c) <> if c == 1 then " piece" else " pieces"
+      fullMsg = msg <> capSuffix
   in H.div_
     [ HP.class_ cls
     , style_ [ ("max-width", ms (sqSize * n) <> "px")
@@ -3269,14 +3275,7 @@ viewStatus m =
              , ("border-radius", "0.375rem")
              ]
     ]
-    [ text (ms msg)
-    , if not (null caps) && not (finished result)
-        then H.div_
-          [ HP.class_ "mt-1 text-xs opacity-80 font-normal"
-          ]
-          [ text (ms ("Last move captured " ++ show (length caps) ++ " piece(s)")) ]
-        else text ""
-    ]
+    [ text (ms fullMsg) ]
 
 viewShareLink :: Model -> View Model Action
 viewShareLink m =
