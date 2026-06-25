@@ -1,4 +1,5 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
+import qrcode from 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/+esm';
 
 const SUPABASE_KEY = '__SUPABASE_KEY__';
 
@@ -31,6 +32,13 @@ globalThis.generateUUID = function() { return crypto.randomUUID(); };
 
 globalThis.copyToClipboard = function(text) {
   navigator.clipboard.writeText(text).catch(function() {});
+};
+
+globalThis.generateQRDataURL = function(text) {
+  const qr = qrcode(0, 'M');
+  qr.addData(text);
+  qr.make();
+  return qr.createDataURL(6, 0);
 };
 
 globalThis.toggleFullscreen = () => {

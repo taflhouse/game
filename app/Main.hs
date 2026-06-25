@@ -210,6 +210,7 @@ data Model = Model
   , mNeedsUsername    :: !Bool
   , mUsernameInput   :: !MisoString
   , mInviteCode      :: Maybe MisoString
+  , mQrDataUrl       :: Maybe MisoString
   , mJoinCodeInput   :: !MisoString
   , mOpponentName    :: Maybe MisoString
   , mPlayerSide      :: Maybe Side
@@ -266,6 +267,7 @@ instance Eq Model where
         && mNeedsUsername a == mNeedsUsername b
         && mUsernameInput a == mUsernameInput b
         && mInviteCode a == mInviteCode b
+        && mQrDataUrl a == mQrDataUrl b
         && mJoinCodeInput a == mJoinCodeInput b
         && mOpponentName a == mOpponentName b
         && mPlayerSide a == mPlayerSide b
@@ -331,6 +333,7 @@ data Action
   | DismissQuoteRefTimed Int
   | ShowToast MisoString
   | DismissToast
+  | SetQrDataUrl MisoString
   | ToggleDepthInfo
   | ToggleNodesInfo
   | LocalGamesLoaded [GameRecord]
@@ -362,7 +365,7 @@ data Action
   | ProfileUpdateError MisoString
   -- Multiplayer
   | CreateMultiplayerGame
-  | InitMultiplayerGame MisoString MisoString  -- invCode uuid
+  | InitMultiplayerGame MisoString MisoString MisoString  -- invCode uuid qrDataUrl
   | JoinMultiplayerGame
   | GameFoundToJoin Value
   | GameJoinError MisoString
@@ -513,6 +516,10 @@ foreign import javascript unsafe "globalThis.generateUUID()"
   js_generateUUID_raw :: IO JSVal
 foreign import javascript unsafe "globalThis.copyToClipboard($1)"
   js_copyToClipboard_raw :: JSVal -> IO ()
+foreign import javascript unsafe "globalThis.location.origin"
+  js_getOrigin_raw :: IO JSVal
+foreign import javascript unsafe "globalThis.generateQRDataURL($1)"
+  js_generateQRDataURL_raw :: JSVal -> IO JSVal
 foreign import javascript unsafe "globalThis.toggleFullscreen()"
   js_toggleFullscreen :: IO ()
 foreign import javascript unsafe "globalThis.onDocumentDblClick($1)"
@@ -534,6 +541,10 @@ js_generateUUID_raw :: IO JSVal
 js_generateUUID_raw = toJSVal ("00000000-0000-0000-0000-000000000000" :: MisoString)
 js_copyToClipboard_raw :: JSVal -> IO ()
 js_copyToClipboard_raw _ = pure ()
+js_getOrigin_raw :: IO JSVal
+js_getOrigin_raw = toJSVal ("http://localhost:8080" :: MisoString)
+js_generateQRDataURL_raw :: JSVal -> IO JSVal
+js_generateQRDataURL_raw _ = toJSVal ("" :: MisoString)
 js_toggleFullscreen :: IO ()
 js_toggleFullscreen = pure ()
 js_onDocumentDblClick :: Function -> IO ()
@@ -547,6 +558,14 @@ js_generateUUID = fromJSValUnchecked =<< js_generateUUID_raw
 
 js_copyToClipboard :: MisoString -> IO ()
 js_copyToClipboard s = toJSVal s >>= js_copyToClipboard_raw
+
+js_getOrigin :: IO MisoString
+js_getOrigin = fromJSValUnchecked =<< js_getOrigin_raw
+
+js_generateQRDataURL :: MisoString -> IO MisoString
+js_generateQRDataURL s = do
+  v <- toJSVal s
+  fromJSValUnchecked =<< js_generateQRDataURL_raw v
 
 -- | Generate a short random invite code (8 chars from UUID).
 generateInviteCode :: IO MisoString
@@ -642,6 +661,7 @@ initModel = Model
   , mNeedsUsername    = False
   , mUsernameInput   = ""
   , mInviteCode      = Nothing
+  , mQrDataUrl       = Nothing
   , mJoinCodeInput   = ""
   , mOpponentName    = Nothing
   , mPlayerSide      = Nothing
@@ -723,6 +743,9 @@ updateModel = \case
 
   DismissToast ->
     modify $ \m -> m { mToast = Nothing }
+
+  SetQrDataUrl url ->
+    modify $ \m -> m { mQrDataUrl = Just url }
 
   ToggleDepthInfo ->
     modify $ \m -> m { mShowDepthInfo = not (mShowDepthInfo m) }
@@ -1288,9 +1311,11 @@ updateModel = \case
       Just _ -> io $ do
         invCode <- generateInviteCode
         uuid <- js_generateUUID
-        pure (InitMultiplayerGame invCode uuid)
+        origin <- js_getOrigin
+        qrUrl <- js_generateQRDataURL (origin <> "/join/" <> invCode)
+        pure (InitMultiplayerGame invCode uuid qrUrl)
 
-  InitMultiplayerGame invCode uuid -> do
+  InitMultiplayerGame invCode uuid qrUrl -> do
     m <- get
     let gs = initialState (mVariant m)
         mySide = case mSidePreference m of
@@ -1330,6 +1355,7 @@ updateModel = \case
           , mHistory    = []
           , mMoveList   = []
           , mInviteCode = Just invCode
+          , mQrDataUrl  = Just qrUrl
           , mScreen     = GameScreen
           , mPlayerSide = Just mySide
           , mOpponentName = Nothing
@@ -1512,8 +1538,16 @@ updateModel = \case
                 , mOpponentName = oppName
                 , mEvalScore    = evaluate gs
                 , mInviteCode   = grwInviteCode gr
+                , mQrDataUrl    = Nothing
                 , mScreen       = GameScreen
                 }
+              case grwInviteCode gr of
+                Just code | grwStatus gr == "waiting" ->
+                  withSink $ \sink -> do
+                    origin <- js_getOrigin
+                    qr <- js_generateQRDataURL (origin <> "/join/" <> code)
+                    sink (SetQrDataUrl qr)
+                _ -> pure ()
               -- Subscribe if game is still active
               when (grwStatus gr `elem` ["waiting", "active"]) $
                 subscribeToTable ("game:" <> gid) "games" ("id=eq." <> gid)
@@ -1594,8 +1628,10 @@ updateModel = \case
     modify $ \m -> m { mSidePreference = s }
 
   CopyInviteCode code -> do
-    io_ $ js_copyToClipboard code
-    modify $ \m -> m { mToast = Just "Copied!" }
+    io_ $ do
+      origin <- js_getOrigin
+      js_copyToClipboard (origin <> "/join/" <> code)
+    modify $ \m -> m { mToast = Just "Link copied!" }
     withSink $ \sink -> do
       threadDelay 3000000
       sink DismissToast
@@ -2727,17 +2763,23 @@ viewGame m
               [ text "Share the invite link to start" ]
           , case mInviteCode m of
               Just code -> H.div_
-                [ HP.class_ "flex flex-col gap-2 items-center" ]
-                [ H.div_
-                    [ HP.class_ "font-mono text-lg tracking-widest text-foreground" ]
-                    [ text code ]
-                , H.button_
-                    [ HP.class_ "btn btn-outline btn-sm text-foreground"
-                    , style_ [("touch-action", "manipulation")]
-                    , SVG.onClick (CopyInviteCode code)
-                    ]
-                    [ text "Copy Invite Code" ]
-                ]
+                [ HP.class_ "flex flex-col gap-4 items-center" ]
+                (  [ case mQrDataUrl m of
+                       Just qr -> H.img_
+                         [ HP.src_ qr
+                         , HP.width_ "200"
+                         , HP.height_ "200"
+                         , HP.class_ "rounded"
+                         ]
+                       Nothing -> text ""
+                   , H.button_
+                       [ HP.class_ "btn btn-outline text-foreground"
+                       , style_ [("touch-action", "manipulation")]
+                       , SVG.onClick (CopyInviteCode code)
+                       ]
+                       [ text "Copy Link" ]
+                   ]
+                )
               Nothing -> text ""
           ]
       ]
