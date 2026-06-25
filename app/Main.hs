@@ -2021,7 +2021,7 @@ viewHome m = case mSession m of
       [ H.div_
           [ HP.class_ "flex flex-col items-center mb-6" ]
           [ H.button_
-              [ HP.class_ "btn"
+              [ HP.class_ "btn w-full max-w-md"
               , style_ [("touch-action", "manipulation")]
               , SVG.onClick GotoConfig
               ]
@@ -2051,7 +2051,7 @@ viewHome m = case mSession m of
       , style_ [("margin-top", "4em")]
       ]
       [ H.button_
-          [ HP.class_ "btn"
+          [ HP.class_ "btn w-full max-w-md"
           , style_ [("touch-action", "manipulation")]
           , SVG.onClick GotoConfig
           ]
@@ -2086,7 +2086,7 @@ viewHome m = case mSession m of
           ]
           [ text "Welcome! Feel free to settle in." ]
       , H.button_
-          [ HP.class_ "btn"
+          [ HP.class_ "btn w-full max-w-md"
           , style_ [("touch-action", "manipulation"), ("margin-top", "2em")]
           , SVG.onClick GotoConfig
           ]
