@@ -2065,19 +2065,12 @@ viewJoin m
 -- ---------------------------------------------------------------------------
 
 viewHome :: Model -> View Model Action
-viewHome m = case mSession m of
-  Just _ | mGamesLoading m ->
-    H.div_
-      [ HP.class_ "text-center text-muted-foreground mt-8 animate-pulse"
-      ]
-      [ text "Loading games..." ]
-
-  Just _ | not (null (mPastGames m)) ->
-    H.div_
-      [ HP.class_ "w-full max-w-2xl"
-      , style_ [("margin-top", "4em")]
-      ]
-      [ H.div_
+viewHome m =
+  H.div_
+    [ HP.class_ "w-full max-w-2xl"
+    , style_ [("margin-top", "4em")]
+    ]
+    ( [ H.div_
           [ HP.class_ "flex flex-col items-center mb-6" ]
           [ H.button_
               [ HP.class_ "btn-lg w-full max-w-md"
@@ -2093,70 +2086,43 @@ viewHome m = case mSession m of
               ]
               [ text "Join Game" ]
           ]
-      , H.div_
-          [ HP.class_ "flex justify-between items-center mb-4"
-          ]
-          [ H.h2_
-              [ HP.class_ "text-lg font-semibold text-foreground"
-              ]
-              [ text "Your Games" ]
-          ]
-      , viewPastGamesTable (mPastGames m)
-      ]
-
-  Just _ ->
-    H.div_
-      [ HP.class_ "text-center max-w-md"
-      , style_ [("margin-top", "4em")]
-      ]
-      [ H.button_
-          [ HP.class_ "btn-lg w-full max-w-md"
-          , style_ [("touch-action", "manipulation")]
-          , SVG.onClick GotoConfig
-          ]
-          [ text "New Game" ]
-      , viewOrDivider
-      , H.span_
-          [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
-          , style_ [("touch-action", "manipulation")]
-          , SVG.onClick GotoJoin
-          ]
-          [ text "Join Game" ]
-      , H.p_
-          [ HP.class_ "text-xl font-bold"
-          , style_ [("margin-top", "2em")]
-          ]
-          [ text "No games yet" ]
-      , H.p_
-          [ HP.class_ "text-muted-foreground text-sm italic cursor-pointer"
-          , style_ [("margin-top", "2em"), ("text-decoration", "underline dotted"), ("text-underline-offset", "4px")]
-          , SVG.onClick (ShowToast "V\x01EBlusp\x00E1, stanza 59")
-          ]
-          [ text "\"The golden tafl pieces shall again be found in the grass.\"" ]
-      ]
-
-  Nothing ->
-    H.div_
-      [ HP.class_ "text-center max-w-md"
-      , style_ [("margin-top", "4em")]
-      ]
-      [ H.button_
-          [ HP.class_ "btn-lg w-full max-w-md"
-          , style_ [("touch-action", "manipulation")]
-          , SVG.onClick GotoConfig
-          ]
-          [ text "New Game" ]
-      , viewOrDivider
-      , H.span_
-          [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
-          , style_ [("touch-action", "manipulation")]
-          , SVG.onClick GotoJoin
-          ]
-          [ text "Join Game" ]
-      , H.div_
-          [ style_ [("margin-top", "2em"), ("position", "relative")]
-          ]
-          [ H.p_
+      ] ++ homeContent
+    )
+  where
+    homeContent = case mSession m of
+      Just _ | mGamesLoading m ->
+        [ H.div_
+            [ HP.class_ "text-center text-muted-foreground animate-pulse" ]
+            [ text "Loading games..." ]
+        ]
+      Just _ | not (null (mPastGames m)) ->
+        [ H.div_
+            [ HP.class_ "flex justify-between items-center mb-4" ]
+            [ H.h2_
+                [ HP.class_ "text-lg font-semibold text-foreground" ]
+                [ text "Your Games" ]
+            ]
+        , viewPastGamesTable (mPastGames m)
+        ]
+      Just _ ->
+        [ H.p_
+            [ HP.class_ "text-xl font-bold text-center"
+            , style_ [("margin-top", "2em")]
+            ]
+            [ text "No games yet" ]
+        , H.p_
+            [ HP.class_ "text-muted-foreground text-sm italic cursor-pointer text-center"
+            , style_ [("margin-top", "2em"), ("text-decoration", "underline dotted"), ("text-underline-offset", "4px")]
+            , SVG.onClick (ShowToast "V\x01EBlusp\x00E1, stanza 59")
+            ]
+            [ text "\"The golden tafl pieces shall again be found in the grass.\"" ]
+        ]
+      Nothing ->
+        [ H.div_
+            [ HP.class_ "text-center"
+            , style_ [("margin-top", "2em"), ("position", "relative")]
+            ]
+            [ H.p_
               [ HP.class_ "text-muted-foreground text-sm italic"
               , style_ [("text-decoration", "underline dotted"), ("text-underline-offset", "4px"), ("cursor", "pointer")]
               , SVG.onClick ToggleQuoteRef
