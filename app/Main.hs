@@ -2071,9 +2071,9 @@ viewHome m =
     , style_ [("margin-top", "4em")]
     ]
     ( [ H.div_
-          [ HP.class_ "flex flex-col items-center mb-6" ]
+          [ HP.class_ "flex flex-col items-center mb-6 w-full max-w-md mx-auto" ]
           [ H.button_
-              [ HP.class_ "btn-lg w-full max-w-md"
+              [ HP.class_ "btn-lg w-full"
               , style_ [("touch-action", "manipulation")]
               , SVG.onClick GotoConfig
               ]
@@ -2148,7 +2148,7 @@ viewHome m =
                 ]
               else text ""
           ]
-      ]
+        ]
 
 -- ---------------------------------------------------------------------------
 -- Past Games Table
