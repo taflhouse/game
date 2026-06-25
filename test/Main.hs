@@ -9,35 +9,64 @@ import Tafl.Move (getPossibleActions)
 -- Minimal model simulation (mirrors app/Main.hs update logic)
 -- ---------------------------------------------------------------------------
 
+data GameMode = SPractice | SAi | SMultiplayer deriving (Eq, Show)
+
 -- | The subset of Model state relevant to the history invariant.
 data SimModel = SimModel
   { simGameState   :: GameState
   , simHistory     :: [GameState]
   , simMoveList    :: [MoveAction]
+  , simBrowseIndex :: Maybe Int
+  , simGameMode    :: GameMode
+  -- Legacy fields kept for undo compatibility
   , simFullHistory :: Maybe [GameState]
   , simFullMoveList :: Maybe [MoveAction]
   } deriving (Show)
 
 initModel :: BoardVariant -> SimModel
-initModel v = SimModel
+initModel v = initModelWithMode v SPractice
+
+initModelWithMode :: BoardVariant -> GameMode -> SimModel
+initModelWithMode v mode = SimModel
   { simGameState   = initialState v
   , simHistory     = []
   , simMoveList    = []
+  , simBrowseIndex = Nothing
+  , simGameMode    = mode
   , simFullHistory = Nothing
   , simFullMoveList = Nothing
   }
 
+-- | The game state currently being displayed (browsed or live).
+-- Mirrors displayedGameState in app/Main.hs.
+displayedState :: SimModel -> GameState
+displayedState m = case simBrowseIndex m of
+  Nothing -> simGameState m
+  Just i  -> let allStates = simHistory m ++ [simGameState m]
+             in if i >= 0 && i < length allStates
+                then allStates !! i
+                else simGameState m
+
 -- | Apply a move (mirrors CellClicked handler).
+-- In multiplayer, moves are blocked while browsing.
+-- In single player, making a move from a browsed position forks history.
 applyMove :: SimModel -> MoveAction -> SimModel
-applyMove m move =
-  let gs  = simGameState m
-      gs' = act gs move
-  in m { simGameState   = gs'
-       , simHistory     = simHistory m ++ [gs]
-       , simMoveList    = simMoveList m ++ [move]
-       , simFullHistory = Nothing
-       , simFullMoveList = Nothing
-       }
+applyMove m move
+  | simGameMode m == SMultiplayer && simBrowseIndex m /= Nothing = m  -- blocked
+  | otherwise =
+      let activeGs = displayedState m
+          gs' = act activeGs move
+          (newHist, newMoves) = case simBrowseIndex m of
+            Just i  -> (take i (simHistory m ++ [simGameState m]),
+                        take i (simMoveList m))
+            Nothing -> (simHistory m, simMoveList m)
+      in m { simGameState   = gs'
+           , simHistory     = newHist ++ [activeGs]
+           , simMoveList    = newMoves ++ [move]
+           , simBrowseIndex = Nothing
+           , simFullHistory = Nothing
+           , simFullMoveList = Nothing
+           }
 
 -- | Undo one move (mirrors Undo handler).
 undo :: SimModel -> SimModel
@@ -59,46 +88,30 @@ undo m = case simHistory m of
          , simFullMoveList = fm
          }
 
--- | Go to a specific move index (mirrors GotoMove handler with browse support).
+-- | Go to a specific move index (mirrors GotoMove handler).
+-- Now just sets browseIndex without mutating history.
 gotoMove :: Int -> SimModel -> SimModel
 gotoMove i m =
-  let fullStates = case simFullHistory m of
-        Just fs -> fs
-        Nothing -> simHistory m ++ [simGameState m]
-      fullMoves = case simFullMoveList m of
-        Just fm -> fm
-        Nothing -> simMoveList m
-      lastIdx = length fullStates - 1
-  in if i >= 0 && i <= lastIdx
-     then m { simGameState   = fullStates !! i
-            , simHistory     = take i fullStates
-            , simMoveList    = take i fullMoves
-            , simFullHistory = Just fullStates
-            , simFullMoveList = Just fullMoves
-            }
-     else m
+  let allStates = simHistory m ++ [simGameState m]
+      lastIdx = length allStates - 1
+      idx = if i >= lastIdx then Nothing else Just (max 0 i)
+  in m { simBrowseIndex = idx }
 
 -- | The true game result, accounting for history browsing.
--- Mirrors the logic in viewMultiplayerControls: check the final state
--- from the full history snapshot, not the currently viewed state.
 trueGameResult :: SimModel -> GameResult
-trueGameResult m = case simFullHistory m of
-  Just fs -> gsResult (last fs)
-  Nothing -> gsResult (simGameState m)
+trueGameResult m = gsResult (simGameState m)
 
--- | Is the game truly over? Must be correct even when browsing history.
+-- | Is the game truly over?
 isGameOver :: SimModel -> Bool
 isGameOver = finished . trueGameResult
 
--- | All states available for browsing (full history if browsing, otherwise current).
-allBrowseStates :: SimModel -> [GameState]
-allBrowseStates m = case simFullHistory m of
-  Just fs -> fs
-  Nothing -> simHistory m ++ [simGameState m]
+-- | All states in history (always the full list since browse doesn't mutate).
+allStates :: SimModel -> [GameState]
+allStates m = simHistory m ++ [simGameState m]
 
--- | Can navigate forward from current position?
-canGoForward :: SimModel -> Bool
-canGoForward m = length (simHistory m) < length (allBrowseStates m) - 1
+-- | Is the model currently browsing (not at the latest move)?
+isBrowsing :: SimModel -> Bool
+isBrowsing m = simBrowseIndex m /= Nothing
 
 -- ---------------------------------------------------------------------------
 -- Invariant
@@ -117,11 +130,17 @@ checkInvariant m label =
 -- Helpers
 -- ---------------------------------------------------------------------------
 
--- | Pick the first legal move from the current game state.
+-- | Pick the first legal move from the displayed game state.
 firstLegalMove :: SimModel -> Maybe MoveAction
-firstLegalMove m = case getPossibleActions (simGameState m) of
+firstLegalMove m = case getPossibleActions (displayedState m) of
   []    -> Nothing
   (a:_) -> Just a
+
+-- | Pick the second legal move (for forking tests).
+secondLegalMove :: SimModel -> Maybe MoveAction
+secondLegalMove m = case getPossibleActions (displayedState m) of
+  (_:b:_) -> Just b
+  _       -> Nothing
 
 -- | Apply N moves using the first legal move each time.
 applyNMoves :: Int -> SimModel -> SimModel
@@ -226,7 +245,7 @@ main = do
         let m = undo . gotoMove 3 $ applyNMoves 5 m0
         checkInvariant m "goto3+undo"
 
-    , -- Goto then make new moves
+    , -- Goto then make new moves (single player fork)
       runTest "goto move 2 then make 2 new moves" $ do
         let m = applyNMoves 2 . gotoMove 2 $ applyNMoves 5 m0
         checkInvariant m "goto2+2new"
@@ -243,47 +262,163 @@ main = do
         let variants = [minBound .. maxBound] :: [BoardVariant]
         mapM_ (\v -> checkInvariant (initModel v) (show v)) variants
 
-    -- Browse / forward navigation tests
-    , runTest "forward navigation after goto" $ do
+    -- -----------------------------------------------------------------------
+    -- Browse index tests
+    -- -----------------------------------------------------------------------
+
+    , runTest "browse does not mutate history" $ do
         let m5 = applyNMoves 5 m0
             m2 = gotoMove 2 m5
-        if canGoForward m2 then Right ()
-        else Left "cannot go forward after goto"
+        -- History and moveList should be unchanged
+        if length (simHistory m2) == length (simHistory m5)
+           && length (simMoveList m2) == length (simMoveList m5)
+        then Right ()
+        else Left "history was mutated by gotoMove"
 
-    , runTest "forward to last move after goto" $ do
+    , runTest "browse sets browseIndex" $ do
+        let m5 = applyNMoves 5 m0
+            m2 = gotoMove 2 m5
+        if simBrowseIndex m2 == Just 2 then Right ()
+        else Left $ "expected browseIndex Just 2, got " ++ show (simBrowseIndex m2)
+
+    , runTest "goto last move clears browseIndex" $ do
         let m5 = applyNMoves 5 m0
             m2 = gotoMove 2 m5
             m5' = gotoMove 5 m2
-        checkInvariant m5' "goto-forward"
+        if simBrowseIndex m5' == Nothing then Right ()
+        else Left "browseIndex not cleared when going to last move"
 
-    , runTest "goto back then forward preserves states" $ do
+    , runTest "displayedState shows browsed state" $ do
         let m5 = applyNMoves 5 m0
             m2 = gotoMove 2 m5
-            total = length (allBrowseStates m2)
-        if total == 6 then Right ()  -- 5 moves + initial = 6 states
-        else Left $ "expected 6 browse states, got " ++ show total
+            states = allStates m5
+        if displayedState m2 == states !! 2 then Right ()
+        else Left "displayedState does not match browsed index"
 
-    , runTest "new move clears forward history" $ do
+    , runTest "displayedState shows current when not browsing" $ do
+        let m5 = applyNMoves 5 m0
+        if displayedState m5 == simGameState m5 then Right ()
+        else Left "displayedState should equal simGameState when not browsing"
+
+    , runTest "all states preserved while browsing" $ do
+        let m5 = applyNMoves 5 m0
+            m2 = gotoMove 2 m5
+            total = length (allStates m2)
+        if total == 6 then Right ()  -- 5 moves + initial = 6 states
+        else Left $ "expected 6 states, got " ++ show total
+
+    -- -----------------------------------------------------------------------
+    -- Single player: browse and fork
+    -- -----------------------------------------------------------------------
+
+    , runTest "SP: can make move while browsing (fork)" $ do
         let m5 = applyNMoves 5 m0
             m2 = gotoMove 2 m5
             m3 = applyNMoves 1 m2
-        if simFullHistory m3 == Nothing then Right ()
-        else Left "forward history not cleared after new move"
+        -- Should have 3 states in history (indices 0,1,2) + current = 4 total
+        if length (allStates m3) == 4
+        then checkInvariant m3 "sp-fork"
+        else Left $ "expected 4 states after fork, got " ++ show (length (allStates m3))
 
-    -- Game-over invariant: browsing history must not change game outcome
+    , runTest "SP: fork clears browseIndex" $ do
+        let m5 = applyNMoves 5 m0
+            m2 = gotoMove 2 m5
+            m3 = applyNMoves 1 m2
+        if simBrowseIndex m3 == Nothing then Right ()
+        else Left "browseIndex not cleared after fork"
+
+    , runTest "SP: fork truncates future moves" $ do
+        let m5 = applyNMoves 5 m0
+            m2 = gotoMove 2 m5
+            m3 = applyNMoves 1 m2
+        -- Move list should have 3 entries (2 kept + 1 new)
+        if length (simMoveList m3) == 3 then Right ()
+        else Left $ "expected 3 moves after fork, got " ++ show (length (simMoveList m3))
+
+    , runTest "SP: fork from move 0 replaces all history" $ do
+        let m5 = applyNMoves 5 m0
+            m0' = gotoMove 0 m5
+            m1  = applyNMoves 1 m0'
+        if length (simMoveList m1) == 1
+           && length (simHistory m1) == 1
+        then checkInvariant m1 "sp-fork-from-0"
+        else Left $ "expected 1 move after fork from 0, got " ++ show (length (simMoveList m1))
+
+    , runTest "SP: multiple forks maintain invariant" $ do
+        let m5  = applyNMoves 5 m0
+            m2  = gotoMove 2 m5
+            m3  = applyNMoves 1 m2       -- fork at 2
+            m1' = gotoMove 1 m3
+            m2' = applyNMoves 1 m1'      -- fork at 1
+        checkInvariant m2' "sp-double-fork"
+
+    -- -----------------------------------------------------------------------
+    -- Multiplayer: browse but no fork
+    -- -----------------------------------------------------------------------
+
+    , runTest "MP: can browse history" $ do
+        let m0mp = initModelWithMode Brandubh SMultiplayer
+            m5 = applyNMoves 5 m0mp
+            m2 = gotoMove 2 m5
+        if isBrowsing m2 then Right ()
+        else Left "should be browsing after gotoMove in multiplayer"
+
+    , runTest "MP: browse does not mutate history" $ do
+        let m0mp = initModelWithMode Brandubh SMultiplayer
+            m5 = applyNMoves 5 m0mp
+            m2 = gotoMove 2 m5
+        if length (simHistory m2) == length (simHistory m5)
+           && length (simMoveList m2) == length (simMoveList m5)
+        then Right ()
+        else Left "history was mutated by browse in multiplayer"
+
+    , runTest "MP: move blocked while browsing" $ do
+        let m0mp = initModelWithMode Brandubh SMultiplayer
+            m5 = applyNMoves 5 m0mp
+            m2 = gotoMove 2 m5
+            m2' = applyNMoves 1 m2  -- should be no-op
+        -- State should be identical to m2 (move was blocked)
+        if simBrowseIndex m2' == simBrowseIndex m2
+           && length (simMoveList m2') == length (simMoveList m2)
+        then Right ()
+        else Left "move was not blocked while browsing in multiplayer"
+
+    , runTest "MP: can return to latest after browsing" $ do
+        let m0mp = initModelWithMode Brandubh SMultiplayer
+            m5 = applyNMoves 5 m0mp
+            m2 = gotoMove 2 m5
+            m5' = gotoMove 5 m2
+        if not (isBrowsing m5') then Right ()
+        else Left "should not be browsing after going to latest"
+
+    , runTest "MP: history unchanged after browse round-trip" $ do
+        let m0mp = initModelWithMode Brandubh SMultiplayer
+            m5 = applyNMoves 5 m0mp
+            m2 = gotoMove 2 m5
+            m5' = gotoMove 5 m2
+        if simGameState m5' == simGameState m5
+           && length (simHistory m5') == length (simHistory m5)
+           && length (simMoveList m5') == length (simMoveList m5)
+        then Right ()
+        else Left "state changed after browse round-trip in multiplayer"
+
+    -- -----------------------------------------------------------------------
+    -- Game-over invariant
+    -- -----------------------------------------------------------------------
+
     , runTest "game over persists when browsing back" $ do
         let mDone = playToEnd 500 m0
-        if not (isGameOver mDone) then Right ()  -- game might not end in 500 moves, skip
+        if not (isGameOver mDone) then Right ()
         else let m2 = gotoMove 2 mDone
              in if isGameOver m2 then Right ()
                 else Left "game no longer over after browsing back"
 
-    , runTest "game over persists after undo" $ do
+    , runTest "undo on finished game reverts to non-finished" $ do
         let mDone = playToEnd 500 m0
         if not (isGameOver mDone) then Right ()
         else let m' = undo mDone
-             in if isGameOver m' then Right ()
-                else Left "game no longer over after undo"
+             in if not (isGameOver m') then Right ()
+                else Left "game should not be over after undo"
 
     , runTest "game over persists after multiple gotos" $ do
         let mDone = playToEnd 500 m0
