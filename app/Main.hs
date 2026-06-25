@@ -903,6 +903,8 @@ updateModel = \case
   Undo -> do
     m <- get
     case mHistory m of
+      _ | mGameMode m == MultiplayerMode
+          && not (finished (gsResult (mGameState m))) -> pure ()
       [] -> pure ()
       _  -> do
         let prev = last (mHistory m)
@@ -3383,9 +3385,12 @@ viewMoveHistory m
                 [ text "HISTORY" ]
             , H.div_
                 [ HP.class_ "flex gap-1" ]
-                [ ctrlBtn ToggleZenMode "Zen"
-                , ctrlBtn Undo "Undo"
-                ]
+                (  [ ctrlBtn ToggleZenMode "Zen" ]
+                ++ [ ctrlBtn Undo "Undo"
+                   | mGameMode m /= MultiplayerMode
+                     || finished (gsResult (mGameState m))
+                   ]
+                )
             ]
         , H.div_
             [ HP.class_ "flex gap-0.5 overflow-y-auto p-2 w-full rounded border border-border"
