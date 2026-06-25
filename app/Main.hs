@@ -124,7 +124,7 @@ instance FromJSON GameRow where
 data GameMode = PracticeMode | AiMode | MultiplayerMode
   deriving (Eq, Show)
 
-data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen
+data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | ConfigureScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen
   deriving (Eq, Show)
 
 data Profile = Profile
@@ -190,6 +190,7 @@ data Model = Model
   , mPastGames      :: [GameRecord]
   , mGamesLoading   :: !Bool
   , mConfigExpanded :: !Bool
+  , mConfigModeChosen :: !Bool
   , mShowQuoteRef  :: !Bool
   , mQuoteRefGen   :: !Int
   , mToast         :: Maybe MisoString
@@ -247,6 +248,7 @@ instance Eq Model where
         && mPastGames a == mPastGames b
         && mGamesLoading a == mGamesLoading b
         && mConfigExpanded a == mConfigExpanded b
+        && mConfigModeChosen a == mConfigModeChosen b
         && mShowQuoteRef a == mShowQuoteRef b
         && mQuoteRefGen a == mQuoteRefGen b
         && mToast a == mToast b
@@ -389,7 +391,7 @@ data Action
 -- Routing
 -- ---------------------------------------------------------------------------
 
-data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute | ProfileRoute | ProfileEditRoute
+data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute | ConfigureRoute | ProfileRoute | ProfileEditRoute
            | PlayRoute MisoString      -- /play/<uuid> active game
            | GameRoute MisoString      -- /games/<uuid> replay/permalink
            | JoinRoute (Maybe MisoString) -- /join or /join/<invite_code>
@@ -414,6 +416,7 @@ parseRoute uri = case uriPath uri of
   "sign-in"  -> SignInRoute
   "sign-up"  -> SignUpRoute
   "new-game" -> ConfigRoute
+  "new-game/configure" -> ConfigureRoute
   "profile/edit" -> ProfileEditRoute
   "profile"  -> ProfileRoute
   "join"     -> JoinRoute Nothing
@@ -468,6 +471,9 @@ signUpURI = emptyURI { uriPath = "sign-up" }
 
 configURI :: URI
 configURI = emptyURI { uriPath = "new-game" }
+
+configureURI :: URI
+configureURI = emptyURI { uriPath = "new-game/configure" }
 
 playURI :: MisoString -> URI
 playURI uuid = emptyURI { uriPath = "play/" <> uuid }
@@ -617,6 +623,7 @@ initModel = Model
   , mPastGames      = []
   , mGamesLoading   = False
   , mConfigExpanded = False
+  , mConfigModeChosen = False
   , mShowQuoteRef  = False
   , mQuoteRefGen   = 0
   , mToast         = Nothing
@@ -660,8 +667,9 @@ updateModel :: Action -> Effect ROOT () Model Action
 updateModel = \case
   NoOp -> pure ()
 
-  SetGameMode mode ->
+  SetGameMode mode -> do
     modify $ \m -> m { mGameMode = mode }
+    io_ $ pushURI configureURI
 
   SetVariant variant ->
     modify $ \m -> m { mVariant = variant }
@@ -687,7 +695,7 @@ updateModel = \case
     io_ $ pushURI joinBareURI
 
   ToggleConfigExpand ->
-    modify $ \m -> m { mConfigExpanded = not (mConfigExpanded m) }
+    modify $ \m -> m { mConfigExpanded = not (mConfigExpanded m), mConfigModeChosen = False }
 
   ToggleQuoteRef -> do
     m <- get
@@ -760,7 +768,9 @@ updateModel = \case
       SignUpRoute ->
         modify $ \x -> x { mScreen = SignUpScreen, mAuthError = Nothing, mAuthMessage = Nothing }
       ConfigRoute ->
-        modify $ \x -> x { mScreen = ConfigScreen, mMoveList = [], mGameId = Nothing }
+        modify $ \x -> x { mScreen = ConfigScreen, mMoveList = [], mGameId = Nothing, mConfigModeChosen = False }
+      ConfigureRoute ->
+        modify $ \x -> x { mScreen = ConfigureScreen, mMoveList = [], mGameId = Nothing }
       ProfileRoute ->
         modify $ \x -> x { mScreen = ProfileScreen }
       ProfileEditRoute -> do
@@ -1759,6 +1769,7 @@ viewModel _ m =
                   SignInScreen  -> viewSignIn m
                   SignUpScreen  -> viewSignUp m
                   ConfigScreen  -> viewConfig m
+                  ConfigureScreen -> viewConfigure m
                   JoinScreen    -> viewJoin m
                   GameScreen    -> viewGame m
                   ReplayScreen  -> viewReplay m
@@ -2332,8 +2343,36 @@ viewSignUp m =
 -- ---------------------------------------------------------------------------
 
 viewConfig :: Model -> View Model Action
-viewConfig m =
+viewConfig _ =
   H.div_
+    [ HP.class_ "w-full flex flex-col items-center"
+    ]
+    [ H.div_
+        [ HP.class_ "w-full max-w-md flex flex-col gap-3"
+        , style_ [("margin-top", "4em")]
+        ]
+        [ modeLargeBtn (SetGameMode PracticeMode) "Single Player vs Self"
+        , modeLargeBtn (SetGameMode AiMode) "Single Player vs AI"
+        , modeLargeBtn (SetGameMode MultiplayerMode) "Multiplayer"
+        ]
+    ]
+
+modeLargeBtn :: Action -> MisoString -> View Model Action
+modeLargeBtn action label =
+  H.button_
+    [ HP.class_ "btn btn-outline text-foreground w-full py-3 font-bold"
+    , style_ [("touch-action", "manipulation")]
+    , SVG.onClick action
+    ]
+    [ text label ]
+
+viewConfigure :: Model -> View Model Action
+viewConfigure m =
+  let modeText = case mGameMode m of
+        PracticeMode    -> "Single Player vs Self"
+        AiMode          -> "Single Player vs AI"
+        MultiplayerMode -> "Multiplayer"
+  in H.div_
     [ HP.class_ "w-full flex flex-col items-center"
     ]
     [ H.div_
@@ -2343,8 +2382,17 @@ viewConfig m =
         [ H.h2_
             [ HP.class_ "text-xl font-bold mb-4 text-center"
             ]
-            [ text "New Game" ]
-        , viewConfigSummary m
+            [ text modeText ]
+        , setupSection "Board"
+            [ setupBtn (SetVariant Brandubh) "Brandubh 7x7" (mVariant m == Brandubh)
+            , setupBtn (SetVariant Tablut) "Tablut 9x9" (mVariant m == Tablut)
+            , setupBtn (SetVariant Classic) "Copenhagen 11x11" (mVariant m == Classic)
+            , setupBtn (SetVariant Parlett) "Parlett 13x13" (mVariant m == Parlett)
+            , setupBtn (SetVariant DamienWalker) "Damien Walker 15x15" (mVariant m == DamienWalker)
+            ]
+        , if mGameMode m == AiMode then viewSetupAi m
+          else if mGameMode m == MultiplayerMode then viewSetupMultiplayer m
+          else H.div_ [] []
         , H.div_
             [ HP.class_ "mt-4 flex flex-col items-center gap-2"
             ]
@@ -2354,42 +2402,26 @@ viewConfig m =
                   , style_ [("touch-action", "manipulation")]
                   , SVG.onClick CreateMultiplayerGame
                   ]
-                  [ text "Create Game" ]
+                  [ text "Create" ]
                 else H.button_
                   [ HP.class_ "btn w-full bg-green-600 hover:bg-green-700 text-white border-green-500 font-bold"
                   , style_ [("touch-action", "manipulation")]
                   , SVG.onClick StartGame
                   ]
-                  [ text "Start Game" ]
+                  [ text "Start" ]
             , H.span_
                 [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
                 , style_ [("touch-action", "manipulation")]
-                , SVG.onClick ToggleConfigExpand
+                , SVG.onClick GotoConfig
                 ]
-                [ text (if mConfigExpanded m then "Hide options" else "Configure") ]
+                [ text "Back" ]
             ]
-        , if mConfigExpanded m
-            then viewConfigOptions m
-            else H.div_ [] []
         ]
     ]
 
-viewConfigSummary :: Model -> View Model Action
-viewConfigSummary m =
-  let modeText = case mGameMode m of
-        PracticeMode       -> "Practice (2 players)"
-        AiMode          -> "vs AI"
-        MultiplayerMode -> "Multiplayer"
-      boardText = variantName (mVariant m)
-      aiInfo = if mGameMode m == AiMode
-        then [ ("AI plays" :: MisoString, if mAiSide m == AttackerSide then "Attackers" else "Defenders")
-             ]
-        else []
-      items = [("Mode", modeText), ("Board", boardText)] ++ aiInfo
-  in H.div_
-    [ HP.class_ "flex flex-col gap-1"
-    ]
-    (map summaryRow items)
+-- ---------------------------------------------------------------------------
+-- Setup helpers (shared by config options and profile)
+-- ---------------------------------------------------------------------------
 
 summaryRow :: (MisoString, MisoString) -> View Model Action
 summaryRow (label, val) =
@@ -2405,32 +2437,6 @@ summaryRow (label, val) =
         ]
         [ text val ]
     ]
-
-viewConfigOptions :: Model -> View Model Action
-viewConfigOptions m =
-  H.div_
-    [ HP.class_ "mt-4 pt-4 border-t border-border flex flex-col gap-4"
-    ]
-    [ setupSection "Mode"
-        [ setupBtn (SetGameMode PracticeMode) "Practice" (mGameMode m == PracticeMode)
-        , setupBtn (SetGameMode AiMode) "vs AI" (mGameMode m == AiMode)
-        , setupBtn (SetGameMode MultiplayerMode) "Multiplayer" (mGameMode m == MultiplayerMode)
-        ]
-    , setupSection "Board"
-        [ setupBtn (SetVariant Brandubh) "Brandubh 7x7" (mVariant m == Brandubh)
-        , setupBtn (SetVariant Tablut) "Tablut 9x9" (mVariant m == Tablut)
-        , setupBtn (SetVariant Classic) "Copenhagen 11x11" (mVariant m == Classic)
-        , setupBtn (SetVariant Parlett) "Parlett 13x13" (mVariant m == Parlett)
-        , setupBtn (SetVariant DamienWalker) "Damien Walker 15x15" (mVariant m == DamienWalker)
-        ]
-    , if mGameMode m == AiMode then viewSetupAi m
-      else if mGameMode m == MultiplayerMode then viewSetupMultiplayer m
-      else H.div_ [] []
-    ]
-
--- ---------------------------------------------------------------------------
--- Setup helpers (shared by config options)
--- ---------------------------------------------------------------------------
 
 setupSection :: MisoString -> [View Model Action] -> View Model Action
 setupSection label children =
