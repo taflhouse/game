@@ -1,11 +1,17 @@
 module Main where
 
 import Test.Hspec
+import Test.Hspec.Hedgehog (hedgehog)
+import Hedgehog
+import qualified Hedgehog.Gen as Gen
+import qualified Hedgehog.Range as Range
+import qualified Data.Vector as V
 
 import Tafl.Types
 import Tafl.Rules (BoardVariant(..))
 import Tafl.Game (act, initialState)
 import Tafl.Move (getPossibleActions)
+import Tafl.Symmetry (canonicalBoardKey, rotate90, mirrorBoard, symmetryVariants)
 
 -- ---------------------------------------------------------------------------
 -- Minimal model simulation (mirrors app/Main.hs update logic)
@@ -286,3 +292,62 @@ main = hspec $ do
       let mDone = playToEnd 500 m0
       if not (isGameOver mDone) then pure ()
       else isGameOver (gotoMove 1 . gotoMove 0 $ mDone) `shouldBe` True
+
+  -- -----------------------------------------------------------------------
+  -- Property-based tests: Board symmetry
+  -- -----------------------------------------------------------------------
+
+  describe "Board symmetry properties" $ do
+    it "rotate90 four times is identity" $ hedgehog $ do
+      board <- forAll genBoard
+      rotate90 (rotate90 (rotate90 (rotate90 board))) === board
+
+    it "mirror twice is identity" $ hedgehog $ do
+      board <- forAll genBoard
+      mirrorBoard (mirrorBoard board) === board
+
+    it "canonicalBoardKey is invariant under rotation" $ hedgehog $ do
+      board <- forAll genBoard
+      let key = canonicalBoardKey board
+      canonicalBoardKey (rotate90 board) === key
+
+    it "canonicalBoardKey is invariant under mirror" $ hedgehog $ do
+      board <- forAll genBoard
+      let key = canonicalBoardKey board
+      canonicalBoardKey (mirrorBoard board) === key
+
+    it "canonicalBoardKey is invariant under all 8 symmetry variants" $ hedgehog $ do
+      board <- forAll genBoard
+      let key = canonicalBoardKey board
+          keys = map canonicalBoardKey (symmetryVariants board)
+      keys === replicate 8 key
+
+    it "symmetryVariants produces exactly 8 boards" $ hedgehog $ do
+      board <- forAll genBoard
+      length (symmetryVariants board) === 8
+
+    it "rotation preserves board dimensions" $ hedgehog $ do
+      board <- forAll genBoard
+      let rotated = rotate90 board
+      V.length rotated === V.length board
+      V.length (V.head rotated) === V.length (V.head board)
+
+    it "mirror preserves board dimensions" $ hedgehog $ do
+      board <- forAll genBoard
+      let mirrored = mirrorBoard board
+      V.length mirrored === V.length board
+      V.length (V.head mirrored) === V.length (V.head board)
+
+-- ---------------------------------------------------------------------------
+-- Generators
+-- ---------------------------------------------------------------------------
+
+genPiece :: Gen Piece
+genPiece = Gen.element [Empty, Attacker, Defender, King]
+
+-- | Generate a random square board with odd side length (matching real Tafl boards).
+genBoard :: Gen Board
+genBoard = do
+  half <- Gen.int (Range.linear 3 9)
+  let n = 2 * half + 1   -- odd sizes: 7, 9, 11, ..., 19
+  V.replicateM n (V.replicateM n genPiece)

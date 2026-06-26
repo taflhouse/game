@@ -4,6 +4,9 @@ module Tafl.Symmetry
   , addBoardToHistory
   , checkRepetition
   , initialBoardHistory
+  , rotate90
+  , mirrorBoard
+  , symmetryVariants
   ) where
 
 import qualified Data.Map.Strict as Map
