@@ -1048,6 +1048,17 @@ updateModel = \case
 
   SessionRestored mSess -> do
     modify $ \m -> m { mSession = mSess }
+    m <- get
+    -- If game was loaded before session was available, re-fetch to set
+    -- player side, opponent name, and subscribe to realtime.
+    case (mSess, mScreen m, mGameId m) of
+      (Just _, GameScreen, Just gid)
+        | mGameMode m == MultiplayerMode, Nothing <- mPlayerSide m ->
+            selectWithFilters "games" "*"
+              [eq "id" gid]
+              (FetchOptions Nothing Nothing)
+              ResumeGameLoaded ResumeGameLoadError
+      _ -> pure ()
     case mSess of
       Just sess
         | amProvider (userAppMetadata (sessionUser sess)) == "anonymous" -> do
@@ -1535,7 +1546,31 @@ updateModel = \case
               when (grwStatus gr `elem` ["waiting", "active"]) $
                 subscribeToTable ("game:" <> gid) "games" ("id=eq." <> gid)
                   RealtimeChange RealtimeSubscribed RealtimeError
-            Nothing -> pure ()
+            Nothing -> do
+              -- Load session-independent state so the correct screen displays.
+              -- Player side, opponent name, and realtime will be set when
+              -- SessionRestored fires and triggers a re-fetch.
+              let isMultiplayer = grwStatus gr `elem` ["waiting", "active"]
+                                 || (grwStatus gr == "finished" && fromMaybe "" (grwInviteCode gr) /= "")
+              modify $ \x -> x
+                { mGameId       = Just gid
+                , mGameMode     = if isMultiplayer then MultiplayerMode else mGameMode x
+                , mVariant      = variant
+                , mGameState    = gs
+                , mHistory      = hist
+                , mMoveList     = grwMoves gr
+                , mEvalScore    = evaluate gs
+                , mInviteCode   = grwInviteCode gr
+                , mQrDataUrl    = Nothing
+                , mScreen       = GameScreen
+                }
+              case grwInviteCode gr of
+                Just code | grwStatus gr == "waiting" ->
+                  withSink $ \sink -> do
+                    origin <- js_getOrigin
+                    qr <- js_generateQRDataURL (origin <> "/join/" <> code)
+                    sink (SetQrDataUrl qr)
+                _ -> pure ()
         [] -> modify $ \x -> x { mToast = Just "Game not found." }
       Error _ -> modify $ \x -> x { mToast = Just "Failed to load game." }
 
