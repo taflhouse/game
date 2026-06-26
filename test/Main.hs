@@ -10,7 +10,7 @@ import qualified Data.Vector as V
 import Tafl.Types
 import Tafl.Rules (BoardVariant(..))
 import Tafl.Game (act, initialState)
-import Tafl.Move (getPossibleActions)
+import Tafl.Move (getPossibleActions, isActionPossible)
 import Tafl.Symmetry (canonicalBoardKey, rotate90, mirrorBoard, symmetryVariants)
 
 -- ---------------------------------------------------------------------------
@@ -338,6 +338,28 @@ main = hspec $ do
       V.length mirrored === V.length board
       V.length (V.head mirrored) === V.length (V.head board)
 
+  -- -----------------------------------------------------------------------
+  -- Property-based tests: Movement/action consistency
+  -- -----------------------------------------------------------------------
+
+  describe "Movement/action consistency" $ do
+    it "every action in getPossibleActions passes isActionPossible" $ hedgehog $ do
+      gs <- forAll genGameState
+      let actions = getPossibleActions gs
+      annotateShow (length actions)
+      assert $ all (isActionPossible gs) actions
+
+    it "every action is orthogonal (same row or same column)" $ hedgehog $ do
+      gs <- forAll genGameState
+      let actions = getPossibleActions gs
+      assert $ all (\a -> row (from a) == row (to a)
+                       || col (from a) == col (to a)) actions
+
+    it "no action has from == to" $ hedgehog $ do
+      gs <- forAll genGameState
+      let actions = getPossibleActions gs
+      assert $ all (\a -> from a /= to a) actions
+
 -- ---------------------------------------------------------------------------
 -- Generators
 -- ---------------------------------------------------------------------------
@@ -351,3 +373,22 @@ genBoard = do
   half <- Gen.int (Range.linear 3 9)
   let n = 2 * half + 1   -- odd sizes: 7, 9, 11, ..., 19
   V.replicateM n (V.replicateM n genPiece)
+
+-- | Generate a game state by playing random legal moves from an initial position.
+genGameState :: Gen GameState
+genGameState = do
+  variant <- Gen.element [minBound .. maxBound]
+  let gs0 = initialState variant
+  numMoves <- Gen.int (Range.linear 0 30)
+  playRandomMoves numMoves gs0
+
+-- | Play up to n random legal moves, stopping early if the game ends.
+playRandomMoves :: Int -> GameState -> Gen GameState
+playRandomMoves 0 gs = pure gs
+playRandomMoves n gs
+  | finished (gsResult gs) = pure gs
+  | otherwise = case getPossibleActions gs of
+      [] -> pure gs
+      actions -> do
+        move <- Gen.element actions
+        playRandomMoves (n - 1) (act gs move)
