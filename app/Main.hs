@@ -124,7 +124,7 @@ instance FromJSON GameRow where
 data GameMode = PracticeMode | AiMode | MultiplayerMode
   deriving (Eq, Show)
 
-data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | ConfigureScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen
+data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | ConfigureScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen | LoadingScreen
   deriving (Eq, Show)
 
 data Profile = Profile
@@ -588,10 +588,16 @@ saveLocalGameIO gameData = do
   void $ jsg "globalThis" # "saveLocalGame" $ val
 
 main :: IO ()
-main = startApp defaultEvents app
+main = do
+  uri <- getURI
+  let screen0 = case parseRoute uri of
+        PlayRoute _ -> LoadingScreen
+        GameRoute _ -> LoadingScreen
+        _           -> HomeScreen
+  startApp defaultEvents (app screen0)
   where
-    app = Component
-      { model            = initModel
+    app s = Component
+      { model            = initModel { mScreen = s }
       , hydrateModel     = Nothing
       , update           = updateModel
       , view             = viewModel
@@ -763,14 +769,14 @@ updateModel = \case
       PlayRoute uuid
         | mGameId m == Just uuid && mScreen m == GameScreen -> pure ()
         | otherwise -> do
-            modify $ \x -> x { mScreen = GameScreen, mGameId = Just uuid }
+            modify $ \x -> x { mScreen = LoadingScreen, mGameId = Just uuid }
             selectWithFilters "games" "*"
               [eq "id" uuid]
               (FetchOptions Nothing Nothing)
               ResumeGameLoaded ResumeGameLoadError
       GameRoute uuid -> do
         modify $ \x -> x
-          { mScreen = ReplayScreen
+          { mScreen = LoadingScreen
           , mReplayGame = Nothing
           , mReplayStates = []
           , mReplayIndex = 0
@@ -1118,20 +1124,22 @@ updateModel = \case
               let initial = initialState variant
                   states = scanl act initial moves
               modify $ \m -> m
-                { mReplayGame   = Just gr
+                { mScreen       = ReplayScreen
+                , mReplayGame   = Just gr
                 , mReplayStates = states
                 , mReplayIndex  = 0
                 , mEvalScore    = evaluate initial
                 }
             _ -> modify $ \m -> m
-              { mReplayGame   = Just gr
+              { mScreen       = ReplayScreen
+              , mReplayGame   = Just gr
               , mReplayStates = []
               , mReplayIndex  = 0
               }
-        [] -> modify $ \m -> m { mReplayNotFound = True }
-      Error _ -> modify $ \m -> m { mReplayNotFound = True }
+        [] -> modify $ \m -> m { mScreen = ReplayScreen, mReplayNotFound = True }
+      Error _ -> modify $ \m -> m { mScreen = ReplayScreen, mReplayNotFound = True }
 
-  ReplayLoadError _ -> modify $ \m -> m { mReplayNotFound = True }
+  ReplayLoadError _ -> modify $ \m -> m { mScreen = ReplayScreen, mReplayNotFound = True }
 
   ReplayGotoMove i -> do
     m <- get
@@ -1829,6 +1837,7 @@ viewModel _ m =
                   ReplayScreen  -> viewReplay m
                   ProfileScreen     -> viewProfile m
                   ProfileEditScreen -> viewProfileEdit m
+                  LoadingScreen     -> text ""
             ]
         ]
     , viewToast m
