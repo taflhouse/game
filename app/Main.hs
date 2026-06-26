@@ -1969,7 +1969,7 @@ iconMoon =
 navAuthButtons :: Model -> [View Model Action]
 navAuthButtons m =
     (case mSession m of
-      Just _ ->
+      Just _ | isNothing (mGuestName m) ->
         [ H.div_
             [ style_ [("position", "relative")] ]
             [ H.span_
@@ -2018,7 +2018,7 @@ navAuthButtons m =
                 else text ""
             ]
         ]
-      Nothing ->
+      _ ->
         [ H.span_
             [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
             , style_ [("touch-action", "manipulation")]
@@ -2131,19 +2131,7 @@ viewHome m =
             ]
         , viewPastGamesTable (mPastGames m)
         ]
-      Just _ ->
-        [ H.p_
-            [ HP.class_ "text-xl font-bold text-center"
-            , style_ [("margin-top", "2em")]
-            ]
-            [ text "No games yet" ]
-        , H.p_
-            [ HP.class_ "text-muted-foreground text-sm italic cursor-pointer text-center"
-            , style_ [("margin-top", "2em"), ("text-decoration", "underline dotted"), ("text-underline-offset", "4px")]
-            , SVG.onClick (ShowToast "V\x01EBlusp\x00E1, stanza 59")
-            ]
-            [ text "\"The golden tafl pieces shall again be found in the grass.\"" ]
-        ]
+      Just _ -> []
       Nothing ->
         [ H.div_
             [ HP.class_ "text-center"
