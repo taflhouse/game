@@ -18,7 +18,7 @@ import Miso.JSON (Value, FromJSON(..), ToJSON(..), fromJSON, Result(..), Parser,
                   object, (.=), (.:), (.:?), (.!=), withObject, withText, parseMaybe)
 import Data.List (isPrefixOf)
 import Data.Maybe (fromMaybe, isNothing)
-import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, jsg, (#), asyncCallback, Function(..))
+import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, jsg, (#), asyncCallback, asyncCallback1, asyncCallback2, Function(..))
 import Supabase.Miso.Core (successCallback, errorCallback)
 import Supabase.Miso.Auth
   ( signUpEmail, signInWithPassword, signOut, signInAnonymously
@@ -97,6 +97,14 @@ data GameRow = GameRow
   , grwWinner       :: Maybe MisoString
   , grwTotalMoves   :: !Int
   , grwInviteCode   :: Maybe MisoString
+  -- Time control
+  , grwTimeControl       :: Maybe MisoString    -- "blitz" | "daily" | null
+  , grwAttackerTimeMs    :: Maybe Int            -- remaining ms
+  , grwDefenderTimeMs    :: Maybe Int            -- remaining ms
+  , grwLastMoveAt        :: Maybe MisoString     -- ISO 8601
+  , grwMoveDeadline      :: Maybe MisoString     -- ISO 8601
+  , grwTimePerMoveSec    :: Maybe Int
+  , grwTimePerPlayerMs   :: Maybe Int
   } deriving (Eq, Show)
 
 instance FromJSON GameRow where
@@ -116,12 +124,25 @@ instance FromJSON GameRow where
       <*> v .:? "winner"
       <*> v .:? "total_moves" .!= 0
       <*> v .:? "invite_code"
+      <*> v .:? "time_control"
+      <*> v .:? "attacker_time_remaining_ms"
+      <*> v .:? "defender_time_remaining_ms"
+      <*> v .:? "last_move_at"
+      <*> v .:? "move_deadline"
+      <*> v .:? "time_per_move_seconds"
+      <*> v .:? "time_per_player_ms"
 
 -- ---------------------------------------------------------------------------
 -- Model
 -- ---------------------------------------------------------------------------
 
 data GameMode = PracticeMode | AiMode | MultiplayerMode
+  deriving (Eq, Show)
+
+data TimeControl
+  = NoTimeControl
+  | BlitzControl !Int    -- total milliseconds per player
+  | DailyControl !Int    -- seconds per move
   deriving (Eq, Show)
 
 data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | ConfigureScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen | LoadingScreen
@@ -227,6 +248,13 @@ data Model = Model
   , mViewMode         :: !ViewMode
   , mIsFullscreen     :: !Bool
   , mZenHint          :: !Bool
+  -- Time control
+  , mTimeControl       :: !TimeControl
+  , mAttackerTimeMs    :: !Int
+  , mDefenderTimeMs    :: !Int
+  , mLastMoveAt        :: Maybe MisoString
+  , mMoveDeadline      :: Maybe MisoString
+  , mClockTimerId      :: Maybe Int          -- JS setInterval ID
   }
 
 instance Eq Model where
@@ -285,6 +313,11 @@ instance Eq Model where
         && mViewMode a == mViewMode b
         && mIsFullscreen a == mIsFullscreen b
         && mZenHint a == mZenHint b
+        && mTimeControl a == mTimeControl b
+        && mAttackerTimeMs a == mAttackerTimeMs b
+        && mDefenderTimeMs a == mDefenderTimeMs b
+        && mLastMoveAt a == mLastMoveAt b
+        && mMoveDeadline a == mMoveDeadline b
 
 eqSession :: Maybe Session -> Maybe Session -> Bool
 eqSession Nothing Nothing = True
@@ -391,6 +424,16 @@ data Action
   | DismissZenHint
   | DocumentDblClick
   | ToggleFullscreen
+  -- Time control
+  | SetTimeControl TimeControl
+  | ClockTick Int Int           -- (attackerMs, defenderMs) from JS timer
+  | ClockTimeout MisoString     -- "attacker" | "defender" from JS
+  | ClockStarted Int            -- JS interval ID
+  | StopClock
+  | WriteMpMoveWithClock MisoString (Maybe MisoString)
+    -- ^ (nowStr, mDeadlineStr) Continue multiplayer move DB write with IO-computed timestamps
+  | CompleteJoinWithClock MisoString MisoString MisoString (Maybe MisoString)
+    -- ^ (uid, displayName, nowStr, mDeadlineStr) Continue game join DB write
 
 -- ---------------------------------------------------------------------------
 -- Routing
@@ -528,6 +571,16 @@ foreign import javascript unsafe "globalThis.onDocumentDblClick($1)"
   js_onDocumentDblClick :: Function -> IO ()
 foreign import javascript unsafe "globalThis.onKeyboardShortcut($1)"
   js_onKeyboardShortcut :: Function -> IO ()
+foreign import javascript unsafe "globalThis.nowISO()"
+  js_nowISO_raw :: IO JSVal
+foreign import javascript unsafe "globalThis.elapsedMs($1)"
+  js_elapsedMs_raw :: JSVal -> IO Int
+foreign import javascript unsafe "globalThis.addSecondsISO($1,$2)"
+  js_addSecondsISO_raw :: JSVal -> Int -> IO JSVal
+foreign import javascript unsafe "globalThis.startGameClock($1,$2,$3,$4,$5,$6)"
+  js_startGameClock :: Int -> Int -> JSVal -> JSVal -> Function -> Function -> IO Int
+foreign import javascript unsafe "globalThis.stopGameClock($1)"
+  js_stopGameClock :: Int -> IO ()
 #else
 js_playMoveSound :: IO ()
 js_playMoveSound = pure ()
@@ -553,6 +606,16 @@ js_onDocumentDblClick :: Function -> IO ()
 js_onDocumentDblClick _ = pure ()
 js_onKeyboardShortcut :: Function -> IO ()
 js_onKeyboardShortcut _ = pure ()
+js_nowISO_raw :: IO JSVal
+js_nowISO_raw = toJSVal ("" :: MisoString)
+js_elapsedMs_raw :: JSVal -> IO Int
+js_elapsedMs_raw _ = pure 0
+js_addSecondsISO_raw :: JSVal -> Int -> IO JSVal
+js_addSecondsISO_raw v _ = pure v
+js_startGameClock :: Int -> Int -> JSVal -> JSVal -> Function -> Function -> IO Int
+js_startGameClock _ _ _ _ _ _ = pure 0
+js_stopGameClock :: Int -> IO ()
+js_stopGameClock _ = pure ()
 #endif
 
 js_generateUUID :: IO MisoString
@@ -568,6 +631,17 @@ js_generateQRDataURL :: MisoString -> IO MisoString
 js_generateQRDataURL s = do
   v <- toJSVal s
   fromJSValUnchecked =<< js_generateQRDataURL_raw v
+
+js_nowISO :: IO MisoString
+js_nowISO = fromJSValUnchecked =<< js_nowISO_raw
+
+js_elapsedMs :: MisoString -> IO Int
+js_elapsedMs s = toJSVal s >>= js_elapsedMs_raw
+
+js_addSecondsISO :: MisoString -> Int -> IO MisoString
+js_addSecondsISO s sec = do
+  sv <- toJSVal s
+  fromJSValUnchecked =<< js_addSecondsISO_raw sv sec
 
 -- | Generate a short random invite code (8 chars from UUID).
 generateInviteCode :: IO MisoString
@@ -686,6 +760,12 @@ initModel = Model
   , mViewMode         = NormalView
   , mIsFullscreen     = False
   , mZenHint          = False
+  , mTimeControl      = NoTimeControl
+  , mAttackerTimeMs   = 0
+  , mDefenderTimeMs   = 0
+  , mLastMoveAt       = Nothing
+  , mMoveDeadline     = Nothing
+  , mClockTimerId     = Nothing
   }
 
 -- ---------------------------------------------------------------------------
@@ -791,16 +871,19 @@ updateModel = \case
         case mRealtimeChannel m' of
           Just ch -> io_ $ removeChannel ch
           Nothing -> pure ()
+        stopClock
         modify $ \x -> x { mScreen = HomeScreen, mAiThinking = False, mGameId = Nothing
                          , mRealtimeChannel = Nothing, mOpponentName = Nothing, mPlayerSide = Nothing
-                         , mInviteCode = Nothing, mDrawOffered = False }
+                         , mInviteCode = Nothing, mDrawOffered = False
+                         , mTimeControl = NoTimeControl, mClockTimerId = Nothing }
         loadPastGames
       SignInRoute ->
         modify $ \x -> x { mScreen = SignInScreen, mAuthError = Nothing, mAuthMessage = Nothing }
       SignUpRoute ->
         modify $ \x -> x { mScreen = SignUpScreen, mAuthError = Nothing, mAuthMessage = Nothing }
       ConfigRoute ->
-        modify $ \x -> x { mScreen = ConfigScreen, mMoveList = [], mGameId = Nothing, mConfigModeChosen = False }
+        modify $ \x -> x { mScreen = ConfigScreen, mMoveList = [], mGameId = Nothing, mConfigModeChosen = False
+                         , mTimeControl = NoTimeControl }
       ConfigureRoute ->
         modify $ \x -> x { mScreen = ConfigureScreen, mMoveList = [], mGameId = Nothing }
       ProfileRoute ->
@@ -851,33 +934,19 @@ updateModel = \case
           io_ js_playMoveSound
           -- In multiplayer, update the game row in Supabase
           when (mGameMode m == MultiplayerMode) $ do
-            let newMoves = mMoveList m ++ [move]
-                nextTurn = case turnSide gs' of
-                  AttackerSide -> "attacker" :: MisoString
-                  DefenderSide -> "defender"
-            case mGameId m of
-              Just gid -> do
-                let updateData = if finished (gsResult gs')
-                      then object
-                        [ "moves"       .= newMoves
-                        , "current_turn" .= nextTurn
-                        , "total_moves" .= length newMoves
-                        , "result_desc" .= ms (desc (gsResult gs'))
-                        , "winner"      .= fmap (\s -> case s of
-                            AttackerSide -> "attacker" :: MisoString
-                            DefenderSide -> "defender") (winner (gsResult gs'))
-                        , "status"      .= ("finished" :: MisoString)
-                        ]
-                      else object
-                        [ "moves"       .= newMoves
-                        , "current_turn" .= nextTurn
-                        , "total_moves" .= length newMoves
-                        ]
-                updateTable "games" updateData
-                  [eq "id" gid]
-                  (UpdateOptions Nothing)
-                  MoveUpdated MoveUpdateError
-              Nothing -> pure ()
+            -- Dispatch DB write via continuation action (IO needed for timestamps)
+            case mTimeControl m of
+              BlitzControl _ ->
+                withSink $ \sink -> do
+                  nowStr <- js_nowISO
+                  sink (WriteMpMoveWithClock nowStr Nothing)
+              DailyControl perMoveSec ->
+                withSink $ \sink -> do
+                  nowStr <- js_nowISO
+                  deadlineStr <- js_addSecondsISO nowStr perMoveSec
+                  sink (WriteMpMoveWithClock nowStr (Just deadlineStr))
+              NoTimeControl ->
+                io (pure (WriteMpMoveWithClock "" Nothing))
           when (finished (gsResult gs') && mGameMode m /= MultiplayerMode) saveGame
           triggerAi
         Just sel | sel == coords ->
@@ -1331,7 +1400,19 @@ updateModel = \case
             (atkId, atkName, defId, defName) = case mySide of
               AttackerSide -> (Just uid, Just displayName, Nothing :: Maybe MisoString, Nothing :: Maybe MisoString)
               DefenderSide -> (Nothing :: Maybe MisoString, Nothing :: Maybe MisoString, Just uid, Just displayName)
-            gameData = object
+            tcFields = case mTimeControl m of
+              BlitzControl totalMs ->
+                [ "time_control"               .= ("blitz" :: MisoString)
+                , "attacker_time_remaining_ms"  .= totalMs
+                , "defender_time_remaining_ms"  .= totalMs
+                , "time_per_player_ms"          .= totalMs
+                ]
+              DailyControl perMoveSec ->
+                [ "time_control"            .= ("daily" :: MisoString)
+                , "time_per_move_seconds"   .= perMoveSec
+                ]
+              NoTimeControl -> []
+            gameData = object $
               [ "id"            .= uuid
               , "user_id"       .= uid
               , "variant"       .= variantSlug (mVariant m)
@@ -1346,7 +1427,10 @@ updateModel = \case
               , "attacker_name" .= atkName
               , "defender_id"   .= defId
               , "defender_name" .= defName
-              ]
+              ] ++ tcFields
+            (initAtkMs, initDefMs) = case mTimeControl m of
+              BlitzControl totalMs -> (totalMs, totalMs)
+              _                    -> (0, 0)
         modify $ \x -> x
           { mGameId     = Just uuid
           , mGameMode   = MultiplayerMode
@@ -1360,6 +1444,10 @@ updateModel = \case
           , mScreen     = GameScreen
           , mPlayerSide = Just mySide
           , mOpponentName = Nothing
+          , mAttackerTimeMs = initAtkMs
+          , mDefenderTimeMs = initDefMs
+          , mLastMoveAt     = Nothing
+          , mMoveDeadline   = Nothing
           }
         insert "games" gameData
           (InsertOptions Nothing Nothing)
@@ -1394,18 +1482,11 @@ updateModel = \case
                   displayName = case mGuestName m of
                     Just gn -> gn
                     Nothing -> maybe "" pUsername (mProfile m)
+                  tc = parseTimeControl gr
                   -- Determine which side is open
-                  (mySide, updateData) = case grwAttackerId gr of
-                    Nothing -> (AttackerSide, object
-                      [ "attacker_id"   .= uid
-                      , "attacker_name" .= displayName
-                      , "status"        .= ("active" :: MisoString)
-                      ])
-                    Just _ -> (DefenderSide, object
-                      [ "defender_id"   .= uid
-                      , "defender_name" .= displayName
-                      , "status"        .= ("active" :: MisoString)
-                      ])
+                  mySide = case grwAttackerId gr of
+                    Nothing -> AttackerSide
+                    Just _  -> DefenderSide
                   variant = fromMaybe Tablut (lookupVariant (grwVariant gr))
                   gs0 = initialState variant
                   (hist, gs) = replayMoves gs0 (grwMoves gr)
@@ -1413,7 +1494,8 @@ updateModel = \case
                     AttackerSide -> grwDefenderName gr
                     DefenderSide -> grwAttackerName gr
                   gid = grwId gr
-              modify $ \x -> x
+              -- Set up model state (timestamps set by CompleteJoinWithClock)
+              modify $ \x -> applyClockFromRow gr $ x
                 { mGameId       = Just gid
                 , mGameMode     = MultiplayerMode
                 , mGameState    = gs
@@ -1427,13 +1509,23 @@ updateModel = \case
                 , mScreen       = GameScreen
                 , mInviteCode   = Nothing
                 }
-              updateTable "games" updateData
-                [eq "id" gid]
-                (UpdateOptions Nothing)
-                GameJoinedOk GameJoinUpdateError
               subscribeToTable ("game:" <> gid) "games" ("id=eq." <> gid)
                 RealtimeChange RealtimeSubscribed RealtimeError
               io_ $ pushURI (playURI gid)
+              -- Compute timestamps in IO and dispatch DB write
+              -- Capture uid/displayName now to avoid race with session changes
+              case tc of
+                NoTimeControl ->
+                  io (pure (CompleteJoinWithClock uid displayName "" Nothing))
+                BlitzControl _ ->
+                  withSink $ \sink -> do
+                    nowStr <- js_nowISO
+                    sink (CompleteJoinWithClock uid displayName nowStr Nothing)
+                DailyControl perMoveSec ->
+                  withSink $ \sink -> do
+                    nowStr <- js_nowISO
+                    deadlineStr <- js_addSecondsISO nowStr perMoveSec
+                    sink (CompleteJoinWithClock uid displayName nowStr (Just deadlineStr))
             Nothing -> pure ()
         [] ->
           modify $ \x -> x { mToast = Just "No waiting game found with that code." }
@@ -1464,13 +1556,17 @@ updateModel = \case
                 Just AttackerSide -> grwDefenderName gr
                 Just DefenderSide -> grwAttackerName gr
                 Nothing           -> Nothing
-          modify $ \x -> x { mOpponentName = oppName }
+          modify $ \x -> applyClockFromRow gr $ x { mOpponentName = oppName }
+          -- Start blitz clock when opponent joins
+          case parseTimeControl gr of
+            BlitzControl _ -> startBlitzClock
+            _              -> pure ()
 
         -- Opponent moved: remote has more moves than local
         when (length remoteMoves > length localMoves) $ do
           let gs0 = initialState variant
               (hist, gs) = replayMoves gs0 remoteMoves
-          modify $ \x -> x
+          modify $ \x -> applyClockFromRow gr $ x
             { mGameState = gs
             , mHistory   = hist
             , mMoveList  = remoteMoves
@@ -1479,6 +1575,10 @@ updateModel = \case
             , mBrowseIndex = Nothing
             }
           io_ js_playMoveSound
+          -- Restart blitz clock for new active player
+          case parseTimeControl gr of
+            BlitzControl _ -> startBlitzClock
+            _              -> pure ()
 
         -- Draw offered by opponent
         case grwDrawOfferedBy gr of
@@ -1496,6 +1596,7 @@ updateModel = \case
                 _               -> Nothing
               result = GameResult True winSide (fromMisoString (grwResultDesc gr))
           modify $ \x -> x { mGameState = (mGameState x) { gsResult = result } }
+          stopClock
 
   RealtimeSubscribed ch ->
     modify $ \m -> m { mRealtimeChannel = Just ch }
@@ -1529,7 +1630,7 @@ updateModel = \case
                     Nothing           -> Nothing
                   isMultiplayer = grwStatus gr `elem` ["waiting", "active"]
                                  || (grwStatus gr == "finished" && fromMaybe "" (grwInviteCode gr) /= "")
-              modify $ \x -> x
+              modify $ \x -> applyClockFromRow gr $ x
                 { mGameId       = Just gid
                 , mGameMode     = if isMultiplayer then MultiplayerMode else mGameMode x
                 , mVariant      = variant
@@ -1554,13 +1655,18 @@ updateModel = \case
               when (grwStatus gr `elem` ["waiting", "active"]) $
                 subscribeToTable ("game:" <> gid) "games" ("id=eq." <> gid)
                   RealtimeChange RealtimeSubscribed RealtimeError
+              -- Start blitz clock if game is active
+              when (grwStatus gr == "active") $
+                case parseTimeControl gr of
+                  BlitzControl _ -> startBlitzClock
+                  _              -> pure ()
             Nothing -> do
               -- Load session-independent state so the correct screen displays.
               -- Player side, opponent name, and realtime will be set when
               -- SessionRestored fires and triggers a re-fetch.
               let isMultiplayer = grwStatus gr `elem` ["waiting", "active"]
                                  || (grwStatus gr == "finished" && fromMaybe "" (grwInviteCode gr) /= "")
-              modify $ \x -> x
+              modify $ \x -> applyClockFromRow gr $ x
                 { mGameId       = Just gid
                 , mGameMode     = if isMultiplayer then MultiplayerMode else mGameMode x
                 , mVariant      = variant
@@ -1590,7 +1696,8 @@ updateModel = \case
 
   Resign -> do
     m <- get
-    when (mGameMode m == MultiplayerMode) $
+    when (mGameMode m == MultiplayerMode) $ do
+      stopClock
       case (mSession m, mGameId m, mPlayerSide m) of
         (Just _, Just gid, Just mySide) -> do
           let winnerSide = case mySide of
@@ -1622,7 +1729,8 @@ updateModel = \case
 
   AcceptDraw -> do
     m <- get
-    when (mGameMode m == MultiplayerMode) $
+    when (mGameMode m == MultiplayerMode) $ do
+      stopClock
       case mGameId m of
         Just gid -> do
           let updateData = object
@@ -1684,6 +1792,134 @@ updateModel = \case
     modify $ \m -> m { mIsFullscreen = not (mIsFullscreen m) }
     io_ js_toggleFullscreen
 
+  SetTimeControl tc ->
+    modify $ \m -> m { mTimeControl = tc }
+
+  ClockTick atkMs defMs ->
+    modify $ \m -> m { mAttackerTimeMs = atkMs, mDefenderTimeMs = defMs }
+
+  ClockStarted tid ->
+    modify $ \m -> m { mClockTimerId = Just tid }
+
+  StopClock -> stopClock
+
+  ClockTimeout sideStr' -> do
+    m <- get
+    -- Optimistically show timeout result in UI
+    let loserSide = if sideStr' == "attacker" then AttackerSide else DefenderSide
+        winnerSide = if sideStr' == "attacker" then DefenderSide else AttackerSide
+        resultDesc = sideStr loserSide <> " lost on time"
+        result = GameResult True (Just winnerSide) (fromMisoString resultDesc)
+    modify $ \x -> x { mGameState = (mGameState x) { gsResult = result }
+                      , mAttackerTimeMs = if sideStr' == "attacker" then 0 else mAttackerTimeMs x
+                      , mDefenderTimeMs = if sideStr' == "defender" then 0 else mDefenderTimeMs x
+                      }
+    stopClock
+    -- Write to DB if we're connected
+    when (mGameMode m == MultiplayerMode) $
+      case mGameId m of
+        Just gid -> do
+          let updateData = object
+                [ "result_desc" .= resultDesc
+                , "winner"      .= sideStr winnerSide
+                , "status"      .= ("finished" :: MisoString)
+                , "attacker_time_remaining_ms" .= if sideStr' == "attacker" then (0 :: Int) else mAttackerTimeMs m
+                , "defender_time_remaining_ms" .= if sideStr' == "defender" then (0 :: Int) else mDefenderTimeMs m
+                ]
+          updateTable "games" updateData
+            [eq "id" gid]
+            (UpdateOptions Nothing)
+            MoveUpdated MoveUpdateError
+        Nothing -> pure ()
+
+  -- Continuation: write the multiplayer move to DB with IO-computed timestamps
+  WriteMpMoveWithClock nowStr mDeadlineStr -> do
+    m <- get
+    -- Update model with timestamps (skip for untimed games)
+    case mTimeControl m of
+      NoTimeControl -> pure ()
+      _ -> modify $ \x -> x { mLastMoveAt = Just nowStr
+                             , mMoveDeadline = mDeadlineStr }
+    let gs = mGameState m
+        newMoves' = mMoveList m
+        nextTurn = case turnSide gs of
+          AttackerSide -> "attacker" :: MisoString
+          DefenderSide -> "defender"
+        clockFields = case mTimeControl m of
+          BlitzControl _ ->
+            [ "attacker_time_remaining_ms" .= mAttackerTimeMs m
+            , "defender_time_remaining_ms" .= mDefenderTimeMs m
+            , "last_move_at"               .= nowStr
+            ]
+          DailyControl _ ->
+            [ "last_move_at"  .= nowStr ] ++
+            maybe [] (\d -> ["move_deadline" .= d]) mDeadlineStr
+          NoTimeControl -> []
+    case mGameId m of
+      Just gid -> do
+        let baseFields = if finished (gsResult gs)
+              then [ "moves"       .= newMoves'
+                   , "current_turn" .= nextTurn
+                   , "total_moves" .= length newMoves'
+                   , "result_desc" .= ms (desc (gsResult gs))
+                   , "winner"      .= fmap (\s -> case s of
+                       AttackerSide -> "attacker" :: MisoString
+                       DefenderSide -> "defender") (winner (gsResult gs))
+                   , "status"      .= ("finished" :: MisoString)
+                   ]
+              else [ "moves"       .= newMoves'
+                   , "current_turn" .= nextTurn
+                   , "total_moves" .= length newMoves'
+                   ]
+            updateData = object (baseFields ++ clockFields)
+        updateTable "games" updateData
+          [eq "id" gid]
+          (UpdateOptions Nothing)
+          MoveUpdated MoveUpdateError
+      Nothing -> pure ()
+    -- Restart or stop clock
+    if finished (gsResult gs)
+      then stopClock
+      else case mTimeControl m of
+        BlitzControl _ -> startBlitzClock
+        _              -> pure ()
+
+  -- Continuation: write the game join to DB with IO-computed timestamps
+  CompleteJoinWithClock uid displayName nowStr mDeadlineStr -> do
+    m <- get
+    case (mGameId m, mPlayerSide m) of
+      (Just gid, Just mySide) -> do
+        let baseJoinFields = case mySide of
+              AttackerSide ->
+                [ "attacker_id"   .= uid
+                , "attacker_name" .= displayName
+                , "status"        .= ("active" :: MisoString)
+                ]
+              DefenderSide ->
+                [ "defender_id"   .= uid
+                , "defender_name" .= displayName
+                , "status"        .= ("active" :: MisoString)
+                ]
+            tcFields = case mTimeControl m of
+              BlitzControl _ -> [ "last_move_at" .= nowStr ]
+              DailyControl _ ->
+                [ "last_move_at" .= nowStr ] ++
+                maybe [] (\d -> ["move_deadline" .= d]) mDeadlineStr
+              NoTimeControl -> []
+        case mTimeControl m of
+          NoTimeControl -> pure ()
+          _ -> modify $ \x -> x { mLastMoveAt = Just nowStr
+                                , mMoveDeadline = mDeadlineStr }
+        updateTable "games" (object (baseJoinFields ++ tcFields))
+          [eq "id" gid]
+          (UpdateOptions Nothing)
+          GameJoinedOk GameJoinUpdateError
+        -- Start blitz clock
+        case mTimeControl m of
+          BlitzControl _ -> startBlitzClock
+          _              -> pure ()
+      _ -> pure ()
+
 -- | Check if the AI should move and trigger the search if so.
 triggerAi :: Effect ROOT () Model Action
 triggerAi = do
@@ -1715,6 +1951,62 @@ parseRealtimeRow val =
     parsePayload = withObject "RealtimePayload" $ \o -> do
       newVal <- o .: "new"
       parseJSON newVal
+
+-- | Parse a TimeControl from GameRow fields.
+parseTimeControl :: GameRow -> TimeControl
+parseTimeControl gr = case grwTimeControl gr of
+  Just "blitz" -> BlitzControl (fromMaybe 0 (grwTimePerPlayerMs gr))
+  Just "daily" -> DailyControl (fromMaybe 0 (grwTimePerMoveSec gr))
+  _            -> NoTimeControl
+
+-- | Set Model clock fields from a GameRow.
+applyClockFromRow :: GameRow -> Model -> Model
+applyClockFromRow gr m = m
+  { mTimeControl    = parseTimeControl gr
+  , mAttackerTimeMs = fromMaybe 0 (grwAttackerTimeMs gr)
+  , mDefenderTimeMs = fromMaybe 0 (grwDefenderTimeMs gr)
+  , mLastMoveAt     = grwLastMoveAt gr
+  , mMoveDeadline   = grwMoveDeadline gr
+  }
+
+-- | Start the blitz clock timer, dispatching ClockTick and ClockTimeout.
+startBlitzClock :: Effect ROOT () Model Action
+startBlitzClock = do
+  m <- get
+  -- Stop any existing timer and clear the ID synchronously
+  case mClockTimerId m of
+    Just tid -> io_ $ js_stopGameClock tid
+    Nothing  -> pure ()
+  modify $ \x -> x { mClockTimerId = Nothing }
+  case mTimeControl m of
+    BlitzControl _ -> do
+      let atkMs = mAttackerTimeMs m
+          defMs = mDefenderTimeMs m
+          turn  = turnSide (mGameState m)
+          turnStr = sideStr turn
+      withSink $ \sink -> do
+        turnJsv <- toJSVal turnStr
+        lmaJsv  <- toJSVal (fromMaybe "" (mLastMoveAt m))
+        tickCb    <- Function <$> asyncCallback2 (\atkV defV -> do
+          atk <- fromJSValUnchecked atkV
+          def' <- fromJSValUnchecked defV
+          sink (ClockTick atk def'))
+        timeoutCb <- Function <$> asyncCallback1 (\sideV -> do
+          s <- fromJSValUnchecked sideV
+          sink (ClockTimeout s))
+        tid <- js_startGameClock atkMs defMs turnJsv lmaJsv tickCb timeoutCb
+        sink (ClockStarted tid)
+    _ -> modify $ \x -> x { mClockTimerId = Nothing }
+
+-- | Stop the blitz clock timer.
+-- Always calls JS to clear the singleton timer, even if mClockTimerId is stale.
+stopClock :: Effect ROOT () Model Action
+stopClock = do
+  m <- get
+  case mClockTimerId m of
+    Just tid -> io_ $ js_stopGameClock tid
+    Nothing  -> io_ $ js_stopGameClock 0  -- clears singleton _gameClockId in JS
+  modify $ \x -> x { mClockTimerId = Nothing }
 
 -- | Save the current finished game (Supabase update if authenticated with gameId, localStorage if guest).
 saveGame :: Effect ROOT () Model Action
@@ -2582,7 +2874,34 @@ viewSetupMultiplayer m =
         [ setupBtn (SetSidePreference "attacker") "Attackers" (mSidePreference m == "attacker")
         , setupBtn (SetSidePreference "defender") "Defenders" (mSidePreference m == "defender")
         ]
+    , setupSection "Time Control"
+        [ setupBtn (SetTimeControl NoTimeControl) "None" (mTimeControl m == NoTimeControl)
+        , setupBtn (SetTimeControl (BlitzControl 300000)) "Blitz" (isBlitz (mTimeControl m))
+        , setupBtn (SetTimeControl (DailyControl 86400)) "Daily" (isDaily (mTimeControl m))
+        ]
+    , case mTimeControl m of
+        BlitzControl _ ->
+          setupSection "Time Per Player"
+            [ setupBtn (SetTimeControl (BlitzControl 120000)) "2 min" (mTimeControl m == BlitzControl 120000)
+            , setupBtn (SetTimeControl (BlitzControl 300000)) "5 min" (mTimeControl m == BlitzControl 300000)
+            , setupBtn (SetTimeControl (BlitzControl 600000)) "10 min" (mTimeControl m == BlitzControl 600000)
+            ]
+        DailyControl _ ->
+          setupSection "Time Per Move"
+            [ setupBtn (SetTimeControl (DailyControl 86400)) "1 day" (mTimeControl m == DailyControl 86400)
+            , setupBtn (SetTimeControl (DailyControl 172800)) "2 days" (mTimeControl m == DailyControl 172800)
+            , setupBtn (SetTimeControl (DailyControl 259200)) "3 days" (mTimeControl m == DailyControl 259200)
+            ]
+        NoTimeControl -> text ""
     ]
+
+isBlitz :: TimeControl -> Bool
+isBlitz (BlitzControl _) = True
+isBlitz _                = False
+
+isDaily :: TimeControl -> Bool
+isDaily (DailyControl _) = True
+isDaily _                = False
 
 -- ---------------------------------------------------------------------------
 -- Username Registration Gate
@@ -2777,10 +3096,24 @@ viewGame m
   | otherwise =
     let zen = mViewMode m == ZenView
         showEval = mGameMode m /= MultiplayerMode
+        showClocks = not zen && mTimeControl m /= NoTimeControl && mGameMode m == MultiplayerMode
+        n = boardSize (gsBoard (mGameState m))
+        -- Determine which clocks go on top/bottom based on player perspective
+        myName = case mGuestName m of
+          Just gn -> gn
+          Nothing -> maybe "You" pUsername (mProfile m)
+        (topName, topMs, topIsActive, botName, botMs, botIsActive) = case mPlayerSide m of
+          Just AttackerSide ->
+            ( fromMaybe "Opponent" (mOpponentName m), mDefenderTimeMs m, turnSide (mGameState m) == DefenderSide
+            , myName, mAttackerTimeMs m, turnSide (mGameState m) == AttackerSide )
+          _ ->
+            ( fromMaybe "Opponent" (mOpponentName m), mAttackerTimeMs m, turnSide (mGameState m) == AttackerSide
+            , myName, mDefenderTimeMs m, turnSide (mGameState m) == DefenderSide )
     in H.div_
       [ HP.class_ "w-full flex flex-col items-center"
       ]
-      [ H.div_
+      [ if showClocks then viewClock n topName topMs topIsActive (mTimeControl m) (mMoveDeadline m) True else text ""
+      , H.div_
           -- margin-top set via #board-row in styles.css (reduced in fullscreen+zen on small screens)
           [ HP.id_ "board-row"
           , HP.class_ ("flex flex-row items-stretch justify-center gap-2" <> if zen then " zen" else "")
@@ -2788,12 +3121,57 @@ viewGame m
           [ if showEval && not zen then viewEvalBar m else text ""
           , viewBoardPanel m
           ]
+      , if showClocks then viewClock n botName botMs botIsActive (mTimeControl m) (mMoveDeadline m) False else text ""
       , if zen then text "" else viewStatus m
       , if zen then text "" else viewMoveHistory m
       , if zen then text ""
         else if mGameMode m == MultiplayerMode then viewMultiplayerControls m else text ""
       , if zen then text "" else viewShareLink m
       ]
+
+-- ---------------------------------------------------------------------------
+-- Clock Display
+-- ---------------------------------------------------------------------------
+
+-- | Format milliseconds as MM:SS or M:SS.t (under 1 minute).
+formatClockMs :: Int -> MisoString
+formatClockMs millis
+  | millis <= 0   = "0:00"
+  | millis < 60000 =
+      let totalSecs = millis `div` 1000
+          tenths    = (millis `mod` 1000) `div` 100
+      in ms (show totalSecs) <> "." <> ms (show tenths)
+  | otherwise =
+      let totalSecs = millis `div` 1000
+          mins      = totalSecs `div` 60
+          secs      = totalSecs `mod` 60
+      in ms (show mins) <> ":" <> ms (if secs < 10 then "0" ++ show secs else show secs)
+
+-- | Format a daily deadline as relative time.
+formatDeadline :: MisoString -> MisoString
+formatDeadline _deadline = "deadline set"  -- simplified; real relative time needs JS
+
+-- | Render a clock row above or below the board.
+viewClock :: Int -> MisoString -> Int -> Bool -> TimeControl -> Maybe MisoString -> Bool -> View Model Action
+viewClock n name timeMs isActive tc mDeadline isTop =
+  let lowTime = timeMs < 30000 && timeMs > 0
+      activeCls = if isActive then " font-bold" else " text-muted-foreground"
+      lowCls = if lowTime && isActive then " text-destructive" else ""
+      marginStyle = if isTop then [("margin-bottom", "0.3em"), ("margin-top", "1em")]
+                             else [("margin-top", "0.3em")]
+      timeDisplay = case tc of
+        BlitzControl _ -> formatClockMs timeMs
+        DailyControl _ -> case mDeadline of
+          Just d | isActive -> d
+          _                 -> "--:--"
+        NoTimeControl -> ""
+  in H.div_
+    [ HP.class_ ("flex justify-between items-center w-full px-2 text-sm font-mono" <> activeCls <> lowCls)
+    , style_ (("max-width", ms (sqSize * n) <> "px") : marginStyle)
+    ]
+    [ H.span_ [] [ text name ]
+    , H.span_ [ HP.class_ "tabular-nums" ] [ text timeDisplay ]
+    ]
 
 -- ---------------------------------------------------------------------------
 -- Replay Screen

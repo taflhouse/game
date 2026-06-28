@@ -308,6 +308,64 @@ globalThis["removeChannel"] = function(channel) {
   globalThis["supabase"].removeChannel(channel);
 };
 
+// -- Game clock / timer utilities --
+
+globalThis.nowISO = function() { return new Date().toISOString(); };
+
+globalThis.elapsedMs = function(isoString) {
+  if (!isoString) return 0;
+  return Math.max(0, Date.now() - new Date(isoString).getTime());
+};
+
+globalThis.addSecondsISO = function(isoString, seconds) {
+  const d = new Date(isoString);
+  d.setSeconds(d.getSeconds() + seconds);
+  return d.toISOString();
+};
+
+// Active game clock interval ID (singleton — at most one clock runs at a time).
+globalThis._gameClockId = null;
+
+// Start a blitz countdown clock. Returns interval ID.
+// Automatically stops any previously running clock.
+// Recalculates from base values each tick to avoid drift.
+globalThis.startGameClock = function(attackerMs, defenderMs, currentTurn, lastMoveAtISO, clockCb, timeoutCb) {
+  // Always stop the previous clock first
+  if (globalThis._gameClockId != null) {
+    clearInterval(globalThis._gameClockId);
+    globalThis._gameClockId = null;
+  }
+
+  const lastMoveTime = lastMoveAtISO ? new Date(lastMoveAtISO).getTime() : Date.now();
+
+  const intervalId = setInterval(() => {
+    const elapsed = Date.now() - lastMoveTime;
+    let atkDisplay, defDisplay;
+    if (currentTurn === 'attacker') {
+      atkDisplay = Math.max(0, attackerMs - elapsed);
+      defDisplay = defenderMs;
+    } else {
+      atkDisplay = attackerMs;
+      defDisplay = Math.max(0, defenderMs - elapsed);
+    }
+    clockCb(atkDisplay, defDisplay);
+    if (atkDisplay <= 0) { clearInterval(intervalId); globalThis._gameClockId = null; timeoutCb('attacker'); }
+    else if (defDisplay <= 0) { clearInterval(intervalId); globalThis._gameClockId = null; timeoutCb('defender'); }
+  }, 100);
+
+  globalThis._gameClockId = intervalId;
+  return intervalId;
+};
+
+globalThis.stopGameClock = function(intervalId) {
+  // Stop by specific ID if provided, otherwise stop the active clock
+  if (intervalId != null) clearInterval(intervalId);
+  if (globalThis._gameClockId != null) {
+    clearInterval(globalThis._gameClockId);
+    globalThis._gameClockId = null;
+  }
+};
+
 // -- WASI / WASM loading --
 
 import { WASI, OpenFile, File, ConsoleStdout } from "https://cdn.jsdelivr.net/npm/@bjorn3/browser_wasi_shim@0.3.0/dist/index.js";
