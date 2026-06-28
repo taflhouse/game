@@ -15,9 +15,8 @@ module App.Model
 import Miso.String (MisoString)
 import Supabase.Miso.Auth (Session)
 
-import Tafl.Board (Side(..), MoveAction)
+import Tafl.Board (Side(..))
 import Tafl.Rules (BoardVariant(..))
-import Tafl.Game (GameState, initialState)
 
 import App.JSON (Profile, GameRow, GameRecord)
 
@@ -93,12 +92,6 @@ data Model = Model
   , mLocalGames       :: [GameRecord]
   , mShowQuoteRef     :: !Bool
   , mQuoteRefGen      :: !Int
-    -- Replay (stays in root until Phase 2)
-  , mReplayGame       :: Maybe GameRecord
-  , mReplayStates     :: [GameState]
-  , mReplayIndex      :: !Int
-  , mReplayNotFound   :: !Bool
-  , mEvalScore        :: !Int
     -- Multiplayer config
   , mSidePreference   :: !MisoString
   , mTimeControl      :: !TimeControl
@@ -148,11 +141,6 @@ initModel = Model
   , mLocalGames       = []
   , mShowQuoteRef     = False
   , mQuoteRefGen      = 0
-  , mReplayGame       = Nothing
-  , mReplayStates     = []
-  , mReplayIndex      = 0
-  , mReplayNotFound   = False
-  , mEvalScore        = 0
   , mSidePreference   = "defender"
   , mTimeControl      = NoTimeControl
   , mJoinCodeInput    = ""

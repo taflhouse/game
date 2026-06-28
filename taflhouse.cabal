@@ -52,6 +52,10 @@ executable app
                       , App.Game.Action
                       , App.Game.Update
                       , App.Game.View
+                      , App.Replay.Model
+                      , App.Replay.Action
+                      , App.Replay.Update
+                      , App.Replay.View
   build-depends:        base, miso, taflhouse, supabase-miso, miso-ui, time, containers, text
   default-language:     GHC2021
   default-extensions:   CPP OverloadedStrings

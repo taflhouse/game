@@ -84,9 +84,6 @@ data Action
   | SetTimeControl TimeControl
   -- Replay
   | GotoReplay MisoString
-  | ReplayLoaded Value
-  | ReplayLoadError MisoString
-  | ReplayGotoMove Int
   -- View mode (replay only; game component handles its own)
   | DocumentDblClick
   | ToggleZenMode

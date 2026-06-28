@@ -18,11 +18,6 @@ import Supabase.Miso.Auth
   )
 import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq, neq)
 
-import Tafl.Board (Side(..))
-import Tafl.Rules (BoardVariant(..), variantSlug)
-import Tafl.Game (act, initialState)
-import Tafl.Game.State
-import Tafl.AI (evaluate)
 
 import App.JSON (GameRow(..), Profile(..), GameRecord(..))
 import App.Model
@@ -103,18 +98,11 @@ updateModel = \case
               [eq "id" uuid]
               (FetchOptions Nothing Nothing)
               ResumeGameLoaded ResumeGameLoadError
-      GameRoute uuid -> do
+      GameRoute uuid ->
         modify $ \x -> x
-          { mScreen       = LoadingScreen
-          , mReplayGame   = Nothing
-          , mReplayStates = []
-          , mReplayIndex  = 0
-          , mReplayNotFound = False
+          { mScreen       = ReplayScreen
+          , mReplayGameId = Just uuid
           }
-        selectWithFilters "games" "*"
-          [eq "id" uuid]
-          (FetchOptions Nothing Nothing)
-          ReplayLoaded ReplayLoadError
       HomeRoute -> do
         modify $ \x -> x { mScreen = HomeScreen, mGameInitData = Nothing }
         loadPastGames
@@ -486,40 +474,6 @@ updateModel = \case
   GotoReplay gid ->
     io_ $ pushURI (emptyURI { uriPath = "games/" <> gid })
 
-  ReplayLoaded val ->
-    case fromJSON val of
-      Success games -> case (games :: [GameRecord]) of
-        (gr:_) ->
-          case (lookupVariant (grVariant gr), grMoves gr) of
-            (Just variant, Just moves) -> do
-              let initial = initialState variant
-                  states  = scanl act initial moves
-              modify $ \m -> m
-                { mScreen       = ReplayScreen
-                , mReplayGame   = Just gr
-                , mReplayStates = states
-                , mReplayIndex  = 0
-                , mEvalScore    = evaluate initial
-                }
-            _ -> modify $ \m -> m
-              { mScreen       = ReplayScreen
-              , mReplayGame   = Just gr
-              , mReplayStates = []
-              , mReplayIndex  = 0
-              }
-        [] -> modify $ \m -> m { mScreen = ReplayScreen, mReplayNotFound = True }
-      Error _ -> modify $ \m -> m { mScreen = ReplayScreen, mReplayNotFound = True }
-
-  ReplayLoadError _ ->
-    modify $ \m -> m { mScreen = ReplayScreen, mReplayNotFound = True }
-
-  ReplayGotoMove i -> do
-    m <- get
-    let maxIdx = length (mReplayStates m) - 1
-        idx    = max 0 (min maxIdx i)
-    modify $ \x -> x { mReplayIndex = idx
-                      , mEvalScore  = evaluate (mReplayStates m !! idx) }
-
   -- View mode (replay only; game component manages its own) --------------
 
   ToggleZenMode -> do
@@ -557,6 +511,10 @@ updateModel = \case
       Just "game_finished" -> loadPastGames
       Just "game_unmounted" ->
         modify $ \m -> m { mGameInitData = Nothing }
+      Just "toggle_zen" -> updateModel ToggleZenMode
+      Just "toggle_fullscreen" -> updateModel ToggleFullscreen
+      Just "replay_unmounted" ->
+        modify $ \m -> m { mReplayGameId = Nothing }
       _ -> pure ()
 
 -- ---------------------------------------------------------------------------

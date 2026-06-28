@@ -18,6 +18,10 @@ import App.Game.Model (GameModel, GameProps, initialGameModel)
 import App.Game.Action (GameAction(..))
 import App.Game.Update (updateGame)
 import App.Game.View (viewGame)
+import App.Replay.Model (ReplayModel, ReplayProps, initialReplayModel)
+import App.Replay.Action (ReplayAction(..))
+import App.Replay.Update (updateReplay)
+import App.Replay.View (viewReplay)
 
 #ifdef WASM
 foreign export javascript "hs_start" main :: IO ()
@@ -36,13 +40,17 @@ main = do
         { mount   = Just GameMount
         , unmount = Just GameUnmount
         }
-  startApp defaultEvents (app screen0 gameComp)
+      replayComp = (component initialReplayModel updateReplay viewReplay)
+        { mount   = Just ReplayMount
+        , unmount = Just ReplayUnmount
+        }
+  startApp defaultEvents (app screen0 gameComp replayComp)
   where
-    app s gc = Component
+    app s gc rc = Component
       { model            = initModel { mScreen = s }
       , hydrateModel     = Nothing
       , update           = updateModel
-      , view             = viewModel gc
+      , view             = viewModel gc rc
       , subs             = [ uriSub HandleURI
                            , \sink -> getURI >>= sink . HandleURI
                            , \sink -> do

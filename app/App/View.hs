@@ -2,7 +2,7 @@
 module App.View (viewModel) where
 
 import Data.Maybe (isNothing)
-import Miso hiding ((!!))
+import Miso
 import Miso.CSS (style_)
 import Miso.String (MisoString, ms)
 import qualified Miso.Html as H
@@ -10,26 +10,29 @@ import qualified Miso.Html.Property as HP
 import qualified Miso.Svg as SVG
 import qualified Miso.Svg.Property as SP
 
-import Tafl.Board (boardSize, Coords(..), MoveAction(..), Side(..), Piece(..), pieceAt)
+import Tafl.Board (Side(..))
 import Tafl.Rules (BoardVariant(..))
-import Tafl.Game.State (GameState, gsBoard, gsLastAction, opponentSide)
 
 import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
 
 import App.JSON (Profile(..), GameRecord(..))
 import App.Model
 import App.Action
-import App.Board (sqSize, coordStr, viewBasicSVGBoard, viewBoardContainer, viewEvalBar)
 import App.FFI (js_formatDate)
 import App.Game.Model (GameProps(..), GameModel)
 import App.Game.Action (GameAction)
+import App.Replay.Model (ReplayProps(..), ReplayModel)
+import App.Replay.Action (ReplayAction)
 
 -- ---------------------------------------------------------------------------
 -- View: Top-level layout
 -- ---------------------------------------------------------------------------
 
-viewModel :: Component Model GameProps GameModel GameAction -> () -> Model -> View Model Action
-viewModel gameComp _ m =
+viewModel
+  :: Component Model GameProps GameModel GameAction
+  -> Component Model ReplayProps ReplayModel ReplayAction
+  -> () -> Model -> View Model Action
+viewModel gameComp replayComp _ m =
   let zen = mViewMode m == ZenView && mScreen m == ReplayScreen
   in H.div_
     [ HP.class_ "fixed inset-0 flex flex-col bg-background font-sans"
@@ -53,7 +56,7 @@ viewModel gameComp _ m =
                   ConfigureScreen   -> viewConfigure m
                   JoinScreen        -> viewJoin m
                   GameScreen        -> viewGameScreen gameComp m
-                  ReplayScreen      -> viewReplay m
+                  ReplayScreen      -> viewReplayScreen replayComp m
                   ProfileScreen     -> viewProfile m
                   ProfileEditScreen -> viewProfileEdit m
                   LoadingScreen     -> text ""
@@ -992,156 +995,21 @@ viewProfileEdit m =
     ]
 
 -- ---------------------------------------------------------------------------
--- Replay Screen
+-- Replay Screen (mounts sub-component)
 -- ---------------------------------------------------------------------------
 
-viewReplay :: Model -> View Model Action
-viewReplay m
-  | mReplayNotFound m =
+viewReplayScreen :: Component Model ReplayProps ReplayModel ReplayAction -> Model -> View Model Action
+viewReplayScreen replayComp m = case mReplayGameId m of
+  Just gameId ->
+    mountWithProps_ "replay"
+      (ReplayProps gameId (mViewMode m == ZenView) (mIsFullscreen m))
+      replayComp
+  Nothing ->
     H.div_
-      [ HP.class_ "text-center text-muted-foreground mt-8"
+      [ HP.class_ "text-center text-muted-foreground animate-pulse"
+      , style_ [("margin-top", "4em")]
       ]
-      [ text "This game is private or doesn't exist." ]
-  | Nothing <- mReplayGame m =
-    H.div_
-      [ HP.class_ "text-center text-muted-foreground mt-8 animate-pulse"
-      ]
-      [ text "Loading game..." ]
-  | Just gr <- mReplayGame m =
-    let zen = mViewMode m == ZenView
-    in H.div_
-      [ HP.class_ "w-full flex flex-col items-center"
-      ]
-      [ if zen then text "" else viewReplayHeader gr
-      , case mReplayStates m of
-          [] -> H.div_
-            [ HP.class_ "card p-6 text-center mt-4"
-            ]
-            [ text "No move data available for this game." ]
-          states ->
-            let gs = states !! mReplayIndex m
-                n = boardSize (gsBoard gs)
-            in H.div_
-              [ HP.class_ "w-full flex flex-col items-center"
-              ]
-              [ H.div_
-                  [ HP.class_ "flex flex-row items-stretch justify-center gap-2"
-                  , style_ [("margin-top", "1em")]
-                  ]
-                  [ if not zen then viewEvalBar (mEvalScore m) else text ""
-                  , viewReplayBoardPanel m gs
-                  ]
-              , viewReplayControls m n
-              , if zen then text "" else viewReplayMoveList m n
-              ]
-      ]
-
-viewReplayHeader :: GameRecord -> View Model Action
-viewReplayHeader gr =
-  let winText = case grWinner gr of
-        Just "attacker" -> "Attackers won"
-        Just "defender" -> "Defenders won"
-        _               -> "Draw"
-  in H.div_
-    [ HP.class_ "text-center mb-2"
-    , style_ [("margin-top", "2em")]
-    ]
-    [ H.h2_
-        [ HP.class_ "text-lg font-bold" ]
-        [ text (grVariant gr) ]
-    , H.p_
-        [ HP.class_ "text-sm text-muted-foreground" ]
-        [ text (winText <> " · " <> ms (show (grTotalMoves gr)) <> " moves") ]
-    ]
-
-viewReplayBoardPanel :: Model -> GameState -> View Model Action
-viewReplayBoardPanel m gs =
-  let n = boardSize (gsBoard gs)
-  in viewBoardContainer (mIsFullscreen m) (mViewMode m == ZenView) n (viewBasicSVGBoard gs [])
-
-viewReplayControls :: Model -> Int -> View Model Action
-viewReplayControls m n =
-  let idx = mReplayIndex m
-      maxIdx = length (mReplayStates m) - 1
-  in H.div_
-    [ HP.class_ "flex items-center justify-center gap-2 my-4 w-full"
-    , style_ [("max-width", ms (sqSize * n) <> "px")]
-    ]
-    [ replayBtn (ReplayGotoMove 0) "|<" (idx > 0)
-    , replayBtn (ReplayGotoMove (idx - 1)) "<" (idx > 0)
-    , H.span_
-        [ HP.class_ "text-sm font-mono text-muted-foreground min-w-[5em] text-center" ]
-        [ text (ms (show idx) <> " / " <> ms (show maxIdx)) ]
-    , replayBtn (ReplayGotoMove (idx + 1)) ">" (idx < maxIdx)
-    , replayBtn (ReplayGotoMove maxIdx) ">|" (idx < maxIdx)
-    , replayBtn ToggleZenMode "Zen" True
-    ]
-
-replayBtn :: Action -> MisoString -> Bool -> View Model Action
-replayBtn action label enabled =
-  H.button_
-    [ HP.class_ (if enabled
-        then "btn btn-outline btn-sm text-foreground"
-        else "btn btn-outline btn-sm text-muted-foreground opacity-50 cursor-not-allowed")
-    , style_ [("touch-action", "manipulation"), ("min-width", "2.5em")]
-    , SVG.onClick (if enabled then action else NoOp)
-    ]
-    [ text label ]
-
-viewReplayMoveList :: Model -> Int -> View Model Action
-viewReplayMoveList m n =
-  case grMoves =<< mReplayGame m of
-    Nothing -> H.div_ [] []
-    Just moves | null moves -> H.div_ [] []
-    Just moves ->
-      let states = mReplayStates m
-          idx = mReplayIndex m
-      in H.div_
-        [ HP.class_ "flex flex-col gap-1 items-center w-full"
-        , style_ [("max-width", ms (sqSize * n) <> "px")]
-        ]
-        [ H.div_
-            [ HP.class_ "flex justify-between items-center w-full"
-            , style_ [("margin-bottom", "0.4em")]
-            ]
-            [ H.span_
-                [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase" ]
-                [ text "MOVES" ]
-            ]
-        , H.div_
-            [ HP.class_ "flex gap-0.5 overflow-y-auto p-2 w-full rounded border border-border"
-            , style_ [("max-height", "10rem"), ("flex-direction", "column-reverse")]
-            ]
-            [ replayMoveBtn i move n (i == idx) states
-            | (i, move) <- reverse (zip [1..] moves)
-            ]
-        ]
-
-replayMoveBtn :: Int -> MoveAction -> Int -> Bool -> [GameState] -> View Model Action
-replayMoveBtn idx (MoveAction _f t) n isCurrent states =
-  let gs = if idx < length states then states !! idx else states !! (length states - 1)
-      moveSide = opponentSide gs
-      movedPiece = pieceAt (gsBoard gs) t
-      pointer = if isCurrent then "> " else "  "
-      sideChar = case moveSide of
-          AttackerSide -> "A"
-          DefenderSide -> "D"
-      la = case gsLastAction gs of
-        Just (MoveAction f' t') -> pointer <> ms (show idx) <> ". " <> sideChar <> " "
-              <> ms (coordStr n f') <> "-" <> ms (coordStr n t')
-        _ -> pointer <> ms (show idx) <> ". " <> sideChar
-      (textColor, borderColor) = case movedPiece of
-        Attacker -> ("var(--piece-attacker)", "var(--piece-attacker)")
-        King     -> ("var(--piece-king)", "var(--piece-king)")
-        _        -> ("var(--piece-defender)", "var(--piece-defender)")
-      activeCls = " border-l-2"
-      moveStyle = [("color", textColor), ("border-left-color", borderColor)]
-  in H.button_
-    [ HP.class_ ("text-xs font-mono text-left w-full py-1 px-2 rounded hover:bg-muted/50 cursor-pointer bg-transparent border-0 text-foreground" <> activeCls)
-    , style_ (("touch-action", "manipulation") : moveStyle)
-    , SVG.onClick (ReplayGotoMove idx)
-    ]
-    [ text la ]
+      [ text "Loading..." ]
 
 -- ---------------------------------------------------------------------------
 -- Zen mode hint
