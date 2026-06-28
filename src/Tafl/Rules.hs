@@ -1,8 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 module Tafl.Rules
-  ( -- * Default rule sets
-    copenhagen
+  ( -- * Rules
+    RuleSet(..)
+    -- * Default rule sets
+  , copenhagen
     -- * Board variants
   , BoardVariant(..)
   , variantDefaultRules
@@ -11,7 +13,23 @@ module Tafl.Rules
   ) where
 
 import Data.Text (Text)
-import Tafl.Types (RuleSet(..), Side(..))
+import Tafl.Board (Side(..))
+
+-- | All configurable rules for a tafl variant.
+data RuleSet = RuleSet
+  { kingIsArmed            :: !Bool
+  , kingCanReturnToCenter  :: !Bool
+  , attackerCountToCapture :: !Int
+  , repetitionTurnLimit    :: !Int
+  , shieldWalls            :: !Bool
+  , exitForts              :: !Bool
+  , edgeEscape             :: !Bool
+  , cornerBaseWidth        :: !Int
+  , startingSide           :: !Side
+  , saveBoardHistory       :: !Bool
+  , saveActions            :: !Bool
+  , skipExpensiveChecks    :: !Bool
+  } deriving (Eq, Show)
 
 -- | Copenhagen tafl rules — the standard modern ruleset.
 copenhagen :: RuleSet

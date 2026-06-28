@@ -1,11 +1,13 @@
-module Tafl.Move
+module Tafl.Game.Move
   ( getPossibleMovesFrom
   , getPossibleActions
   , isActionPossible
   , canMakeAMove
   ) where
 
-import Tafl.Types
+import Tafl.Board
+import Tafl.Rules (RuleSet(..))
+import Tafl.Game.State
 
 -- | Four orthogonal directions as (row delta, col delta).
 dir4 :: [(Int, Int)]

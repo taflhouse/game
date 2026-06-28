@@ -3,17 +3,20 @@ module Tafl.Game
   ( act
   , isGameOver
   , initialState
+    -- * Re-exports from Game.State
+  , module Tafl.Game.State
   ) where
 
 import qualified Data.Vector as V
-import Tafl.Types
-import Tafl.Rules (BoardVariant, variantDefaultRules)
-import Tafl.Board (variantBoard)
-import Tafl.Move (getPossibleActions, canMakeAMove)
-import Tafl.Capture (checkCaptures)
-import Tafl.Fort (kingEscapedThroughFort)
-import Tafl.Surround (didAttackersSurroundDefenders)
-import Tafl.Symmetry (addBoardToHistory, checkRepetition, initialBoardHistory)
+import Tafl.Board
+import Tafl.Rules (RuleSet(..), BoardVariant, variantDefaultRules)
+import Tafl.Game.State
+import Tafl.Game.Board (variantBoard)
+import Tafl.Game.Move (getPossibleActions, canMakeAMove)
+import Tafl.Game.Capture (checkCaptures)
+import Tafl.Game.Fort (kingEscapedThroughFort)
+import Tafl.Game.Surround (didAttackersSurroundDefenders)
+import Tafl.Game.Symmetry (addBoardToHistory, checkRepetition, initialBoardHistory)
 
 -- | Create the initial game state for a given board variant.
 initialState :: BoardVariant -> GameState

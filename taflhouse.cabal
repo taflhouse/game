@@ -4,14 +4,15 @@ version:                0.1
 
 library
   hs-source-dirs:       src
-  exposed-modules:      Tafl.Types
+  exposed-modules:      Tafl.Board
                       , Tafl.Rules
-                      , Tafl.Board
-                      , Tafl.Move
-                      , Tafl.Capture
-                      , Tafl.Fort
-                      , Tafl.Surround
-                      , Tafl.Symmetry
+                      , Tafl.Game.State
+                      , Tafl.Game.Board
+                      , Tafl.Game.Move
+                      , Tafl.Game.Capture
+                      , Tafl.Game.Fort
+                      , Tafl.Game.Surround
+                      , Tafl.Game.Symmetry
                       , Tafl.Game
                       , Tafl.AI
   build-depends:        base
@@ -39,6 +40,13 @@ executable app
 
   hs-source-dirs:       app
   main-is:              Main.hs
+  other-modules:        App.JSON
+                      , App.Model
+                      , App.Action
+                      , App.Route
+                      , App.FFI
+                      , App.Update
+                      , App.View
   build-depends:        base, miso, taflhouse, supabase-miso, miso-ui, time, containers, text
   default-language:     GHC2021
   default-extensions:   CPP OverloadedStrings

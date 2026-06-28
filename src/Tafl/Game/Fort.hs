@@ -1,11 +1,12 @@
-module Tafl.Fort
+module Tafl.Game.Fort
   ( kingEscapedThroughFort
   ) where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
 import qualified Data.Vector as V
-import Tafl.Types
+import Tafl.Board
+import Tafl.Game.State
 
 -- | Four orthogonal directions.
 dir4 :: [(Int, Int)]

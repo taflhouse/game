@@ -3,9 +3,11 @@ module Tafl.AI (AiConfig(..), defaultAiConfig, bestMove, evaluate) where
 import Data.List (sortBy, foldl')
 import Data.Ord (comparing, Down(..))
 
-import Tafl.Types
+import Tafl.Board
+import Tafl.Rules (RuleSet(..))
+import Tafl.Game.State
 import Tafl.Game (act)
-import Tafl.Move (getPossibleActions)
+import Tafl.Game.Move (getPossibleActions)
 
 -- | AI configuration.
 data AiConfig = AiConfig

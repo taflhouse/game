@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Tafl.Symmetry
+module Tafl.Game.Symmetry
   ( canonicalBoardKey
   , addBoardToHistory
   , checkRepetition
@@ -14,7 +14,9 @@ import Data.Map.Strict (Map)
 import qualified Data.Text as T
 import Data.Text (Text)
 import qualified Data.Vector as V
-import Tafl.Types
+import Tafl.Board
+import Tafl.Rules (RuleSet(..))
+import Tafl.Game.State
 
 -- | Convert a piece to a character for board serialization.
 pieceToChar :: Piece -> Char

@@ -1,11 +1,11 @@
-module Tafl.Surround
+module Tafl.Game.Surround
   ( didAttackersSurroundDefenders
   ) where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
 import qualified Data.Vector as V
-import Tafl.Types
+import Tafl.Board
 
 -- | Four orthogonal directions.
 dir4 :: [(Int, Int)]

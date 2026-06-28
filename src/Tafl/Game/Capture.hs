@@ -1,8 +1,10 @@
-module Tafl.Capture
+module Tafl.Game.Capture
   ( checkCaptures
   ) where
 
-import Tafl.Types
+import Tafl.Board
+import Tafl.Rules (RuleSet(..))
+import Tafl.Game.State
 
 -- | Four orthogonal directions as (row delta, col delta).
 dir4 :: [(Int, Int)]
@@ -44,7 +46,6 @@ isEmptyBase gs coords =
 checkCaptures :: GameState -> Coords -> [Coords]
 checkCaptures gs landing =
   let side    = turnSide gs
-      board   = gsBoard gs
       -- Standard sandwich captures
       sandwiches = concatMap (checkSandwich gs landing side) dir4
       -- King capture check

@@ -7,11 +7,11 @@ import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import qualified Data.Vector as V
 
-import Tafl.Types
+import Tafl.Board
 import Tafl.Rules (BoardVariant(..))
-import Tafl.Game (act, initialState)
-import Tafl.Move (getPossibleActions, isActionPossible)
-import Tafl.Symmetry (canonicalBoardKey, rotate90, mirrorBoard, symmetryVariants)
+import Tafl.Game (act, initialState, GameState(..), GameResult(..))
+import Tafl.Game.Move (getPossibleActions, isActionPossible)
+import Tafl.Game.Symmetry (canonicalBoardKey, rotate90, mirrorBoard, symmetryVariants)
 
 -- ---------------------------------------------------------------------------
 -- Minimal model simulation (mirrors app/Main.hs update logic)
