@@ -494,9 +494,8 @@ updateModel = \case
     when (mScreen m == ReplayScreen) $
       updateModel ToggleZenMode
 
-  ToggleFullscreen -> do
+  ToggleFullscreen ->
     modify $ \m -> m { mIsFullscreen = not (mIsFullscreen m) }
-    io_ js_toggleFullscreen
 
   Undo -> pure ()  -- game component handles undo internally
 

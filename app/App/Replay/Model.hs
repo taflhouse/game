@@ -15,6 +15,7 @@ data ReplayProps = ReplayProps
   { rpGameId       :: !MisoString
   , rpZenMode      :: !Bool
   , rpIsFullscreen :: !Bool
+  , rpZenHint      :: !Bool
   } deriving (Eq)
 
 -- | Replay component model.

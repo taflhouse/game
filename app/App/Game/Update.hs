@@ -660,16 +660,6 @@ updateGame channelRef clockRef = \case
   GDismissZenHint ->
     modify $ \gm -> gm { gmZenHint = False }
 
-  GDocumentDblClick -> do
-    gm <- get
-    when (gmViewMode gm == NormalView) $ modify $ \x -> x { gmViewMode = ZenView, gmZenHint = True }
-    when (gmViewMode gm == ZenView) $ modify $ \x -> x { gmViewMode = NormalView, gmZenHint = False }
-    gm' <- get
-    when (gmViewMode gm' == ZenView) $ do
-      withSink $ \sink -> do
-        threadDelay 4000000
-        sink GDismissZenHint
-
   GToggleFullscreen -> do
     modify $ \gm -> gm { gmIsFullscreen = not (gmIsFullscreen gm) }
     io_ js_toggleFullscreen

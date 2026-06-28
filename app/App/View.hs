@@ -63,7 +63,6 @@ viewModel gameComp replayComp _ m =
             ]
         ]
     , viewToast m
-    , viewZenHint m
     ]
 
 -- | Mount the game component when init data is available.
@@ -122,36 +121,9 @@ viewNavbar m =
           H.div_
             [ HP.class_ "flex items-center gap-4"
             ]
-            (fullscreenToggleBtn m : themeToggleBtn : navAuthButtons m)
+            (themeToggleBtn : navAuthButtons m)
         ]
     ]
-
-fullscreenToggleBtn :: Model -> View Model Action
-fullscreenToggleBtn m
-  | mScreen m `elem` [GameScreen, ReplayScreen] =
-    H.button_
-      [ HP.class_ "p-2 rounded-md text-foreground hover:bg-muted cursor-pointer"
-      , style_ [("touch-action", "manipulation"), ("background", "none"), ("border", "none")]
-      , SVG.onClick ToggleFullscreen
-      , HP.title_ "Fullscreen"
-      ]
-      [ SVG.svg_
-          [ SP.viewBox_ "0 0 24 24"
-          , HP.width_ "18"
-          , HP.height_ "18"
-          , SP.fill_ "none"
-          , SP.stroke_ "currentcolor"
-          , SP.strokeWidth_ "2"
-          , SP.strokeLinecap_ "round"
-          , SP.strokeLinejoin_ "round"
-          ]
-          [ SVG.path_ [ SP.d_ "M8 3H5a2 2 0 0 0-2 2v3" ]
-          , SVG.path_ [ SP.d_ "M21 8V5a2 2 0 0 0-2-2h-3" ]
-          , SVG.path_ [ SP.d_ "M3 16v3a2 2 0 0 0 2 2h3" ]
-          , SVG.path_ [ SP.d_ "M16 21h3a2 2 0 0 0 2-2v-3" ]
-          ]
-      ]
-  | otherwise = text ""
 
 themeToggleBtn :: View Model Action
 themeToggleBtn =
@@ -1002,7 +974,7 @@ viewReplayScreen :: Component Model ReplayProps ReplayModel ReplayAction -> Mode
 viewReplayScreen replayComp m = case mReplayGameId m of
   Just gameId ->
     mountWithProps_ "replay"
-      (ReplayProps gameId (mViewMode m == ZenView) (mIsFullscreen m))
+      (ReplayProps gameId (mViewMode m == ZenView) (mIsFullscreen m) (mZenHint m))
       replayComp
   Nothing ->
     H.div_
@@ -1011,21 +983,3 @@ viewReplayScreen replayComp m = case mReplayGameId m of
       ]
       [ text "Loading..." ]
 
--- ---------------------------------------------------------------------------
--- Zen mode hint
--- ---------------------------------------------------------------------------
-
-viewZenHint :: Model -> View Model Action
-viewZenHint m
-  | mZenHint m =
-    H.div_
-      [ HP.class_ "card px-4 py-2 text-sm text-muted-foreground shadow-lg"
-      , style_ [ ("position", "fixed"), ("bottom", "1.5rem"), ("left", "50%")
-               , ("transform", "translateX(-50%)"), ("z-index", "9999")
-               , ("pointer-events", "none")
-               ]
-      ]
-      [ H.span_ [ HP.class_ "hidden sm:inline" ] [ text "Triple-click board to exit zen mode" ]
-      , H.span_ [ HP.class_ "sm:hidden" ] [ text "Triple-tap board to exit zen mode" ]
-      ]
-  | otherwise = text ""

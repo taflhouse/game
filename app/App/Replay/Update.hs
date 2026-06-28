@@ -12,6 +12,7 @@ import Tafl.AI (evaluate)
 import App.JSON (GameRecord(..))
 import App.Model (Model)
 import App.Route (lookupVariant)
+import App.FFI (js_toggleFullscreen)
 import App.Replay.Model
 import App.Replay.Action
 
@@ -62,7 +63,8 @@ updateReplay = \case
   RToggleZen ->
     mailParent $ object ["type" .= ("toggle_zen" :: String)]
 
-  RToggleFullscreen ->
+  RToggleFullscreen -> do
+    io_ js_toggleFullscreen
     mailParent $ object ["type" .= ("toggle_fullscreen" :: String)]
 
   ReplayUnmount ->

@@ -39,7 +39,6 @@ data GameAction
   -- View mode
   | GToggleZenMode
   | GDismissZenHint
-  | GDocumentDblClick
   | GToggleFullscreen
   -- Persistence
   | GGameSaved Value

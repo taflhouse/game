@@ -56,6 +56,7 @@ viewReplay props rm
               , viewReplayControls rm n
               , if zen then text "" else viewReplayMoveList rm n
               ]
+      , viewReplayZenHint props
       ]
 
 viewReplayHeader :: GameRecord -> View ReplayModel ReplayAction
@@ -97,6 +98,7 @@ viewReplayControls rm n =
     , replayBtn (RGotoMove (idx + 1)) ">" (idx < maxIdx)
     , replayBtn (RGotoMove maxIdx) ">|" (idx < maxIdx)
     , replayBtn RToggleZen "Zen" True
+    , replayBtn RToggleFullscreen "FS" True
     ]
 
 replayBtn :: ReplayAction -> MisoString -> Bool -> View ReplayModel ReplayAction
@@ -138,6 +140,22 @@ viewReplayMoveList rm n =
             | (i, move) <- reverse (zip [1..] moves)
             ]
         ]
+
+-- | Zen mode hint (fixed overlay at bottom of screen)
+viewReplayZenHint :: ReplayProps -> View ReplayModel ReplayAction
+viewReplayZenHint props
+  | rpZenHint props =
+    H.div_
+      [ HP.class_ "card px-4 py-2 text-sm text-muted-foreground shadow-lg"
+      , style_ [ ("position", "fixed"), ("bottom", "1.5rem"), ("left", "50%")
+               , ("transform", "translateX(-50%)"), ("z-index", "9999")
+               , ("pointer-events", "none")
+               ]
+      ]
+      [ H.span_ [ HP.class_ "hidden sm:inline" ] [ text "Triple-click board to exit zen mode" ]
+      , H.span_ [ HP.class_ "sm:hidden" ] [ text "Triple-tap board to exit zen mode" ]
+      ]
+  | otherwise = text ""
 
 replayMoveBtn :: Int -> MoveAction -> Int -> Bool -> [GameState] -> View ReplayModel ReplayAction
 replayMoveBtn idx (MoveAction _f t) n isCurrent states =
