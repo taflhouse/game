@@ -6,6 +6,7 @@ module Main where
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (when, void)
+import System.IO.Unsafe (unsafePerformIO)
 import Miso hiding ((!!))
 import Miso.CSS (style_)
 import Miso.String (MisoString, ms, fromMisoString)
@@ -255,6 +256,7 @@ data Model = Model
   , mLastMoveAt        :: Maybe MisoString
   , mMoveDeadline      :: Maybe MisoString
   , mClockTimerId      :: Maybe Int          -- JS setInterval ID
+  , mDailyTick         :: !Int               -- bumped every 30s to force re-render
   }
 
 instance Eq Model where
@@ -318,6 +320,7 @@ instance Eq Model where
         && mDefenderTimeMs a == mDefenderTimeMs b
         && mLastMoveAt a == mLastMoveAt b
         && mMoveDeadline a == mMoveDeadline b
+        && mDailyTick a == mDailyTick b
 
 eqSession :: Maybe Session -> Maybe Session -> Bool
 eqSession Nothing Nothing = True
@@ -430,6 +433,7 @@ data Action
   | ClockTimeout MisoString     -- "attacker" | "defender" from JS
   | ClockStarted Int            -- JS interval ID
   | StopClock
+  | DailyTick                   -- periodic re-render for daily countdown
   | WriteMpMoveWithClock MisoString (Maybe MisoString)
     -- ^ (nowStr, mDeadlineStr) Continue multiplayer move DB write with IO-computed timestamps
   | CompleteJoinWithClock MisoString MisoString MisoString (Maybe MisoString)
@@ -581,6 +585,12 @@ foreign import javascript unsafe "globalThis.startGameClock($1,$2,$3,$4,$5,$6)"
   js_startGameClock :: Int -> Int -> JSVal -> JSVal -> Function -> Function -> IO Int
 foreign import javascript unsafe "globalThis.stopGameClock($1)"
   js_stopGameClock :: Int -> IO ()
+foreign import javascript unsafe "globalThis.formatDeadline($1)"
+  js_formatDeadline_raw :: JSVal -> IO JSVal
+foreign import javascript unsafe "globalThis.formatDate($1)"
+  js_formatDate_raw :: JSVal -> IO JSVal
+foreign import javascript unsafe "globalThis.startDailyClock($1)"
+  js_startDailyClock :: Function -> IO Int
 #else
 js_playMoveSound :: IO ()
 js_playMoveSound = pure ()
@@ -616,6 +626,12 @@ js_startGameClock :: Int -> Int -> JSVal -> JSVal -> Function -> Function -> IO 
 js_startGameClock _ _ _ _ _ _ = pure 0
 js_stopGameClock :: Int -> IO ()
 js_stopGameClock _ = pure ()
+js_formatDeadline_raw :: JSVal -> IO JSVal
+js_formatDeadline_raw _ = toJSVal ("" :: MisoString)
+js_formatDate_raw :: JSVal -> IO JSVal
+js_formatDate_raw _ = toJSVal ("" :: MisoString)
+js_startDailyClock :: Function -> IO Int
+js_startDailyClock _ = pure 0
 #endif
 
 js_generateUUID :: IO MisoString
@@ -642,6 +658,16 @@ js_addSecondsISO :: MisoString -> Int -> IO MisoString
 js_addSecondsISO s sec = do
   sv <- toJSVal s
   fromJSValUnchecked =<< js_addSecondsISO_raw sv sec
+
+js_formatDeadline :: MisoString -> MisoString
+js_formatDeadline s = unsafePerformIO $ do
+  sv <- toJSVal s
+  fromJSValUnchecked =<< js_formatDeadline_raw sv
+
+js_formatDate :: MisoString -> MisoString
+js_formatDate s = unsafePerformIO $ do
+  sv <- toJSVal s
+  fromJSValUnchecked =<< js_formatDate_raw sv
 
 -- | Generate a short random invite code (8 chars from UUID).
 generateInviteCode :: IO MisoString
@@ -766,6 +792,7 @@ initModel = Model
   , mLastMoveAt       = Nothing
   , mMoveDeadline     = Nothing
   , mClockTimerId     = Nothing
+  , mDailyTick        = 0
   }
 
 -- ---------------------------------------------------------------------------
@@ -875,7 +902,7 @@ updateModel = \case
         modify $ \x -> x { mScreen = HomeScreen, mAiThinking = False, mGameId = Nothing
                          , mRealtimeChannel = Nothing, mOpponentName = Nothing, mPlayerSide = Nothing
                          , mInviteCode = Nothing, mDrawOffered = False
-                         , mTimeControl = NoTimeControl, mClockTimerId = Nothing }
+                         , mTimeControl = NoTimeControl, mClockTimerId = Nothing, mDailyTick = 0 }
         loadPastGames
       SignInRoute ->
         modify $ \x -> x { mScreen = SignInScreen, mAuthError = Nothing, mAuthMessage = Nothing }
@@ -1557,9 +1584,10 @@ updateModel = \case
                 Just DefenderSide -> grwAttackerName gr
                 Nothing           -> Nothing
           modify $ \x -> applyClockFromRow gr $ x { mOpponentName = oppName }
-          -- Start blitz clock when opponent joins
+          -- Start clock when opponent joins
           case parseTimeControl gr of
             BlitzControl _ -> startBlitzClock
+            DailyControl _ -> startDailyClock
             _              -> pure ()
 
         -- Opponent moved: remote has more moves than local
@@ -1575,9 +1603,10 @@ updateModel = \case
             , mBrowseIndex = Nothing
             }
           io_ js_playMoveSound
-          -- Restart blitz clock for new active player
+          -- Restart clock for new active player
           case parseTimeControl gr of
             BlitzControl _ -> startBlitzClock
+            DailyControl _ -> startDailyClock
             _              -> pure ()
 
         -- Draw offered by opponent
@@ -1655,10 +1684,11 @@ updateModel = \case
               when (grwStatus gr `elem` ["waiting", "active"]) $
                 subscribeToTable ("game:" <> gid) "games" ("id=eq." <> gid)
                   RealtimeChange RealtimeSubscribed RealtimeError
-              -- Start blitz clock if game is active
+              -- Start clock if game is active
               when (grwStatus gr == "active") $
                 case parseTimeControl gr of
                   BlitzControl _ -> startBlitzClock
+                  DailyControl _ -> startDailyClock
                   _              -> pure ()
             Nothing -> do
               -- Load session-independent state so the correct screen displays.
@@ -1803,6 +1833,8 @@ updateModel = \case
 
   StopClock -> stopClock
 
+  DailyTick -> modify $ \m -> m { mDailyTick = mDailyTick m + 1 }
+
   ClockTimeout sideStr' -> do
     m <- get
     -- Optimistically show timeout result in UI
@@ -1882,6 +1914,7 @@ updateModel = \case
       then stopClock
       else case mTimeControl m of
         BlitzControl _ -> startBlitzClock
+        DailyControl _ -> startDailyClock
         _              -> pure ()
 
   -- Continuation: write the game join to DB with IO-computed timestamps
@@ -1914,9 +1947,10 @@ updateModel = \case
           [eq "id" gid]
           (UpdateOptions Nothing)
           GameJoinedOk GameJoinUpdateError
-        -- Start blitz clock
+        -- Start clock
         case mTimeControl m of
           BlitzControl _ -> startBlitzClock
+          DailyControl _ -> startDailyClock
           _              -> pure ()
       _ -> pure ()
 
@@ -1995,6 +2029,22 @@ startBlitzClock = do
           s <- fromJSValUnchecked sideV
           sink (ClockTimeout s))
         tid <- js_startGameClock atkMs defMs turnJsv lmaJsv tickCb timeoutCb
+        sink (ClockStarted tid)
+    _ -> modify $ \x -> x { mClockTimerId = Nothing }
+
+-- | Start a daily clock that ticks every 30s to refresh the deadline display.
+startDailyClock :: Effect ROOT () Model Action
+startDailyClock = do
+  m <- get
+  case mClockTimerId m of
+    Just tid -> io_ $ js_stopGameClock tid
+    Nothing  -> pure ()
+  modify $ \x -> x { mClockTimerId = Nothing }
+  case mTimeControl m of
+    DailyControl _ -> do
+      withSink $ \sink -> do
+        tickCb <- Function <$> asyncCallback (sink DailyTick)
+        tid <- js_startDailyClock tickCb
         sink (ClockStarted tid)
     _ -> modify $ \x -> x { mClockTimerId = Nothing }
 
@@ -2502,7 +2552,7 @@ viewGameRow gr =
         , H.td_ [] [ text modeText ]
         , H.td_ [] [ text winText ]
         , H.td_ [] [ text (ms (show (grTotalMoves gr))) ]
-        , H.td_ [ HP.class_ "text-muted-foreground" ] [ text (grPlayedAt gr) ]
+        , H.td_ [ HP.class_ "text-muted-foreground" ] [ text (js_formatDate (grPlayedAt gr)) ]
         ]
   in case grId gr of
     Just gid -> H.tr_
@@ -3162,7 +3212,7 @@ viewClock n name timeMs isActive tc mDeadline isTop =
       timeDisplay = case tc of
         BlitzControl _ -> formatClockMs timeMs
         DailyControl _ -> case mDeadline of
-          Just d | isActive -> d
+          Just d | isActive -> js_formatDeadline d
           _                 -> "--:--"
         NoTimeControl -> ""
   in H.div_

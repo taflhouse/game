@@ -317,6 +317,26 @@ globalThis.elapsedMs = function(isoString) {
   return Math.max(0, Date.now() - new Date(isoString).getTime());
 };
 
+globalThis.formatDeadline = function(isoString) {
+  if (!isoString) return '';
+  const ms = new Date(isoString).getTime() - Date.now();
+  if (ms <= 0) return 'expired';
+  const totalSec = Math.floor(ms / 1000);
+  const days = Math.floor(totalSec / 86400);
+  const hours = Math.floor((totalSec % 86400) / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  if (days > 0) return days + 'd ' + hours + 'h left';
+  if (hours > 0) return hours + 'h ' + mins + 'm left';
+  return mins + 'm left';
+};
+
+globalThis.formatDate = function(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return months[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear();
+};
+
 globalThis.addSecondsISO = function(isoString, seconds) {
   const d = new Date(isoString);
   d.setSeconds(d.getSeconds() + seconds);
@@ -353,6 +373,18 @@ globalThis.startGameClock = function(attackerMs, defenderMs, currentTurn, lastMo
     else if (defDisplay <= 0) { clearInterval(intervalId); globalThis._gameClockId = null; timeoutCb('defender'); }
   }, 100);
 
+  globalThis._gameClockId = intervalId;
+  return intervalId;
+};
+
+// Start a daily countdown clock that ticks every 30s for UI refresh.
+// Reuses the singleton _gameClockId so it auto-stops when a blitz clock starts.
+globalThis.startDailyClock = function(tickCb) {
+  if (globalThis._gameClockId != null) {
+    clearInterval(globalThis._gameClockId);
+    globalThis._gameClockId = null;
+  }
+  const intervalId = setInterval(() => { tickCb(); }, 30000);
   globalThis._gameClockId = intervalId;
   return intervalId;
 };
