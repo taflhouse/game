@@ -7,12 +7,22 @@ module App.Model
   , DeferredMpAction(..)
     -- * Game init data
   , GameInitData(..)
+    -- * Auth state
+  , AuthState(..)
+  , initAuthState
+  , authEmail
+  , authPassword
+  , authError
+  , authMessage
+  , authLoading
     -- * Model
   , Model(..)
   , initModel
+  , mAuth
   ) where
 
 import Miso.String (MisoString)
+import Miso.Lens (Lens, lens)
 import Supabase.Miso.Auth (Session)
 
 import Tafl.Board (Side(..))
@@ -41,6 +51,32 @@ data DeferredMpAction = DeferCreate | DeferJoin
 
 data ViewMode = NormalView | ZenView
   deriving (Eq, Show)
+
+-- ---------------------------------------------------------------------------
+-- Auth state
+-- ---------------------------------------------------------------------------
+
+data AuthState = AuthState
+  { _authEmail    :: !MisoString
+  , _authPassword :: !MisoString
+  , _authError    :: Maybe MisoString
+  , _authMessage  :: Maybe MisoString
+  , _authLoading  :: !Bool
+  } deriving (Eq)
+
+initAuthState :: AuthState
+initAuthState = AuthState "" "" Nothing Nothing False
+
+authEmail, authPassword :: Lens AuthState MisoString
+authEmail    = lens _authEmail    $ \r f -> r { _authEmail = f }
+authPassword = lens _authPassword $ \r f -> r { _authPassword = f }
+
+authError, authMessage :: Lens AuthState (Maybe MisoString)
+authError   = lens _authError   $ \r f -> r { _authError = f }
+authMessage = lens _authMessage $ \r f -> r { _authMessage = f }
+
+authLoading :: Lens AuthState Bool
+authLoading = lens _authLoading $ \r f -> r { _authLoading = f }
 
 -- ---------------------------------------------------------------------------
 -- Game init data (shared between root and game component)
@@ -74,11 +110,7 @@ data Model = Model
   , mAiNodeLimit      :: !Int
     -- Auth
   , mSession          :: Maybe Session
-  , mAuthEmail        :: !MisoString
-  , mAuthPassword     :: !MisoString
-  , mAuthError        :: Maybe MisoString
-  , mAuthMessage      :: Maybe MisoString
-  , mAuthLoading      :: !Bool
+  , _mAuth            :: !AuthState
     -- Profile
   , mProfile          :: Maybe Profile
   , mNeedsUsername    :: !Bool
@@ -110,6 +142,9 @@ data Model = Model
   , mShowNodesInfo    :: !Bool
   } deriving (Eq)
 
+mAuth :: Lens Model AuthState
+mAuth = lens _mAuth $ \r f -> r { _mAuth = f }
+
 -- ---------------------------------------------------------------------------
 -- Initial model
 -- ---------------------------------------------------------------------------
@@ -125,11 +160,7 @@ initModel = Model
   , mAiDepth          = 4
   , mAiNodeLimit      = 10000
   , mSession          = Nothing
-  , mAuthEmail        = ""
-  , mAuthPassword     = ""
-  , mAuthError        = Nothing
-  , mAuthMessage      = Nothing
-  , mAuthLoading      = False
+  , _mAuth            = initAuthState
   , mProfile          = Nothing
   , mNeedsUsername    = False
   , mUsernameInput    = ""

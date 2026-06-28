@@ -1,9 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 module App.View.Profile (viewProfile, viewProfileEdit) where
 
+import Prelude hiding ((.))
+import Control.Category ((.))
 import Miso
 import Miso.CSS (style_)
 import Miso.String (MisoString, ms)
+import Miso.Lens ((^.))
 import qualified Miso.Html as H
 import qualified Miso.Html.Property as HP
 import qualified Miso.Svg as SVG
@@ -94,7 +97,7 @@ viewProfileEdit m =
                 , HP.placeholder_ "Display Name"
                 , H.onInput SetEditDisplayName
                 ]
-            , case mAuthError m of
+            , case m ^. mAuth . authError of
                 Nothing  -> H.div_ [] []
                 Just err -> H.div_
                   [ HP.class_ "text-destructive text-sm" ]

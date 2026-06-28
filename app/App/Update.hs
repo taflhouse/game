@@ -3,12 +3,15 @@
 {-# LANGUAGE LambdaCase #-}
 module App.Update (updateModel) where
 
+import Prelude hiding ((.))
+import Control.Category ((.))
 import Control.Concurrent (threadDelay)
 import Control.Monad (when)
 import Data.Maybe (fromMaybe)
 import Miso hiding ((!!))
 import Miso.String (MisoString, ms, fromMisoString)
 import Miso.JSON (Value, FromJSON(..), ToJSON(..), fromJSON, Result(..), object, (.=), (.:), parseMaybe, withObject)
+import Miso.Lens (assign, use)
 import Supabase.Miso.Core (successCallback, errorCallback)
 import Supabase.Miso.Auth
   ( signUpEmail, signInWithPassword, signOut, signInAnonymously
@@ -106,10 +109,14 @@ updateModel = \case
       HomeRoute -> do
         modify $ \x -> x { mScreen = HomeScreen, mGameInitData = Nothing }
         loadPastGames
-      SignInRoute ->
-        modify $ \x -> x { mScreen = SignInScreen, mAuthError = Nothing, mAuthMessage = Nothing }
-      SignUpRoute ->
-        modify $ \x -> x { mScreen = SignUpScreen, mAuthError = Nothing, mAuthMessage = Nothing }
+      SignInRoute -> do
+        modify $ \x -> x { mScreen = SignInScreen }
+        assign (mAuth . authError) Nothing
+        assign (mAuth . authMessage) Nothing
+      SignUpRoute -> do
+        modify $ \x -> x { mScreen = SignUpScreen }
+        assign (mAuth . authError) Nothing
+        assign (mAuth . authMessage) Nothing
       ConfigRoute ->
         modify $ \x -> x { mScreen = ConfigScreen, mConfigModeChosen = False
                          , mTimeControl = NoTimeControl }
@@ -178,26 +185,32 @@ updateModel = \case
   -- Auth -----------------------------------------------------------------
 
   SetAuthEmail e ->
-    modify $ \m -> m { mAuthEmail = e }
+    assign (mAuth . authEmail) e
 
   SetAuthPassword p ->
-    modify $ \m -> m { mAuthPassword = p }
+    assign (mAuth . authPassword) p
 
   DoSignIn -> do
-    m <- get
-    modify $ \x -> x { mAuthLoading = True, mAuthError = Nothing, mAuthMessage = Nothing }
+    email <- use (mAuth . authEmail)
+    pwd   <- use (mAuth . authPassword)
+    assign (mAuth . authLoading) True
+    assign (mAuth . authError) Nothing
+    assign (mAuth . authMessage) Nothing
     let creds = SignInCredentials
-          { sicEmail    = Email (mAuthEmail m)
-          , sicPassword = Password (mAuthPassword m)
+          { sicEmail    = Email email
+          , sicPassword = Password pwd
           }
     signInWithPassword creds AuthSuccess AuthError
 
   DoSignUp -> do
-    m <- get
-    modify $ \x -> x { mAuthLoading = True, mAuthError = Nothing, mAuthMessage = Nothing }
+    email <- use (mAuth . authEmail)
+    pwd   <- use (mAuth . authPassword)
+    assign (mAuth . authLoading) True
+    assign (mAuth . authError) Nothing
+    assign (mAuth . authMessage) Nothing
     let signup = SignUpEmail
-          { sueEmail    = Email (mAuthEmail m)
-          , suePassword = mAuthPassword m
+          { sueEmail    = Email email
+          , suePassword = pwd
           , sueOptions  = Nothing
           }
     signUpEmail signup AuthSuccess AuthError
@@ -206,28 +219,20 @@ updateModel = \case
     case adSession (arData resp) of
       Just sess -> do
         modify $ \m -> m
-          { mSession      = Just sess
-          , mAuthEmail    = ""
-          , mAuthPassword = ""
-          , mAuthError    = Nothing
-          , mAuthMessage  = Nothing
-          , mAuthLoading  = False
-          , mLocalGames   = []
+          { mSession    = Just sess
+          , mLocalGames = []
           }
+        assign mAuth initAuthState
         migrateLocalGames sess
         loadProfile sess
         io_ $ pushURI homeURI
-      Nothing ->
-        modify $ \m -> m
-          { mAuthEmail    = ""
-          , mAuthPassword = ""
-          , mAuthError    = Nothing
-          , mAuthMessage  = Just "Check your email to confirm your account."
-          , mAuthLoading  = False
-          }
+      Nothing -> do
+        assign mAuth initAuthState
+        assign (mAuth . authMessage) (Just "Check your email to confirm your account.")
 
-  AuthError msg ->
-    modify $ \m -> m { mAuthError = Just (friendlyAuthError msg), mAuthLoading = False }
+  AuthError msg -> do
+    assign (mAuth . authError) (Just (friendlyAuthError msg))
+    assign (mAuth . authLoading) False
 
   AnonAuthSuccess resp ->
     case adSession (arData resp) of
@@ -249,12 +254,12 @@ updateModel = \case
 
   DoSignOut -> do
     signOut defaultSignOutOptions SignOutSuccess AuthError
+    assign (mAuth . authError) Nothing
     modify $ \x -> x
       { mSession         = Nothing
       , mScreen          = HomeScreen
       , mPastGames       = []
       , mLocalGames      = []
-      , mAuthError       = Nothing
       , mProfile         = Nothing
       , mNeedsUsername    = False
       , mProfileDropdown = False
@@ -335,7 +340,7 @@ updateModel = \case
       }
 
   ProfileCreateError _ ->
-    modify $ \m -> m { mAuthError = Just "Something went wrong. Please try again." }
+    assign (mAuth . authError) (Just "Something went wrong. Please try again.")
 
   ProfileLoaded val ->
     case fromJSON val of
@@ -391,7 +396,7 @@ updateModel = \case
     io_ $ pushURI profileURI
 
   ProfileUpdateError _ ->
-    modify $ \m -> m { mAuthError = Just "Something went wrong. Please try again." }
+    assign (mAuth . authError) (Just "Something went wrong. Please try again.")
 
   -- Multiplayer setup ----------------------------------------------------
 

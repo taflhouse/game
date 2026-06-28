@@ -1,8 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 module App.View.Auth (viewSignIn, viewSignUp, viewUsernameGate) where
 
+import Prelude hiding ((.))
+import Control.Category ((.))
 import Miso
 import Miso.CSS (style_)
+import Miso.Lens ((^.))
 import qualified Miso.Html as H
 import qualified Miso.Html.Property as HP
 import qualified Miso.Svg as SVG
@@ -35,7 +38,7 @@ viewSignIn m =
                 [ HP.class_ "input w-full"
                 , HP.type_ "email"
                 , HP.required_ True
-                , HP.value_ (mAuthEmail m)
+                , HP.value_ (m ^. mAuth . authEmail)
                 , HP.placeholder_ "Email"
                 , H.onInput SetAuthEmail
                 ]
@@ -43,23 +46,23 @@ viewSignIn m =
                 [ HP.class_ "input w-full"
                 , HP.type_ "password"
                 , HP.required_ True
-                , HP.value_ (mAuthPassword m)
+                , HP.value_ (m ^. mAuth . authPassword)
                 , HP.placeholder_ "Password"
                 , H.onInput SetAuthPassword
                 ]
-            , case mAuthError m of
+            , case m ^. mAuth . authError of
                 Nothing  -> H.div_ [] []
                 Just err -> H.div_
                   [ HP.class_ "text-destructive text-sm"
                   ]
                   [ text err ]
-            , case mAuthMessage m of
+            , case m ^. mAuth . authMessage of
                 Nothing  -> H.div_ [] []
                 Just msg -> H.div_
                   [ HP.class_ "text-emerald-600 dark:text-emerald-400 text-sm"
                   ]
                   [ text msg ]
-            , if mAuthLoading m
+            , if m ^. mAuth . authLoading
                 then H.div_
                   [ HP.class_ "text-center text-muted-foreground text-sm"
                   ]
@@ -108,7 +111,7 @@ viewSignUp m =
                 [ HP.class_ "input w-full"
                 , HP.type_ "email"
                 , HP.required_ True
-                , HP.value_ (mAuthEmail m)
+                , HP.value_ (m ^. mAuth . authEmail)
                 , HP.placeholder_ "Email"
                 , H.onInput SetAuthEmail
                 ]
@@ -116,23 +119,23 @@ viewSignUp m =
                 [ HP.class_ "input w-full"
                 , HP.type_ "password"
                 , HP.required_ True
-                , HP.value_ (mAuthPassword m)
+                , HP.value_ (m ^. mAuth . authPassword)
                 , HP.placeholder_ "Password"
                 , H.onInput SetAuthPassword
                 ]
-            , case mAuthError m of
+            , case m ^. mAuth . authError of
                 Nothing  -> H.div_ [] []
                 Just err -> H.div_
                   [ HP.class_ "text-destructive text-sm"
                   ]
                   [ text err ]
-            , case mAuthMessage m of
+            , case m ^. mAuth . authMessage of
                 Nothing  -> H.div_ [] []
                 Just msg -> H.div_
                   [ HP.class_ "text-emerald-600 dark:text-emerald-400 text-sm"
                   ]
                   [ text msg ]
-            , if mAuthLoading m
+            , if m ^. mAuth . authLoading
                 then H.div_
                   [ HP.class_ "text-center text-muted-foreground text-sm"
                   ]
@@ -187,7 +190,7 @@ viewUsernameGate m =
                 , HP.placeholder_ "username"
                 , H.onInput SetUsernameInput
                 ]
-            , case mAuthError m of
+            , case m ^. mAuth . authError of
                 Nothing  -> H.div_ [] []
                 Just err -> H.div_
                   [ HP.class_ "text-destructive text-sm text-center" ]
