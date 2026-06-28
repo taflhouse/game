@@ -45,8 +45,13 @@ executable app
                       , App.Action
                       , App.Route
                       , App.FFI
+                      , App.Board
                       , App.Update
                       , App.View
+                      , App.Game.Model
+                      , App.Game.Action
+                      , App.Game.Update
+                      , App.Game.View
   build-depends:        base, miso, taflhouse, supabase-miso, miso-ui, time, containers, text
   default-language:     GHC2021
   default-extensions:   CPP OverloadedStrings

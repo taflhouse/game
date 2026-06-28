@@ -1,35 +1,36 @@
 {-# LANGUAGE OverloadedStrings #-}
 module App.View (viewModel) where
 
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (isNothing)
 import Miso hiding ((!!))
 import Miso.CSS (style_)
-import Miso.String (MisoString, ms, fromMisoString)
+import Miso.String (MisoString, ms)
 import qualified Miso.Html as H
 import qualified Miso.Html.Property as HP
 import qualified Miso.Svg as SVG
 import qualified Miso.Svg.Property as SP
 
-import qualified Data.Text as T
-
-import Tafl.Board
-import Tafl.Rules (BoardVariant(..), RuleSet(..))
-import Tafl.Game.State
+import Tafl.Board (boardSize, Coords(..), MoveAction(..), Side(..), Piece(..), pieceAt)
+import Tafl.Rules (BoardVariant(..))
+import Tafl.Game.State (GameState, gsBoard, gsLastAction, opponentSide)
 
 import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
 
-import App.JSON
+import App.JSON (Profile(..), GameRecord(..))
 import App.Model
 import App.Action
-import App.FFI (js_formatDeadline, js_formatDate)
+import App.Board (sqSize, coordStr, viewBasicSVGBoard, viewBoardContainer, viewEvalBar)
+import App.FFI (js_formatDate)
+import App.Game.Model (GameProps(..), GameModel)
+import App.Game.Action (GameAction)
 
 -- ---------------------------------------------------------------------------
 -- View: Top-level layout
 -- ---------------------------------------------------------------------------
 
-viewModel :: () -> Model -> View Model Action
-viewModel _ m =
-  let zen = mViewMode m == ZenView && mScreen m `elem` [GameScreen, ReplayScreen]
+viewModel :: Component Model GameProps GameModel GameAction -> () -> Model -> View Model Action
+viewModel gameComp _ m =
+  let zen = mViewMode m == ZenView && mScreen m == ReplayScreen
   in H.div_
     [ HP.class_ "fixed inset-0 flex flex-col bg-background font-sans"
     ]
@@ -45,14 +46,14 @@ viewModel _ m =
             [ if mNeedsUsername m && mGuestName m == Nothing && mScreen m /= SignInScreen && mScreen m /= SignUpScreen
                 then viewUsernameGate m
                 else case mScreen m of
-                  HomeScreen    -> viewHome m
-                  SignInScreen  -> viewSignIn m
-                  SignUpScreen  -> viewSignUp m
-                  ConfigScreen  -> viewConfig m
-                  ConfigureScreen -> viewConfigure m
-                  JoinScreen    -> viewJoin m
-                  GameScreen    -> viewGame m
-                  ReplayScreen  -> viewReplay m
+                  HomeScreen        -> viewHome m
+                  SignInScreen      -> viewSignIn m
+                  SignUpScreen      -> viewSignUp m
+                  ConfigScreen      -> viewConfig m
+                  ConfigureScreen   -> viewConfigure m
+                  JoinScreen        -> viewJoin m
+                  GameScreen        -> viewGameScreen gameComp m
+                  ReplayScreen      -> viewReplay m
                   ProfileScreen     -> viewProfile m
                   ProfileEditScreen -> viewProfileEdit m
                   LoadingScreen     -> text ""
@@ -61,6 +62,20 @@ viewModel _ m =
     , viewToast m
     , viewZenHint m
     ]
+
+-- | Mount the game component when init data is available.
+viewGameScreen :: Component Model GameProps GameModel GameAction -> Model -> View Model Action
+viewGameScreen gameComp m = case mGameInitData m of
+  Just initData ->
+    mountWithProps_ "game"
+      (GameProps (mSession m) (mProfile m) (mGuestName m) initData)
+      gameComp
+  Nothing ->
+    H.div_
+      [ HP.class_ "text-center text-muted-foreground animate-pulse"
+      , style_ [("margin-top", "4em")]
+      ]
+      [ text "Loading..." ]
 
 viewToast :: Model -> View Model Action
 viewToast m = case mToast m of
@@ -977,129 +992,6 @@ viewProfileEdit m =
     ]
 
 -- ---------------------------------------------------------------------------
--- Game Screen
--- ---------------------------------------------------------------------------
-
-viewGame :: Model -> View Model Action
-viewGame m
-  -- Show waiting screen when multiplayer game waiting for opponent
-  | mGameMode m == MultiplayerMode, Nothing <- mOpponentName m =
-    H.div_
-      [ HP.class_ "w-full flex flex-col items-center"
-      ]
-      [ H.div_
-          [ HP.class_ "card p-6 w-full max-w-md text-center"
-          , style_ [("margin-top", "4em")]
-          ]
-          [ H.h2_
-              [ HP.class_ "text-xl font-bold mb-4" ]
-              [ text "Waiting for opponent..." ]
-          , H.div_
-              [ HP.class_ "animate-pulse text-muted-foreground mb-4" ]
-              [ text "Share the invite link to start" ]
-          , case mInviteCode m of
-              Just code -> H.div_
-                [ HP.class_ "flex flex-col gap-4 items-center" ]
-                (  [ case mQrDataUrl m of
-                       Just qr -> H.img_
-                         [ HP.src_ qr
-                         , HP.width_ "200"
-                         , HP.height_ "200"
-                         , HP.class_ "rounded"
-                         ]
-                       Nothing -> text ""
-                   , H.button_
-                       [ HP.class_ "btn btn-outline text-foreground"
-                       , style_ [("touch-action", "manipulation")]
-                       , SVG.onClick (CopyInviteCode code)
-                       ]
-                       [ text "Copy Link" ]
-                   ]
-                )
-              Nothing -> text ""
-          ]
-      ]
-  | otherwise =
-    let zen = mViewMode m == ZenView
-        showEval = mGameMode m /= MultiplayerMode
-        showClocks = not zen && mTimeControl m /= NoTimeControl && mGameMode m == MultiplayerMode
-        n = boardSize (gsBoard (mGameState m))
-        -- Determine which clocks go on top/bottom based on player perspective
-        myName = case mGuestName m of
-          Just gn -> gn
-          Nothing -> maybe "You" pUsername (mProfile m)
-        (topName, topMs, topIsActive, botName, botMs, botIsActive) = case mPlayerSide m of
-          Just AttackerSide ->
-            ( fromMaybe "Opponent" (mOpponentName m), mDefenderTimeMs m, turnSide (mGameState m) == DefenderSide
-            , myName, mAttackerTimeMs m, turnSide (mGameState m) == AttackerSide )
-          _ ->
-            ( fromMaybe "Opponent" (mOpponentName m), mAttackerTimeMs m, turnSide (mGameState m) == AttackerSide
-            , myName, mDefenderTimeMs m, turnSide (mGameState m) == DefenderSide )
-    in H.div_
-      [ HP.class_ "w-full flex flex-col items-center"
-      ]
-      [ if showClocks then viewClock n topName topMs topIsActive (mTimeControl m) (mMoveDeadline m) True else text ""
-      , H.div_
-          -- margin-top set via #board-row in styles.css (reduced in fullscreen+zen on small screens)
-          [ HP.id_ "board-row"
-          , HP.class_ ("flex flex-row items-stretch justify-center gap-2" <> if zen then " zen" else "")
-          ]
-          [ if showEval && not zen then viewEvalBar m else text ""
-          , viewBoardPanel m
-          ]
-      , if showClocks then viewClock n botName botMs botIsActive (mTimeControl m) (mMoveDeadline m) False else text ""
-      , if zen then text "" else viewStatus m
-      , if zen then text "" else viewMoveHistory m
-      , if zen then text ""
-        else if mGameMode m == MultiplayerMode then viewMultiplayerControls m else text ""
-      , if zen then text "" else viewShareLink m
-      ]
-
--- ---------------------------------------------------------------------------
--- Clock Display
--- ---------------------------------------------------------------------------
-
--- | Format milliseconds as MM:SS or M:SS.t (under 1 minute).
-formatClockMs :: Int -> MisoString
-formatClockMs millis
-  | millis <= 0   = "0:00"
-  | millis < 60000 =
-      let totalSecs = millis `div` 1000
-          tenths    = (millis `mod` 1000) `div` 100
-      in ms (show totalSecs) <> "." <> ms (show tenths)
-  | otherwise =
-      let totalSecs = millis `div` 1000
-          mins      = totalSecs `div` 60
-          secs      = totalSecs `mod` 60
-      in ms (show mins) <> ":" <> ms (if secs < 10 then "0" ++ show secs else show secs)
-
--- | Format a daily deadline as relative time.
-formatDeadline :: MisoString -> MisoString
-formatDeadline _deadline = "deadline set"  -- simplified; real relative time needs JS
-
--- | Render a clock row above or below the board.
-viewClock :: Int -> MisoString -> Int -> Bool -> TimeControl -> Maybe MisoString -> Bool -> View Model Action
-viewClock n name timeMs isActive tc mDeadline isTop =
-  let lowTime = timeMs < 30000 && timeMs > 0
-      activeCls = if isActive then " font-bold" else " text-muted-foreground"
-      lowCls = if lowTime && isActive then " text-destructive" else ""
-      marginStyle = if isTop then [("margin-bottom", "0.3em"), ("margin-top", "1em")]
-                             else [("margin-top", "0.3em")]
-      timeDisplay = case tc of
-        BlitzControl _ -> formatClockMs timeMs
-        DailyControl _ -> case mDeadline of
-          Just d | isActive -> js_formatDeadline d
-          _                 -> "--:--"
-        NoTimeControl -> ""
-  in H.div_
-    [ HP.class_ ("flex justify-between items-center w-full px-2 text-sm font-mono" <> activeCls <> lowCls)
-    , style_ (("max-width", ms (sqSize * n) <> "px") : marginStyle)
-    ]
-    [ H.span_ [] [ text name ]
-    , H.span_ [ HP.class_ "tabular-nums" ] [ text timeDisplay ]
-    ]
-
--- ---------------------------------------------------------------------------
 -- Replay Screen
 -- ---------------------------------------------------------------------------
 
@@ -1136,7 +1028,7 @@ viewReplay m
                   [ HP.class_ "flex flex-row items-stretch justify-center gap-2"
                   , style_ [("margin-top", "1em")]
                   ]
-                  [ if not zen then viewEvalBar m else text ""
+                  [ if not zen then viewEvalBar (mEvalScore m) else text ""
                   , viewReplayBoardPanel m gs
                   ]
               , viewReplayControls m n
@@ -1165,58 +1057,7 @@ viewReplayHeader gr =
 viewReplayBoardPanel :: Model -> GameState -> View Model Action
 viewReplayBoardPanel m gs =
   let n = boardSize (gsBoard gs)
-      totalPx = sqSize * n
-      fs = mIsFullscreen m
-      zen = mViewMode m == ZenView
-      fsSize = if zen
-        then "85vmin"
-        else "clamp(50vmin, calc(100vh - 29rem), 85vmin)"
-  in H.div_
-    [ HP.class_ "relative shadow-2xl rounded overflow-hidden border-2 border-border"
-    , style_ (if fs
-        then [("width", fsSize), ("height", fsSize)]
-        else [("width", ms totalPx <> "px"), ("max-width", "calc(100vw - 3rem)")])
-    ]
-    [ viewReplaySVGBoard gs ]
-
-viewReplaySVGBoard :: GameState -> View Model Action
-viewReplaySVGBoard gs =
-  let board = gsBoard gs
-      n     = boardSize board
-      total = sqSize * n
-  in SVG.svg_
-    [ SP.viewBox_ ("0 0 " <> ms total <> " " <> ms total)
-    , HP.width_ "100%"
-    , HP.class_ "block aspect-square"
-    ]
-    ( svgDefs
-    : [ renderSquareBg n r c | r <- [0..n-1], c <- [0..n-1] ]
-    ++ renderSpecialSquares gs n
-    ++ [ renderPiece n r c (pieceAt board (Coords r c))
-       | r <- [0..n-1], c <- [0..n-1]
-       , pieceAt board (Coords r c) /= Empty
-       ]
-    ++ renderReplayLastMove gs n
-    )
-
-renderReplayLastMove :: GameState -> Int -> [View Model Action]
-renderReplayLastMove gs _n = case gsLastAction gs of
-  Nothing -> []
-  Just (MoveAction f t) ->
-    let movedPiece = pieceAt (gsBoard gs) t
-        hlColor = case movedPiece of
-          King     -> "color-mix(in oklch, var(--piece-king) 40%, transparent)"
-          Attacker -> "color-mix(in oklch, var(--piece-attacker) 30%, transparent)"
-          _        -> "color-mix(in oklch, var(--piece-defender) 50%, transparent)"
-    in [ SVG.rect_
-        [ SP.x_ (ms (col sq * sqSize))
-        , SP.y_ (ms (row sq * sqSize))
-        , HP.width_ (ms sqSize)
-        , HP.height_ (ms sqSize)
-        , SP.fill_ hlColor
-        ]
-    | sq <- [f, t]
-    ]
+  in viewBoardContainer (mIsFullscreen m) (mViewMode m == ZenView) n (viewBasicSVGBoard gs [])
 
 viewReplayControls :: Model -> Int -> View Model Action
 viewReplayControls m n =
@@ -1303,506 +1144,8 @@ replayMoveBtn idx (MoveAction _f t) n isCurrent states =
     [ text la ]
 
 -- ---------------------------------------------------------------------------
--- Board
+-- Zen mode hint
 -- ---------------------------------------------------------------------------
-
-sqSize :: Int
-sqSize = 54
-
--- | Evaluation bar shown left of the board. Positive = attackers favored, negative = defenders.
-viewEvalBar :: Model -> View Model Action
-viewEvalBar m =
-  let score = mEvalScore m
-      -- Clamp score to [-1500, 1500], then map to attacker % (0-100)
-      clamped = max (-1500) (min 1500 score)
-      attackerPct = 50.0 + fromIntegral clamped / 1500.0 * 50.0 :: Double
-      defenderPct = 100.0 - attackerPct :: Double
-      -- Display score divided by 100 for readability
-      displayScore = if score >= 0
-        then "+" <> ms (showScore score)
-        else ms (showScore score)
-  in H.div_
-    [ HP.class_ "flex flex-col rounded overflow-hidden border border-border"
-    , style_ [ ("width", "20px"), ("flex-shrink", "0"), ("position", "relative") ]
-    ]
-    [ -- Attacker portion (top)
-      H.div_
-        [ HP.class_ "w-full transition-all duration-300"
-        , style_ [ ("height", ms (showPct attackerPct) <> "%")
-                 , ("background", "var(--piece-attacker)") ]
-        ] []
-    , -- Defender portion (bottom)
-      H.div_
-        [ HP.class_ "w-full transition-all duration-300"
-        , style_ [ ("height", ms (showPct defenderPct) <> "%")
-                 , ("background", "var(--piece-defender)") ]
-        ] []
-    , -- Score label overlay
-      H.div_
-        [ HP.class_ "absolute text-center"
-        , style_ [ ("font-size", "9px"), ("line-height", "1"), ("width", "20px")
-                 , ("top", "50%"), ("transform", "translateY(-50%)")
-                 , ("color", "var(--muted-foreground)"), ("pointer-events", "none")
-                 , ("mix-blend-mode", "difference"), ("font-weight", "bold") ]
-        ]
-        [ text displayScore ]
-    ]
-
-showScore :: Int -> String
-showScore s =
-  let (q, r) = abs s `divMod` 100
-      sign = if s < 0 then "-" else ""
-  in sign ++ show q ++ "." ++ (if r < 10 then "0" else "") ++ show r
-
-showPct :: Double -> String
-showPct d =
-  let n = round d :: Int
-  in show n
-
--- | The game state currently being displayed (browsed or live).
-displayedGameState :: Model -> GameState
-displayedGameState m = case mBrowseIndex m of
-  Nothing -> mGameState m
-  Just i  -> let allStates = mHistory m ++ [mGameState m]
-             in if i >= 0 && i < length allStates
-                then allStates !! i
-                else mGameState m
-
-viewBoardPanel :: Model -> View Model Action
-viewBoardPanel m =
-  let m' = m { mGameState = displayedGameState m }
-      n = boardSize (gsBoard (mGameState m'))
-      totalPx = sqSize * n
-      fs = mIsFullscreen m
-      zen = mViewMode m == ZenView
-      fsSize = if zen
-        then "85vmin"
-        else "clamp(50vmin, calc(100vh - 29rem), 85vmin)"
-  in H.div_
-    [ HP.class_ "relative shadow-2xl rounded overflow-hidden border-2 border-border"
-    , style_ (if fs
-        then [("width", fsSize), ("height", fsSize)]
-        else [("width", ms totalPx <> "px"), ("max-width", "calc(100vw - 3rem)")])
-    ]
-    [ viewSVGBoard m' ]
-
-viewSVGBoard :: Model -> View Model Action
-viewSVGBoard m =
-  let gs    = mGameState m
-      board = gsBoard gs
-      n     = boardSize board
-      total = sqSize * n
-  in SVG.svg_
-    [ SP.viewBox_ ("0 0 " <> ms total <> " " <> ms total)
-    , HP.width_ "100%"
-    , HP.class_ "block aspect-square"
-    ]
-    ( svgDefs
-    : [ renderSquareBg n r c | r <- [0..n-1], c <- [0..n-1] ]
-    ++ renderSpecialSquares gs n
-    ++ renderHighlights m n
-    ++ renderValidDots m n
-    ++ [ renderPiece n r c (pieceAt board (Coords r c))
-       | r <- [0..n-1], c <- [0..n-1]
-       , pieceAt board (Coords r c) /= Empty
-       ]
-    ++ renderLastMove m n
-    ++ [ renderClickTarget m n r c | r <- [0..n-1], c <- [0..n-1] ]
-    )
-
-svgDefs :: View Model Action
-svgDefs =
-  SVG.defs_ []
-    [ SVG.filter_
-        [ HP.id_ "pieceShadow"
-        , SP.x_ "-20%", SP.y_ "-20%"
-        , HP.width_ "140%", HP.height_ "160%"
-        ]
-        [ SVG.feDropShadow_
-            [ SP.dx_ "0.3", SP.dy_ "0.7"
-            , SP.stdDeviation_ "0.5"
-            , SP.floodColor_ "#000000"
-            , SP.floodOpacity_ "0.45"
-            ]
-        ]
-    ]
-
--- Square background colors (themed via CSS variables)
-renderSquareBg :: Int -> Int -> Int -> View Model Action
-renderSquareBg _n r c =
-  SVG.rect_
-    [ SP.x_ (ms (c * sqSize))
-    , SP.y_ (ms (r * sqSize))
-    , HP.width_ (ms sqSize)
-    , HP.height_ (ms sqSize)
-    , style_ [("fill", if even (r + c) then "var(--muted)" else "var(--accent)")]
-    ]
-
--- Mark corners and center (throne)
-renderSpecialSquares :: GameState -> Int -> [View Model Action]
-renderSpecialSquares gs n =
-  let center = n `div` 2
-      w      = cornerBaseWidth (gsRules gs)
-      corners = [ (r, c)
-                | r <- concatMap (\ww -> [ww, n - 1 - ww]) [0..w-1]
-                , c <- concatMap (\ww -> [ww, n - 1 - ww]) [0..w-1]
-                ]
-      markSquare (r, c) color =
-        SVG.rect_
-          [ SP.x_ (ms (c * sqSize + 2))
-          , SP.y_ (ms (r * sqSize + 2))
-          , HP.width_ (ms (sqSize - 4))
-          , HP.height_ (ms (sqSize - 4))
-          , SP.fill_ "none"
-          , SP.stroke_ color
-          , SP.strokeWidth_ "2"
-          , SP.rx_ "3"
-          ]
-  in map (\pos -> markSquare pos "var(--piece-king)") corners
-     ++ [markSquare (center, center) "var(--piece-defender)"]
-
--- Highlight selected square (colored by selected piece)
-renderHighlights :: Model -> Int -> [View Model Action]
-renderHighlights m _n = case mSelected m of
-  Nothing -> []
-  Just sc@(Coords r c) ->
-    let hlColor = case pieceAt (gsBoard (mGameState m)) sc of
-          Attacker -> "color-mix(in oklch, var(--piece-attacker) 45%, transparent)"
-          Defender -> "color-mix(in oklch, var(--piece-defender) 45%, transparent)"
-          King     -> "color-mix(in oklch, var(--piece-king) 45%, transparent)"
-          _        -> "rgba(80,200,120,0.45)"
-    in [ SVG.rect_
-        [ SP.x_ (ms (c * sqSize))
-        , SP.y_ (ms (r * sqSize))
-        , HP.width_ (ms sqSize)
-        , HP.height_ (ms sqSize)
-        , SP.fill_ hlColor
-        ]
-    ]
-
--- Valid move dots (colored by selected piece)
-renderValidDots :: Model -> Int -> [View Model Action]
-renderValidDots m _n =
-  let dotColor = case mSelected m of
-        Nothing -> "rgba(80,200,120,0.6)"
-        Just sc -> case pieceAt (gsBoard (mGameState m)) sc of
-          Attacker -> "color-mix(in oklch, var(--piece-attacker) 60%, transparent)"
-          Defender -> "color-mix(in oklch, var(--piece-defender) 60%, transparent)"
-          King     -> "color-mix(in oklch, var(--piece-king) 60%, transparent)"
-          _        -> "rgba(80,200,120,0.6)"
-  in [ SVG.circle_
-      [ SP.cx_ (ms (col coord * sqSize + sqSize `div` 2))
-      , SP.cy_ (ms (row coord * sqSize + sqSize `div` 2))
-      , SP.r_ (ms (sqSize `div` 5))
-      , SP.fill_ dotColor
-      ]
-  | coord <- mValidMoves m
-  ]
-
--- Last move indicators (colored by the side that moved)
-renderLastMove :: Model -> Int -> [View Model Action]
-renderLastMove m _n = case gsLastAction (mGameState m) of
-  Nothing -> []
-  Just (MoveAction f t) ->
-    let gs = mGameState m
-        movedPiece = pieceAt (gsBoard gs) t
-        hlColor = case movedPiece of
-          King     -> "color-mix(in oklch, var(--piece-king) 40%, transparent)"
-          Attacker -> "color-mix(in oklch, var(--piece-attacker) 30%, transparent)"
-          _        -> "color-mix(in oklch, var(--piece-defender) 50%, transparent)"
-    in [ SVG.rect_
-        [ SP.x_ (ms (col sq * sqSize))
-        , SP.y_ (ms (row sq * sqSize))
-        , HP.width_ (ms sqSize)
-        , HP.height_ (ms sqSize)
-        , SP.fill_ hlColor
-        ]
-    | sq <- [f, t]
-    ]
-
--- Piece rendering
-renderPiece :: Int -> Int -> Int -> Piece -> View Model Action
-renderPiece _n r c piece =
-  let cx = c * sqSize + sqSize `div` 2
-      cy = r * sqSize + sqSize `div` 2
-      radius = sqSize `div` 2 - 4
-      (fill, stroke, label) = case piece of
-        Attacker -> ("var(--piece-attacker)", "var(--border)", "A" :: MisoString)
-        Defender -> ("var(--piece-defender)", "var(--border)", "D")
-        King     -> ("var(--piece-king)", "var(--piece-king-stroke)", "K")
-        Empty    -> ("#000", "#000", "")
-  in SVG.g_
-    [ SP.filter_ "url(#pieceShadow)" ]
-    [ SVG.circle_
-        [ SP.cx_ (ms cx)
-        , SP.cy_ (ms cy)
-        , SP.r_ (ms radius)
-        , SP.fill_ fill
-        , SP.stroke_ stroke
-        , SP.strokeWidth_ "2"
-        ]
-    , SVG.text_
-        [ SP.x_ (ms cx)
-        , SP.y_ (ms (cy + 1))
-        , SP.textAnchor_ "middle"
-        , SP.dominantBaseline_ "central"
-        , SP.fontSize_ (ms (sqSize `div` 3))
-        , SP.fontWeight_ "bold"
-        , SP.fill_ (case piece of
-            Attacker -> "var(--piece-attacker-fg)"
-            King     -> "var(--piece-king-fg)"
-            Defender -> "var(--piece-defender-fg)"
-            _        -> "#333")
-        , SP.fontFamily_ "Arial, sans-serif"
-        ]
-        [ text label ]
-    ]
-
--- Transparent click targets
-renderClickTarget :: Model -> Int -> Int -> Int -> View Model Action
-renderClickTarget m _n r c =
-  let gs = mGameState m
-      side = turnSide gs
-      aiBlocked = mGameMode m == AiMode && mAiSide m == side
-      mpBlocked = mGameMode m == MultiplayerMode && mPlayerSide m /= Just side
-      blocked = mAiThinking m || aiBlocked || mpBlocked || finished (gsResult gs)
-      cur = if blocked then "default" else "pointer"
-  in SVG.rect_
-    [ SP.x_ (ms (c * sqSize))
-    , SP.y_ (ms (r * sqSize))
-    , HP.width_ (ms sqSize)
-    , HP.height_ (ms sqSize)
-    , SP.fill_ "transparent"
-    , style_ [("cursor", cur), ("touch-action", "manipulation")]
-    , SVG.onClick (CellClicked (Coords r c))
-    ]
-
--- ---------------------------------------------------------------------------
--- Status & Controls
--- ---------------------------------------------------------------------------
-
-viewStatus :: Model -> View Model Action
-viewStatus m =
-  let gs     = mGameState m
-      n      = boardSize (gsBoard gs)
-      result = gsResult gs
-      side   = turnSide gs
-      caps   = gsCaptures gs
-      isAi   = mGameMode m == AiMode
-      isMp   = mGameMode m == MultiplayerMode
-      myTurn = mPlayerSide m == Just side
-      baseCls = "text-center my-4 font-bold card px-3 w-full flex justify-center items-center"
-      (cls, msg)
-        | finished result = case winner result of
-            Just AttackerSide -> (baseCls <> " text-destructive", "Attackers win! " <> desc result)
-            Just DefenderSide -> (baseCls, "Defenders win! " <> desc result)
-            Nothing           -> (baseCls, "Draw! " <> desc result)
-        | mAiThinking m = (baseCls <> " text-muted-foreground animate-pulse", "AI thinking...")
-        | isAi && mAiSide m == side = (baseCls,
-            (if side == AttackerSide then "Attacker's turn" else "Defender's turn") <> " (AI)")
-        | isAi = (baseCls, "Your turn")
-        | isMp && myTurn = (baseCls, "Your turn")
-        | isMp = (baseCls <> " text-muted-foreground",
-            maybe "Opponent" fromMisoString (mOpponentName m) <> "'s turn")
-        | side == AttackerSide = (baseCls, "Attacker's turn")
-        | otherwise            = (baseCls, "Defender's turn")
-      borderColor
-        | not (finished result) = "transparent"
-        | otherwise = case winner result of
-            Just AttackerSide -> "var(--piece-attacker)"
-            Just DefenderSide -> "var(--piece-defender)"
-            _                 -> "var(--muted-foreground)"
-      capSuffix :: T.Text
-      capSuffix
-        | finished result || null caps = ""
-        | otherwise = let c = length caps
-                      in " · Captured " <> T.pack (show c) <> if c == 1 then " piece" else " pieces"
-      fullMsg = msg <> capSuffix
-  in H.div_
-    [ HP.class_ cls
-    , style_ [ ("max-width", ms (sqSize * n) <> "px")
-             , ("min-height", "3.5rem")
-             , ("border", "1px solid " <> borderColor)
-             , ("border-radius", "0.375rem")
-             ]
-    ]
-    [ text (ms fullMsg) ]
-
-viewShareLink :: Model -> View Model Action
-viewShareLink m =
-  let result = gsResult (mGameState m)
-  in if finished result
-       then case (mGameId m, mSession m) of
-         (Just gid, Just sess)
-           | amProvider (userAppMetadata (sessionUser sess)) /= "anonymous"
-             || mGameMode m == MultiplayerMode
-             -> viewShareSection m gid
-         _   -> text ""
-       else text ""
-
-viewShareSection :: Model -> MisoString -> View Model Action
-viewShareSection m gid =
-  let url = "https://taflhouse.com/games/" <> gid
-      n   = boardSize (gsBoard (mGameState m))
-  in H.div_
-    [ HP.class_ "flex items-center gap-2 w-full mt-4"
-    , style_ [("max-width", ms (sqSize * n) <> "px")]
-    ]
-    [ H.input_
-        [ HP.class_ "input input-sm text-muted-foreground bg-transparent border border-border rounded flex-1"
-        , HP.readonly_ True
-        , HP.value_ url
-        , style_ [("font-size", "0.8rem"), ("padding", "0.4rem 0.6rem")]
-        ]
-    , H.button_
-        [ HP.class_ "btn btn-outline btn-sm text-foreground"
-        , style_ [("touch-action", "manipulation"), ("white-space", "nowrap")]
-        , SVG.onClick CopyGameLink
-        ]
-        [ text "Copy Link" ]
-    ]
-
-viewMultiplayerControls :: Model -> View Model Action
-viewMultiplayerControls m =
-  let gs = mGameState m
-      n = boardSize (gsBoard gs)
-      -- Check final state, not viewed state when browsing history
-      finalResult = case mFullHistory m of
-        Just fs -> gsResult (last fs)
-        Nothing -> gsResult gs
-      gameOver = finished finalResult
-  in if gameOver then text ""
-     else H.div_
-       [ HP.class_ "flex items-center justify-center gap-2 mt-4"
-       , style_ [("max-width", ms (sqSize * n) <> "px")]
-       ]
-       ([ H.button_
-            [ HP.class_ "btn btn-outline btn-sm text-foreground"
-            , style_ [("touch-action", "manipulation")]
-            , SVG.onClick Resign
-            ]
-            [ text "Resign" ]
-        , if mDrawOffered m
-            then H.div_
-              [ HP.class_ "flex gap-1" ]
-              [ H.button_
-                  [ HP.class_ "btn btn-sm bg-green-600 hover:bg-green-700 text-white border-green-500"
-                  , style_ [("touch-action", "manipulation")]
-                  , SVG.onClick AcceptDraw
-                  ]
-                  [ text "Accept Draw" ]
-              , H.button_
-                  [ HP.class_ "btn btn-outline btn-sm text-foreground"
-                  , style_ [("touch-action", "manipulation")]
-                  , SVG.onClick DeclineDraw
-                  ]
-                  [ text "Decline" ]
-              ]
-            else H.button_
-              [ HP.class_ "btn btn-outline btn-sm text-foreground"
-              , style_ [("touch-action", "manipulation")]
-              , SVG.onClick OfferDraw
-              ]
-              [ text "Offer Draw" ]
-        ] ++ case mOpponentName m of
-          Just opp -> [ H.span_
-            [ HP.class_ "text-sm text-muted-foreground ml-2" ]
-            [ text ("vs " <> opp) ] ]
-          Nothing -> [])
-
-viewMoveHistory :: Model -> View Model Action
-viewMoveHistory m
-  | null (mHistory m) && isNothing (mFullHistory m) =
-      let n = boardSize (gsBoard (mGameState m))
-      in H.div_
-        [ HP.class_ "flex justify-center items-center w-full"
-        , style_ [("max-width", ms (sqSize * n) <> "px"), ("margin-top", "0.5em")]
-        ]
-        [ ctrlBtn ToggleZenMode "Zen" ]
-  | otherwise =
-      let displayStates = mHistory m ++ [mGameState m]
-          n = boardSize (gsBoard (mGameState m))
-          viewIdx = case mBrowseIndex m of
-            Just i  -> i
-            Nothing -> length displayStates - 1
-      in H.div_
-        [ HP.class_ "flex flex-col gap-1 items-center w-full"
-        , style_ [("max-width", ms (sqSize * n) <> "px")]
-        ]
-        [ H.div_
-            [ HP.class_ "flex justify-between items-center w-full"
-            , style_ [("margin-bottom", "0.4em")]
-            ]
-            [ H.span_
-                [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase" ]
-                [ text "HISTORY" ]
-            , H.div_
-                [ HP.class_ "flex gap-1" ]
-                (  [ ctrlBtn ToggleZenMode "Zen" ]
-                ++ [ ctrlBtn Undo "Undo"
-                   | mGameMode m /= MultiplayerMode
-                     || finished (gsResult (mGameState m))
-                   ]
-                )
-            ]
-        , H.div_
-            [ HP.class_ "flex gap-0.5 overflow-y-auto p-2 w-full rounded border border-border"
-            , style_ [("max-height", "10rem"), ("flex-direction", "column-reverse")]
-            ]
-            [ moveBtn m i gs n (i == viewIdx)
-            | (i, gs) <- reverse (zip [0..] displayStates)
-            ]
-        ]
-
-moveBtn :: Model -> Int -> GameState -> Int -> Bool -> View Model Action
-moveBtn m idx gs n isCurrent =
-  let moveSide = opponentSide gs  -- side that made this move
-      isHuman = case gsLastAction gs of
-        Nothing -> False
-        Just _  -> mGameMode m == PracticeMode || mAiSide m /= moveSide
-      -- Determine piece type that moved (check destination square)
-      movedPiece = case gsLastAction gs of
-        Nothing            -> Empty
-        Just (MoveAction _ t) -> pieceAt (gsBoard gs) t
-      -- Current position: > prefix; human moves: bold; AI moves: dim
-      pointer = if isCurrent then "> " else "  "
-      moveLabel = case gsLastAction gs of
-        Nothing -> "Start"
-        Just (MoveAction f t) ->
-          let sideChar = case moveSide of
-                  AttackerSide -> "A"
-                  DefenderSide -> "D"
-          in ms (show idx) <> ". " <> sideChar <> " "
-               <> ms (coordStr n f) <> "-" <> ms (coordStr n t)
-      label = pointer <> moveLabel
-      -- Color-code border and text by piece type for all moves
-      (textColor, borderColor) = case movedPiece of
-        Attacker -> ("var(--piece-attacker)", "var(--piece-attacker)")
-        King     -> ("var(--piece-king)", "var(--piece-king)")
-        Defender -> ("var(--piece-defender)", "var(--piece-defender)")
-        Empty    -> ("var(--foreground)", "transparent")
-      activeCls = " border-l-2"
-      moveStyle = [("color", textColor), ("border-left-color", borderColor)]
-      boldCls = if isHuman || isCurrent then " font-bold" else ""
-  in H.button_
-    [ HP.class_ ("text-xs font-mono text-left w-full py-1 px-2 rounded hover:bg-muted cursor-pointer bg-transparent border-0 text-foreground" <> activeCls <> boldCls)
-    , style_ (("touch-action", "manipulation") : moveStyle)
-    , SVG.onClick (GotoMove idx)
-    ]
-    [ text label ]
-
-coordStr :: Int -> Coords -> String
-coordStr n (Coords r c) = [toEnum (fromEnum 'a' + c)] ++ show (n - r)
-
-
-ctrlBtn :: Action -> MisoString -> View Model Action
-ctrlBtn action label =
-  H.button_
-    [ HP.class_ "btn btn-outline btn-sm text-foreground"
-    , style_ [("touch-action", "manipulation")]
-    , SVG.onClick action
-    ]
-    [ text label ]
 
 viewZenHint :: Model -> View Model Action
 viewZenHint m
