@@ -281,6 +281,29 @@ globalThis["removeChannel"] = function(channel) {
   globalThis["supabase"].removeChannel(channel);
 };
 
+globalThis["subscribePostgresChangesWithPresence"] = function(channelName, table, filter, changeCb, presenceSyncCb, subscribedCb, errorCb) {
+  var opts = { event: '*', schema: 'public', table: table };
+  if (filter && filter !== '') { opts.filter = filter; }
+  var channel = globalThis["supabase"]
+    .channel(channelName)
+    .on('postgres_changes', opts, function(payload) { changeCb(payload); })
+    .on('presence', { event: 'sync' }, function() {
+      presenceSyncCb(channel.presenceState());
+    })
+    .subscribe(function(status) {
+      if (status === 'SUBSCRIBED') subscribedCb(channel);
+      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') errorCb(status);
+    });
+};
+
+globalThis["trackPresence"] = function(channel, payload) {
+  channel.track(payload);
+};
+
+globalThis["untrackPresence"] = function(channel) {
+  channel.untrack();
+};
+
 // -- Game clock / timer utilities --
 
 globalThis.nowISO = function() { return new Date().toISOString(); };

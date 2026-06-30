@@ -16,7 +16,7 @@ source-repository-package
 source-repository-package
   type: git
   location: https://github.com/heath/supabase-miso.git
-  tag: 3cadd3b5dfa99961592685694b22ac1b2fae43e4
+  tag: 3573022c28dca76c882add5a87dfce07ba23730d
 
 source-repository-package
   type: git
