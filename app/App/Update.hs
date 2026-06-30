@@ -14,7 +14,7 @@ import Miso.JSON (Value, FromJSON(..), ToJSON(..), fromJSON, Result(..), object,
 import Miso.Lens (assign, use)
 import Supabase.Miso.Core (successCallback, errorCallback)
 import Supabase.Miso.Auth
-  ( signUpEmail, signInWithPassword, signOut, signInAnonymously
+  ( signUpEmail, signInWithPassword, signOut, signInAnonymously, getSession, getUser
   , SignUpEmail(..), SignInCredentials(..), Email(..), Password(..)
   , defaultSignOutOptions, defaultSignInAnonymouslyOptions
   , AuthResponse(..), AuthData(..), Session(..), User(..), AppMetadata(..)
@@ -270,6 +270,18 @@ updateModel = \case
     io_ $ pushURI homeURI
 
   SignOutSuccess _ -> pure ()
+
+  CheckSession ->
+    getSession
+      (maybe (SessionRestored Nothing) ValidateSession)
+      (\_ -> SessionRestored Nothing)
+
+  ValidateSession sess ->
+    getUser
+      (\mUser -> case mUser of
+        Just _  -> SessionRestored (Just sess)
+        Nothing -> DoSignOut)
+      (\_ -> DoSignOut)
 
   SessionRestored mSess -> do
     modify $ \m -> m { mSession = mSess }

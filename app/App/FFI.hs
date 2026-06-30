@@ -2,7 +2,6 @@
 module App.FFI
   ( -- * Raw FFI
     js_playMoveSound
-  , js_getSupabaseSession
   , js_toggleDarkMode
   , js_loadLocalGames
   , js_clearLocalGames
@@ -44,8 +43,6 @@ import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, jsg, (#), Function(..))
 #ifdef WASM
 foreign import javascript unsafe "globalThis.playMoveSound()"
   js_playMoveSound :: IO ()
-foreign import javascript unsafe "globalThis.getSupabaseSession($1,$2)"
-  js_getSupabaseSession_ffi :: JSVal -> JSVal -> IO ()
 foreign import javascript unsafe "globalThis.toggleTheme()"
   js_toggleDarkMode :: IO ()
 foreign import javascript unsafe "globalThis.loadLocalGames($1,$2)"
@@ -83,9 +80,6 @@ foreign import javascript unsafe "globalThis.formatDate($1)"
 foreign import javascript unsafe "globalThis.startDailyClock($1)"
   js_startDailyClock_ffi :: JSVal -> IO Int
 
-js_getSupabaseSession :: Function -> Function -> IO ()
-js_getSupabaseSession (Function a) (Function b) = js_getSupabaseSession_ffi a b
-
 js_loadLocalGames :: Function -> Function -> IO ()
 js_loadLocalGames (Function a) (Function b) = js_loadLocalGames_ffi a b
 
@@ -103,8 +97,6 @@ js_startDailyClock (Function a) = js_startDailyClock_ffi a
 #else
 js_playMoveSound :: IO ()
 js_playMoveSound = pure ()
-js_getSupabaseSession :: Function -> Function -> IO ()
-js_getSupabaseSession _ _ = pure ()
 js_toggleDarkMode :: IO ()
 js_toggleDarkMode = pure ()
 js_loadLocalGames :: Function -> Function -> IO ()

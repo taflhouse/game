@@ -241,33 +241,6 @@ globalThis["runSupabaseQuery"] = function (
     });
 };
 
-// -- Custom session restoration --
-
-globalThis.getSupabaseSession = function(successCb, errorCb) {
-  console.log("[getSupabaseSession] fetching...");
-  globalThis.supabase.auth.getSession().then(({ data, error }) => {
-    console.log("[getSupabaseSession] result", { data, error });
-    if (error) { errorCb(error.message || 'Session error'); return; }
-    if (!data || !data.session) { successCb(null); return; }
-    // Validate session server-side; if the user was deleted (e.g. db reset),
-    // clear the stale JWT so the app can re-authenticate.
-    globalThis.supabase.auth.getUser().then(({ data: userData, error: userError }) => {
-      if (userError || !userData || !userData.user) {
-        console.warn("[getSupabaseSession] stale session detected, signing out");
-        globalThis.supabase.auth.signOut().then(() => successCb(null)).catch(() => successCb(null));
-      } else {
-        successCb(data.session);
-      }
-    }).catch(() => {
-      console.warn("[getSupabaseSession] getUser failed, clearing session");
-      globalThis.supabase.auth.signOut().then(() => successCb(null)).catch(() => successCb(null));
-    });
-  }).catch(err => {
-    console.error("[getSupabaseSession] catch", err);
-    errorCb(String(err));
-  });
-};
-
 // -- Local game persistence (localStorage) --
 
 globalThis.loadLocalGames = function(successCb, errorCb) {

@@ -5,7 +5,6 @@ module Main where
 import Data.IORef (newIORef)
 import Miso (startApp, defaultEvents, getURI, uriSub, Component(..), LogLevel(..), component)
 import Miso.DSL (asyncCallback, Function(..))
-import Supabase.Miso.Core (successCallback, errorCallback)
 import Supabase.Miso.Realtime (Channel)
 
 import App.Model (Model(..), Screen(..), initModel)
@@ -13,7 +12,7 @@ import App.Action (Action(..))
 import App.Route (parseRoute, Route(..))
 import App.Update (updateModel)
 import App.View (viewModel)
-import App.FFI (js_getSupabaseSession, js_onDocumentDblClick, js_onKeyboardShortcut)
+import App.FFI (js_onDocumentDblClick, js_onKeyboardShortcut)
 import App.Game.Model (GameModel, GameProps, initialGameModel)
 import App.Game.Action (GameAction(..))
 import App.Game.Update (updateGame)
@@ -53,13 +52,7 @@ main = do
       , view             = viewModel gc rc
       , subs             = [ uriSub HandleURI
                            , \sink -> getURI >>= sink . HandleURI
-                           , \sink -> do
-                               okCb <- successCallback sink
-                                 (\_ -> SessionRestored Nothing)
-                                 (SessionRestored . Just)
-                               errCb <- errorCallback sink
-                                 (\_ -> SessionRestored Nothing)
-                               js_getSupabaseSession okCb errCb
+                           , \sink -> sink CheckSession
                            , \sink -> do
                                cb <- Function <$> asyncCallback (sink DocumentDblClick)
                                js_onDocumentDblClick cb

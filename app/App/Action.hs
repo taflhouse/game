@@ -40,6 +40,8 @@ data Action
   | AnonAuthSuccess AuthResponse
   | AnonAuthError MisoString
   | SignOutSuccess Value
+  | CheckSession
+  | ValidateSession Session
   | SessionRestored (Maybe Session)
   -- Home
   | GamesLoaded Value
