@@ -34,7 +34,8 @@ viewReplay props rm
     in H.div_
       [ HP.class_ "w-full flex flex-col items-center"
       ]
-      [ if zen then text "" else viewReplayHeader gr
+      [ if zen then viewReplayZenBackdrop else text ""
+      , if zen then text "" else viewReplayHeader gr
       , case rmReplayStates rm of
           [] -> H.div_
             [ HP.class_ "card p-6 text-center mt-4"
@@ -48,7 +49,7 @@ viewReplay props rm
               ]
               [ H.div_
                   [ HP.class_ "flex flex-row items-stretch justify-center gap-2"
-                  , style_ [("margin-top", "1em")]
+                  , style_ (("margin-top", "1em") : if zen then [("position", "relative"), ("z-index", "51")] else [])
                   ]
                   [ if not zen then viewEvalBar (rmEvalScore rm) else text ""
                   , viewReplayBoardPanel props rm gs
@@ -141,6 +142,16 @@ viewReplayMoveList rm n =
             ]
         ]
 
+-- | Full-screen backdrop behind the board in zen mode.
+-- Double-clicking anywhere outside the board exits zen mode.
+viewReplayZenBackdrop :: View ReplayModel ReplayAction
+viewReplayZenBackdrop =
+  H.div_
+    [ style_ [ ("position", "fixed"), ("inset", "0"), ("z-index", "50") ]
+    , on "dblclick" emptyDecoder (\() _ -> RToggleZen)
+    ]
+    []
+
 -- | Zen mode hint (fixed overlay at bottom of screen)
 viewReplayZenHint :: ReplayProps -> View ReplayModel ReplayAction
 viewReplayZenHint props
@@ -152,8 +163,8 @@ viewReplayZenHint props
                , ("pointer-events", "none")
                ]
       ]
-      [ H.span_ [ HP.class_ "hidden sm:inline" ] [ text "Triple-click board to exit zen mode" ]
-      , H.span_ [ HP.class_ "sm:hidden" ] [ text "Triple-tap board to exit zen mode" ]
+      [ H.span_ [ HP.class_ "hidden sm:inline" ] [ text "Double-click outside board to exit zen mode" ]
+      , H.span_ [ HP.class_ "sm:hidden" ] [ text "Double-tap outside board to exit zen mode" ]
       ]
   | otherwise = text ""
 

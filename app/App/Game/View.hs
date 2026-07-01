@@ -71,11 +71,13 @@ viewGame props gm
             ( AttackerSide, fromMaybe "Attacker" (gmAttackerName gm), gmAttackerTimeMs gm, turn == AttackerSide
             , DefenderSide, fromMaybe "Defender" (gmDefenderName gm), gmDefenderTimeMs gm, turn == DefenderSide )
     in H.div_ [HP.class_ "w-full flex flex-col items-center"]
-      [ if showClocks then viewClocks n leftSide leftName leftMs leftActive rightSide rightName rightMs rightActive (gmTimeControl gm) (gmMoveDeadline gm) else text ""
+      [ if zen then viewZenBackdrop else text ""
+      , if showClocks then viewClocks n leftSide leftName leftMs leftActive rightSide rightName rightMs rightActive (gmTimeControl gm) (gmMoveDeadline gm) else text ""
       , H.div_
           ([HP.id_ "board-row"
           , HP.class_ ("flex flex-row items-stretch justify-center gap-2" <> if zen then " zen" else "")]
-          ++ [style_ [("margin-top", "2em")] | showClocks])
+          ++ [style_ ([("margin-top", "2em") | showClocks]
+                   ++ if zen then [("position", "relative"), ("z-index", "51")] else [])])
           [ if showEval && not zen then viewEvalBar (gmEvalScore gm) else text ""
           , viewBoardPanel gm
           ]
@@ -88,10 +90,10 @@ viewGame props gm
         then viewMultiplayerControls gm else text ""
       , if zen then text "" else viewShareLink props gm
       , viewZenHint gm
-      , viewChatToggle gm
-      , viewChatPanel gm
-      , viewVoiceButton gm
-      , viewVoiceInviteBanner gm
+      , if zen then text "" else viewChatToggle gm
+      , if zen then text "" else viewChatPanel gm
+      , if zen then text "" else viewVoiceButton gm
+      , if zen then text "" else viewVoiceInviteBanner gm
       ]
 
 -- | Board panel with container
@@ -464,6 +466,16 @@ ctrlBtn action label =
     ]
     [ text label ]
 
+-- | Full-screen backdrop behind the board in zen mode.
+-- Double-clicking anywhere outside the board exits zen mode.
+viewZenBackdrop :: View GameModel GameAction
+viewZenBackdrop =
+  H.div_
+    [ style_ [ ("position", "fixed"), ("inset", "0"), ("z-index", "50") ]
+    , on "dblclick" emptyDecoder (\() _ -> GToggleZenMode)
+    ]
+    []
+
 -- | Zen mode hint (fixed overlay at bottom of screen)
 viewZenHint :: GameModel -> View GameModel GameAction
 viewZenHint gm
@@ -475,8 +487,8 @@ viewZenHint gm
                , ("pointer-events", "none")
                ]
       ]
-      [ H.span_ [ HP.class_ "hidden sm:inline" ] [ text "Triple-click board to exit zen mode" ]
-      , H.span_ [ HP.class_ "sm:hidden" ] [ text "Triple-tap board to exit zen mode" ]
+      [ H.span_ [ HP.class_ "hidden sm:inline" ] [ text "Double-click outside board to exit zen mode" ]
+      , H.span_ [ HP.class_ "sm:hidden" ] [ text "Double-tap outside board to exit zen mode" ]
       ]
   | otherwise = text ""
 
