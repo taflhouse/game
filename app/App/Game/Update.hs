@@ -1102,7 +1102,9 @@ startBlitzClock :: IORef (Maybe Channel) -> IORef (Maybe Int) -> Effect Model Ga
 startBlitzClock _channelRef clockRef = do
   stopClock' clockRef
   gm <- get
-  case gmTimeControl gm of
+  -- Don't start the clock until the first move has been made.
+  -- The attacker's time shouldn't count down before they've moved.
+  when (not (null (gmMoveList gm))) $ case gmTimeControl gm of
     BlitzControl _ -> do
       let atkMs = gmAttackerTimeMs gm
           defMs = gmDefenderTimeMs gm
@@ -1127,7 +1129,7 @@ startDailyClock :: IORef (Maybe Int) -> Effect Model GameProps GameModel GameAct
 startDailyClock clockRef = do
   stopClock' clockRef
   gm <- get
-  case gmTimeControl gm of
+  when (not (null (gmMoveList gm))) $ case gmTimeControl gm of
     DailyControl _ -> do
       withSink $ \sink -> do
         tickCb <- Function <$> asyncCallback (sink GDailyTick)
