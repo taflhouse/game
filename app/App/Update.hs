@@ -289,7 +289,7 @@ updateModel = \case
       (\_ -> DoSignOut)
 
   SessionRestored mSess -> do
-    modify $ \m -> m { mSession = mSess }
+    modify $ \m -> m { mSession = mSess, mSessionChecked = True }
     case mSess of
       Just sess
         | amProvider (userAppMetadata (sessionUser sess)) == "anonymous" -> do

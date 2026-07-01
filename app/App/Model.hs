@@ -110,6 +110,7 @@ data Model = Model
   , mAiNodeLimit      :: !Int
     -- Auth
   , mSession          :: Maybe Session
+  , mSessionChecked   :: !Bool
   , _mAuth            :: !AuthState
     -- Profile
   , mProfile          :: Maybe Profile
@@ -161,6 +162,7 @@ initModel = Model
   , mAiDepth          = 4
   , mAiNodeLimit      = 10000
   , mSession          = Nothing
+  , mSessionChecked   = False
   , _mAuth            = initAuthState
   , mProfile          = Nothing
   , mNeedsUsername    = False

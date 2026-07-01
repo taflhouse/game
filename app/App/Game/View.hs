@@ -17,7 +17,7 @@ import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
 
 import App.JSON (Profile(..))
 import App.Model (GameMode(..), TimeControl(..), ViewMode(..))
-import App.Board (sqSize, coordStr, svgDefs, renderSquareBg, renderSpecialSquares,
+import App.Board (sqSize, coordStr, pieceKey, svgDefs, renderSquareBg, renderSpecialSquares,
                   renderPiece, renderLastMove, viewBoardContainer, viewEvalBar, viewClock)
 import App.Game.Model
 import App.Game.Action
@@ -107,14 +107,20 @@ viewSVGBoard gm =
     , HP.width_ "100%"
     , HP.class_ "block aspect-square"
     ]
+    -- Wrap variable-count layers (highlights, valid dots) in <g> containers
+    -- so the SVG child list has a stable count.  The pieces <g> then sits at a
+    -- fixed position, and because ALL of its children carry key_, Miso uses
+    -- key-based reconciliation for smooth CSS-transition animation.
     ( svgDefs
     : [ renderSquareBg n r c | r <- [0..n-1], c <- [0..n-1] ]
     ++ renderSpecialSquares gs n
-    ++ renderHighlights gm n
-    ++ renderValidDots gm n
-    ++ [ renderPiece n r c (pieceAt board (Coords r c))
-       | r <- [0..n-1], c <- [0..n-1]
-       , pieceAt board (Coords r c) /= Empty
+    ++ [ SVG.g_ [] (renderHighlights gm n) ]
+    ++ [ SVG.g_ [] (renderValidDots gm n) ]
+    ++ [ SVG.g_ []
+         [ renderPiece (pieceKey (gsLastAction gs) r c) True n r c (pieceAt board (Coords r c))
+         | r <- [0..n-1], c <- [0..n-1]
+         , pieceAt board (Coords r c) /= Empty
+         ]
        ]
     ++ renderLastMove gs n
     ++ [ renderClickTarget gm n r c | r <- [0..n-1], c <- [0..n-1] ]

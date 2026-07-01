@@ -78,8 +78,11 @@ globalThis.onDocumentDblClick = (cb) => {
 };
 
 globalThis.playMoveSound = () => {
-  const audio = new Audio('/chess_move_on_alabaster.wav');
-  audio.play().catch(() => {});
+  // Delay sound to sync with the 150ms CSS transition on piece movement
+  setTimeout(() => {
+    const audio = new Audio('/chess_move_on_alabaster.wav');
+    audio.play().catch(() => {});
+  }, 150);
 };
 
 // -- Supabase-miso bridge functions --

@@ -42,7 +42,9 @@ viewHome m =
       ] ++ homeContent
     )
   where
-    homeContent = case mSession m of
+    homeContent
+      | not (mSessionChecked m) = []
+      | otherwise = case mSession m of
       Just _ | mGamesLoading m ->
         [ H.div_
             [ HP.class_ "text-center text-muted-foreground animate-pulse" ]

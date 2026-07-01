@@ -7,6 +7,7 @@ module App.Board
   , formatClockMs
   , showScore
   , showPct
+  , pieceKey
     -- * SVG primitives
   , svgDefs
   , renderSquareBg
@@ -75,6 +76,16 @@ showPct d =
   let n = round d :: Int
   in show n
 
+-- | Compute a stable key for a piece at (r, c).
+-- The piece that just moved gets a key based on its FROM position so the DOM
+-- element identity is preserved from the previous render, causing the CSS
+-- transition to animate the slide.  All other pieces use position-based keys.
+pieceKey :: Maybe MoveAction -> Int -> Int -> MisoString
+pieceKey mLastAction r c = case mLastAction of
+  Just (MoveAction from to)
+    | to == Coords r c -> "p-" <> ms (row from) <> "-" <> ms (col from)
+  _ -> "p-" <> ms r <> "-" <> ms c
+
 -- ---------------------------------------------------------------------------
 -- SVG primitives
 -- ---------------------------------------------------------------------------
@@ -130,30 +141,39 @@ renderSpecialSquares gs n =
   in map (\pos -> markSquare pos "var(--piece-king)") corners
      ++ [markSquare (center, center) "var(--piece-defender)"]
 
--- | Piece rendering.
-renderPiece :: Int -> Int -> Int -> Piece -> View model action
-renderPiece _n r c piece =
-  let cx = c * sqSize + sqSize `div` 2
-      cy = r * sqSize + sqSize `div` 2
-      radius = sqSize `div` 2 - 4
+-- | Piece rendering with CSS transition support.
+-- Uses transform:translate() so pieces slide smoothly when the DOM element
+-- is reused via key-based reconciliation.
+renderPiece :: MisoString -> Bool -> Int -> Int -> Int -> Piece -> View model action
+renderPiece k animate _n r c piece =
+  let tx = c * sqSize
+      ty = r * sqSize
+      half = sqSize `div` 2
+      radius = half - 4
+      translateVal = "translate(" <> ms tx <> "px," <> ms ty <> "px)"
+      styles = ("transform", translateVal)
+             : [("transition", "transform 150ms ease-out") | animate]
       (fill, stroke, label) = case piece of
         Attacker -> ("var(--piece-attacker)", "var(--border)", "A" :: MisoString)
         Defender -> ("var(--piece-defender)", "var(--border)", "D")
         King     -> ("var(--piece-king)", "var(--piece-king-stroke)", "K")
         Empty    -> ("#000", "#000", "")
   in SVG.g_
-    [ SP.filter_ "url(#pieceShadow)" ]
+    [ key_ k
+    , style_ styles
+    , SP.filter_ "url(#pieceShadow)"
+    ]
     [ SVG.circle_
-        [ SP.cx_ (ms cx)
-        , SP.cy_ (ms cy)
+        [ SP.cx_ (ms half)
+        , SP.cy_ (ms half)
         , SP.r_ (ms radius)
         , SP.fill_ fill
         , SP.stroke_ stroke
         , SP.strokeWidth_ "2"
         ]
     , SVG.text_
-        [ SP.x_ (ms cx)
-        , SP.y_ (ms (cy + 1))
+        [ SP.x_ (ms half)
+        , SP.y_ (ms (half + 1))
         , SP.textAnchor_ "middle"
         , SP.dominantBaseline_ "central"
         , SP.fontSize_ (ms (sqSize `div` 3))
@@ -207,9 +227,11 @@ viewBasicSVGBoard gs extras =
     ( svgDefs
     : [ renderSquareBg n r c | r <- [0..n-1], c <- [0..n-1] ]
     ++ renderSpecialSquares gs n
-    ++ [ renderPiece n r c (pieceAt board (Coords r c))
-       | r <- [0..n-1], c <- [0..n-1]
-       , pieceAt board (Coords r c) /= Empty
+    ++ [ SVG.g_ []
+         [ renderPiece (pieceKey (gsLastAction gs) r c) True n r c (pieceAt board (Coords r c))
+         | r <- [0..n-1], c <- [0..n-1]
+         , pieceAt board (Coords r c) /= Empty
+         ]
        ]
     ++ renderLastMove gs n
     ++ extras
