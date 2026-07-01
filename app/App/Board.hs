@@ -7,7 +7,6 @@ module App.Board
   , formatClockMs
   , showScore
   , showPct
-  , pieceKey
     -- * SVG primitives
   , svgDefs
   , renderSquareBg
@@ -76,16 +75,6 @@ showPct d =
   let n = round d :: Int
   in show n
 
--- | Compute a stable key for a piece at (r, c).
--- The piece that just moved gets a key based on its FROM position so the DOM
--- element identity is preserved from the previous render, causing the CSS
--- transition to animate the slide.  All other pieces use position-based keys.
-pieceKey :: Maybe MoveAction -> Int -> Int -> MisoString
-pieceKey mLastAction r c = case mLastAction of
-  Just (MoveAction from to)
-    | to == Coords r c -> "p-" <> ms (row from) <> "-" <> ms (col from)
-  _ -> "p-" <> ms r <> "-" <> ms c
-
 -- ---------------------------------------------------------------------------
 -- SVG primitives
 -- ---------------------------------------------------------------------------
@@ -141,11 +130,10 @@ renderSpecialSquares gs n =
   in map (\pos -> markSquare pos "var(--piece-king)") corners
      ++ [markSquare (center, center) "var(--piece-defender)"]
 
--- | Piece rendering with CSS transition support.
--- Uses transform:translate() so pieces slide smoothly when the DOM element
--- is reused via key-based reconciliation.
-renderPiece :: MisoString -> Bool -> Int -> Int -> Int -> Piece -> View model action
-renderPiece k animate _n r c piece =
+-- | Piece rendering.  When @animate@ is 'True', the element carries a CSS
+-- transition on @transform@ so the stable-index trick causes a smooth slide.
+renderPiece :: MisoString -> Bool -> Int -> Int -> Piece -> View model action
+renderPiece k animate r c piece =
   let tx = c * sqSize
       ty = r * sqSize
       half = sqSize `div` 2
@@ -160,6 +148,7 @@ renderPiece k animate _n r c piece =
         Empty    -> ("#000", "#000", "")
   in SVG.g_
     [ key_ k
+    , HP.id_ ("piece-" <> ms r <> "-" <> ms c)
     , style_ styles
     , SP.filter_ "url(#pieceShadow)"
     ]
@@ -219,6 +208,7 @@ viewBasicSVGBoard gs extras =
   let board = gsBoard gs
       n     = boardSize board
       total = sqSize * n
+      pieceK r c = "p-" <> ms r <> "-" <> ms c
   in SVG.svg_
     [ SP.viewBox_ ("0 0 " <> ms total <> " " <> ms total)
     , HP.width_ "100%"
@@ -228,7 +218,7 @@ viewBasicSVGBoard gs extras =
     : [ renderSquareBg n r c | r <- [0..n-1], c <- [0..n-1] ]
     ++ renderSpecialSquares gs n
     ++ [ SVG.g_ []
-         [ renderPiece (pieceKey (gsLastAction gs) r c) True n r c (pieceAt board (Coords r c))
+         [ renderPiece (pieceK r c) False r c (pieceAt board (Coords r c))
          | r <- [0..n-1], c <- [0..n-1]
          , pieceAt board (Coords r c) /= Empty
          ]

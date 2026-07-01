@@ -17,7 +17,7 @@ import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
 
 import App.JSON (Profile(..), ChatMessage(..))
 import App.Model (GameMode(..), TimeControl(..), ViewMode(..))
-import App.Board (sqSize, coordStr, pieceKey, svgDefs, renderSquareBg, renderSpecialSquares,
+import App.Board (sqSize, coordStr, svgDefs, renderSquareBg, renderSpecialSquares,
                   renderPiece, renderLastMove, viewBoardContainer, viewEvalBar, viewClock)
 import App.Game.Model
 import App.Game.Action
@@ -93,7 +93,10 @@ viewGame props gm
 -- | Board panel with container
 viewBoardPanel :: GameModel -> View GameModel GameAction
 viewBoardPanel gm =
-  let gm' = gm { gmGameState = displayedGameState gm }
+  let mAnim = if isJust (gmBrowseIndex gm) then Nothing else gmAnimateMove gm
+      gm' = gm { gmGameState = displayedGameState gm
+               , gmAnimateMove = mAnim
+               }
       n = boardSize (gsBoard (gmGameState gm'))
   in viewBoardContainer (gmIsFullscreen gm) (gmViewMode gm == ZenView) n (viewSVGBoard gm')
 
@@ -104,29 +107,55 @@ viewSVGBoard gm =
       board = gsBoard gs
       n     = boardSize board
       total = sqSize * n
+      mAnim = gmAnimateMove gm
   in SVG.svg_
     [ SP.viewBox_ ("0 0 " <> ms total <> " " <> ms total)
     , HP.width_ "100%"
     , HP.class_ "block aspect-square"
     ]
-    -- Wrap variable-count layers (highlights, valid dots) in <g> containers
-    -- so the SVG child list has a stable count.  The pieces <g> then sits at a
-    -- fixed position, and because ALL of its children carry key_, Miso uses
-    -- key-based reconciliation for smooth CSS-transition animation.
+    -- Every (r,c) position is rendered (empty squares get a keyed placeholder
+    -- <g>) so the child list stays stable across moves.  When animating, the
+    -- moved piece is rendered at its FROM index (preserving DOM element
+    -- identity) with the TO transform, so the CSS transition fires reliably.
     ( svgDefs
     : [ renderSquareBg n r c | r <- [0..n-1], c <- [0..n-1] ]
     ++ renderSpecialSquares gs n
     ++ [ SVG.g_ [] (renderHighlights gm n) ]
     ++ [ SVG.g_ [] (renderValidDots gm n) ]
     ++ [ SVG.g_ []
-         [ renderPiece (pieceKey (gsLastAction gs) r c) True n r c (pieceAt board (Coords r c))
+         [ renderBoardSlot mAnim board n r c
          | r <- [0..n-1], c <- [0..n-1]
-         , pieceAt board (Coords r c) /= Empty
          ]
        ]
     ++ renderLastMove gs n
     ++ [ renderClickTarget gm n r c | r <- [0..n-1], c <- [0..n-1] ]
     )
+
+-- | Render a single board slot.  Keeps the child list stable at n*n elements
+-- so Miso always patches in place (same index, same key).  When animating,
+-- the moved piece stays at its FROM index but gets the TO transform.
+-- Only the FROM slot carries a CSS transition; all other pieces are static
+-- so that appearing/disappearing pieces never trigger spurious animations.
+renderBoardSlot :: Maybe MoveAction -> Board -> Int -> Int -> Int -> View GameModel GameAction
+renderBoardSlot mAnim board _n r c =
+  let k = "p-" <> ms r <> "-" <> ms c
+  in case mAnim of
+    Just (MoveAction from to)
+      | Coords r c == from ->
+        -- FROM slot: render the moved piece with CSS transition enabled
+        -- so the transform change animates the slide to the TO position.
+        let p = pieceAt board to
+        in if p /= Empty
+           then renderPiece k True (row to) (col to) p
+           else SVG.g_ [key_ k] []
+      | Coords r c == to ->
+        -- TO slot: placeholder (the piece is rendered at the FROM slot).
+        SVG.g_ [key_ k] []
+    _ ->
+      let p = pieceAt board (Coords r c)
+      in if p /= Empty
+         then renderPiece k False r c p
+         else SVG.g_ [key_ k] []
 
 -- | Render selected square highlight
 renderHighlights :: GameModel -> Int -> [View GameModel GameAction]

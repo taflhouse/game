@@ -35,6 +35,7 @@ data GameModel = GameModel
   , gmEvalScore    :: !Int
   , gmFullHistory  :: Maybe [GameState]
   , gmFullMoveList :: Maybe [MoveAction]
+  , gmAnimateMove  :: Maybe MoveAction
   , gmGameId       :: Maybe MisoString
   , gmVariant      :: !BoardVariant
   , gmGameMode     :: !GameMode
@@ -82,6 +83,7 @@ initialGameModel = GameModel
   , gmEvalScore    = 0
   , gmFullHistory  = Nothing
   , gmFullMoveList = Nothing
+  , gmAnimateMove  = Nothing
   , gmGameId       = Nothing
   , gmVariant      = Tablut
   , gmGameMode     = AiMode

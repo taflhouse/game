@@ -78,11 +78,22 @@ globalThis.onDocumentDblClick = (cb) => {
 };
 
 globalThis.playMoveSound = () => {
-  // Delay sound to sync with the 150ms CSS transition on piece movement
+  // Delay sound to sync with the 150ms piece movement animation
   setTimeout(() => {
     const audio = new Audio('/chess_move_on_alabaster.wav');
     audio.play().catch(() => {});
   }, 150);
+};
+
+globalThis.animatePieceMove = (fromR, fromC, toR, toC, sqSize) => {
+  requestAnimationFrame(() => {
+    const el = document.getElementById('piece-' + toR + '-' + toC);
+    if (!el) return;
+    el.animate([
+      { transform: 'translate(' + (fromC * sqSize) + 'px,' + (fromR * sqSize) + 'px)' },
+      { transform: 'translate(' + (toC * sqSize) + 'px,' + (toR * sqSize) + 'px)' }
+    ], { duration: 150, easing: 'ease-out' });
+  });
 };
 
 // -- Supabase-miso bridge functions --

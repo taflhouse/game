@@ -329,6 +329,7 @@ updateGame channelRef chatChannelRef clockRef = \case
             , gmFullMoveList = Nothing
             , gmBrowseIndex = Nothing
             , gmEvalScore = evaluate gs'
+            , gmAnimateMove = Just move
             }
           io_ js_playMoveSound
           when (gmGameMode gm == MultiplayerMode) $ do
@@ -370,6 +371,7 @@ updateGame channelRef chatChannelRef clockRef = \case
           , gmFullHistory = Nothing
           , gmFullMoveList = Nothing
           , gmEvalScore = evaluate gs'
+          , gmAnimateMove = Just move
           }
         io_ js_playMoveSound
         when (finished (gsResult gs')) $ saveGame channelRef clockRef
@@ -380,7 +382,7 @@ updateGame channelRef chatChannelRef clockRef = \case
     let allStates = gmHistory gm ++ [gmGameState gm]
         lastIdx = length allStates - 1
         idx = if i >= lastIdx then Nothing else Just (max 0 i)
-    modify $ \x -> x { gmBrowseIndex = idx }
+    modify $ \x -> x { gmBrowseIndex = idx, gmAnimateMove = Nothing }
 
   GUndo -> do
     gm <- get
@@ -411,6 +413,7 @@ updateGame channelRef chatChannelRef clockRef = \case
           , gmValidMoves = []
           , gmAiThinking = False
           , gmEvalScore = evaluate prev
+          , gmAnimateMove = Nothing
           }
 
   GRealtimeChange val -> do
@@ -448,6 +451,7 @@ updateGame channelRef chatChannelRef clockRef = \case
             , gmSelected = Nothing
             , gmValidMoves = []
             , gmBrowseIndex = Nothing
+            , gmAnimateMove = if not (null remoteMoves) then Just (last remoteMoves) else Nothing
             }
           io_ js_playMoveSound
           case parseTimeControl gr of

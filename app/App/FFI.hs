@@ -11,6 +11,7 @@ module App.FFI
   , js_startGameClock
   , js_stopGameClock
   , js_startDailyClock
+  , js_animatePieceMove
     -- * Wrapped helpers
   , js_generateUUID
   , js_copyToClipboard
@@ -79,6 +80,8 @@ foreign import javascript unsafe "globalThis.formatDate($1)"
   js_formatDate_raw :: JSVal -> IO JSVal
 foreign import javascript unsafe "globalThis.startDailyClock($1)"
   js_startDailyClock_ffi :: JSVal -> IO Int
+foreign import javascript unsafe "globalThis.animatePieceMove($1,$2,$3,$4,$5)"
+  js_animatePieceMove :: Int -> Int -> Int -> Int -> Int -> IO ()
 
 js_loadLocalGames :: Function -> Function -> IO ()
 js_loadLocalGames (Function a) (Function b) = js_loadLocalGames_ffi a b
@@ -133,6 +136,8 @@ js_formatDate_raw :: JSVal -> IO JSVal
 js_formatDate_raw _ = toJSVal ("" :: MisoString)
 js_startDailyClock :: Function -> IO Int
 js_startDailyClock _ = pure 0
+js_animatePieceMove :: Int -> Int -> Int -> Int -> Int -> IO ()
+js_animatePieceMove _ _ _ _ _ = pure ()
 #endif
 
 -- ---------------------------------------------------------------------------
