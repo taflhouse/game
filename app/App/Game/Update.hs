@@ -1,6 +1,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RecordWildCards #-}
 module App.Game.Update (updateGame) where
 
 import Data.IORef
@@ -14,7 +15,7 @@ import qualified Miso.JSON as JSON
 import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, asyncCallback, asyncCallback1, asyncCallback2, Function(..))
 import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq)
 import qualified Data.Map.Strict as Map
-import Supabase.Miso.Realtime (Channel, subscribeToTable, subscribeToTableWithPresence, trackPresence, removeChannel)
+import Supabase.Miso.Realtime (Channel(..), subscribeToTable, subscribeToTableWithPresence, trackPresence, removeChannel)
 import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
 
 import Tafl.Board
@@ -31,8 +32,8 @@ import App.Game.Action
 import App.Route (replayMoves, lookupVariant, playURI)
 import App.FFI
 
-updateGame :: IORef (Maybe Channel) -> IORef (Maybe Channel) -> IORef (Maybe Int) -> GameAction -> Effect Model GameProps GameModel GameAction
-updateGame channelRef chatChannelRef clockRef = \case
+updateGame :: GameRefs -> GameAction -> Effect Model GameProps GameModel GameAction
+updateGame GameRefs{..} = \case
   GNoOp -> pure ()
 
   GameMount -> do
@@ -77,7 +78,7 @@ updateGame channelRef chatChannelRef clockRef = \case
             insert "games" gameData (InsertOptions Nothing Nothing) GGameCreated GGameCreateError
             io_ $ pushURI (playURI uuid)
           Nothing -> pure ()
-        triggerAi channelRef clockRef
+        triggerAi grChannelRef grClockRef
 
       NewMultiplayerGame variant tc sidePref invCode uuid qrUrl -> do
         let gs = initialState variant
@@ -143,6 +144,7 @@ updateGame channelRef chatChannelRef clockRef = \case
               GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
             subscribeToTable ("chat:" <> uuid) "game_chat" ("game_id=eq." <> uuid)
               GChatReceived GChatSubscribed GChatError
+            subscribeVoiceBroadcast grVoiceChannelRef uuid
             io_ $ pushURI (playURI uuid)
           Nothing -> pure ()
 
@@ -173,6 +175,7 @@ updateGame channelRef chatChannelRef clockRef = \case
           GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
         subscribeToTable ("chat:" <> gid) "game_chat" ("game_id=eq." <> gid)
           GChatReceived GChatSubscribed GChatError
+        subscribeVoiceBroadcast grVoiceChannelRef gid
         selectWithFilters "game_chat" "*" [eq "game_id" gid]
           (FetchOptions Nothing Nothing) GChatHistoryLoaded GChatHistoryError
         io_ $ pushURI (playURI gid)
@@ -247,12 +250,13 @@ updateGame channelRef chatChannelRef clockRef = \case
                 GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
               subscribeToTable ("chat:" <> gid) "game_chat" ("game_id=eq." <> gid)
                 GChatReceived GChatSubscribed GChatError
+              subscribeVoiceBroadcast grVoiceChannelRef gid
               selectWithFilters "game_chat" "*" [eq "game_id" gid]
                 (FetchOptions Nothing Nothing) GChatHistoryLoaded GChatHistoryError
             when (grwStatus gr == "active") $
               case parseTimeControl gr of
-                BlitzControl _ -> startBlitzClock channelRef clockRef
-                DailyControl _ -> startDailyClock clockRef
+                BlitzControl _ -> startBlitzClock grChannelRef grClockRef
+                DailyControl _ -> startDailyClock grClockRef
                 _ -> pure ()
           Nothing -> do
             put $ applyClockFromRow gr $ initialGameModel
@@ -279,31 +283,43 @@ updateGame channelRef chatChannelRef clockRef = \case
                 GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
               subscribeToTable ("chat:" <> gid) "game_chat" ("game_id=eq." <> gid)
                 GChatReceived GChatSubscribed GChatError
+              subscribeVoiceBroadcast grVoiceChannelRef gid
               selectWithFilters "game_chat" "*" [eq "game_id" gid]
                 (FetchOptions Nothing Nothing) GChatHistoryLoaded GChatHistoryError
             when (grwStatus gr == "active") $
               case parseTimeControl gr of
-                BlitzControl _ -> startBlitzClock channelRef clockRef
-                DailyControl _ -> startDailyClock clockRef
+                BlitzControl _ -> startBlitzClock grChannelRef grClockRef
+                DailyControl _ -> startDailyClock grClockRef
                 _ -> pure ()
 
   GameUnmount -> do
     io_ $ do
-      mCh <- readIORef channelRef
+      mCh <- readIORef grChannelRef
       case mCh of
         Just ch -> removeChannel ch
         Nothing -> pure ()
-      writeIORef channelRef Nothing
-      mChatCh <- readIORef chatChannelRef
+      writeIORef grChannelRef Nothing
+      mChatCh <- readIORef grChatChannelRef
       case mChatCh of
         Just ch -> removeChannel ch
         Nothing -> pure ()
-      writeIORef chatChannelRef Nothing
-      mTid <- readIORef clockRef
+      writeIORef grChatChannelRef Nothing
+      mVoiceCh <- readIORef grVoiceChannelRef
+      case mVoiceCh of
+        Just ch -> removeChannel ch
+        Nothing -> pure ()
+      writeIORef grVoiceChannelRef Nothing
+      mTid <- readIORef grClockRef
       case mTid of
         Just tid -> js_stopGameClock tid
         Nothing -> js_stopGameClock 0
-      writeIORef clockRef Nothing
+      writeIORef grClockRef Nothing
+      -- Tear down voice
+      mPc <- readIORef grPeerConnRef
+      mStream <- readIORef grMediaStreamRef
+      voiceTeardownIO mPc mStream
+      writeIORef grPeerConnRef Nothing
+      writeIORef grMediaStreamRef Nothing
     mailParent $ object ["type" .= ("game_unmounted" :: MisoString)]
 
   GCellClicked coords -> do
@@ -352,8 +368,8 @@ updateGame channelRef chatChannelRef clockRef = \case
                   sink (GWriteMpMoveWithClock nowStr (Just deadlineStr))
               NoTimeControl ->
                 io (pure (GWriteMpMoveWithClock "" Nothing))
-          when (finished (gsResult gs') && gmGameMode gm /= MultiplayerMode) $ saveGame channelRef clockRef
-          triggerAi channelRef clockRef
+          when (finished (gsResult gs') && gmGameMode gm /= MultiplayerMode) $ saveGame grChannelRef grClockRef
+          triggerAi grChannelRef grClockRef
         Just sel | sel == coords ->
           modify $ const $ gm { gmSelected = Nothing, gmValidMoves = [] }
         _ | canControl side piece -> do
@@ -381,7 +397,7 @@ updateGame channelRef chatChannelRef clockRef = \case
           , gmAnimateMove = Just move
           }
         io_ js_playMoveSound
-        when (finished (gsResult gs')) $ saveGame channelRef clockRef
+        when (finished (gsResult gs')) $ saveGame grChannelRef grClockRef
       else pure ()
 
   GGotoMove i -> do
@@ -444,8 +460,8 @@ updateGame channelRef chatChannelRef clockRef = \case
             , gmDefenderName = grwDefenderName gr
             }
           case parseTimeControl gr of
-            BlitzControl _ -> startBlitzClock channelRef clockRef
-            DailyControl _ -> startDailyClock clockRef
+            BlitzControl _ -> startBlitzClock grChannelRef grClockRef
+            DailyControl _ -> startDailyClock grClockRef
             _ -> pure ()
 
         when (length remoteMoves > length localMoves) $ do
@@ -462,8 +478,8 @@ updateGame channelRef chatChannelRef clockRef = \case
             }
           io_ js_playMoveSound
           case parseTimeControl gr of
-            BlitzControl _ -> startBlitzClock channelRef clockRef
-            DailyControl _ -> startDailyClock clockRef
+            BlitzControl _ -> startBlitzClock grChannelRef grClockRef
+            DailyControl _ -> startDailyClock grClockRef
             _ -> pure ()
 
         case grwDrawOfferedBy gr of
@@ -480,10 +496,10 @@ updateGame channelRef chatChannelRef clockRef = \case
                 _ -> Nothing
               result = GameResult True winSide (fromMisoString (grwResultDesc gr))
           modify $ \x -> x { gmGameState = (gmGameState x) { gsResult = result } }
-          stopClock' clockRef
+          stopClock' grClockRef
 
   GRealtimeSubscribed ch -> do
-    io_ $ writeIORef channelRef (Just ch)
+    io_ $ writeIORef grChannelRef (Just ch)
     gm <- get
     let role = case gmPlayerSide gm of
           Just _  -> "player" :: MisoString
@@ -545,10 +561,10 @@ updateGame channelRef chatChannelRef clockRef = \case
           GMoveUpdated GMoveUpdateError
       Nothing -> pure ()
     if finished (gsResult gs)
-      then stopClock' clockRef
+      then stopClock' grClockRef
       else case gmTimeControl gm of
-        BlitzControl _ -> startBlitzClock channelRef clockRef
-        DailyControl _ -> startDailyClock clockRef
+        BlitzControl _ -> startBlitzClock grChannelRef grClockRef
+        DailyControl _ -> startDailyClock grClockRef
         _ -> pure ()
 
   GCompleteJoinWithClock uid displayName nowStr mDeadlineStr -> do
@@ -581,15 +597,15 @@ updateGame channelRef chatChannelRef clockRef = \case
           (UpdateOptions Nothing)
           GMoveUpdated GMoveUpdateError
         case gmTimeControl gm of
-          BlitzControl _ -> startBlitzClock channelRef clockRef
-          DailyControl _ -> startDailyClock clockRef
+          BlitzControl _ -> startBlitzClock grChannelRef grClockRef
+          DailyControl _ -> startDailyClock grClockRef
           _ -> pure ()
       _ -> pure ()
 
   GResign -> do
     gm <- get
     when (gmGameMode gm == MultiplayerMode) $ do
-      stopClock' clockRef
+      stopClock' grClockRef
       case (gmGameId gm, gmPlayerSide gm) of
         (Just gid, Just mySide) -> do
           let winnerSide = case mySide of
@@ -622,7 +638,7 @@ updateGame channelRef chatChannelRef clockRef = \case
   GAcceptDraw -> do
     gm <- get
     when (gmGameMode gm == MultiplayerMode) $ do
-      stopClock' clockRef
+      stopClock' grClockRef
       case gmGameId gm of
         Just gid -> do
           let updateData = object
@@ -681,7 +697,7 @@ updateGame channelRef chatChannelRef clockRef = \case
       , gmAttackerTimeMs = if sideStr' == "attacker" then 0 else gmAttackerTimeMs x
       , gmDefenderTimeMs = if sideStr' == "defender" then 0 else gmDefenderTimeMs x
       }
-    stopClock' clockRef
+    stopClock' grClockRef
     when (gmGameMode gm == MultiplayerMode) $
       case gmGameId gm of
         Just gid -> do
@@ -699,10 +715,10 @@ updateGame channelRef chatChannelRef clockRef = \case
         Nothing -> pure ()
 
   GClockStarted tid ->
-    io_ $ writeIORef clockRef (Just tid)
+    io_ $ writeIORef grClockRef (Just tid)
 
   GStopClock ->
-    stopClock' clockRef
+    stopClock' grClockRef
 
   GDailyTick ->
     modify $ \gm -> gm { gmDailyTick = gmDailyTick gm + 1 }
@@ -798,7 +814,7 @@ updateGame channelRef chatChannelRef clockRef = \case
       Nothing -> pure ()
 
   GChatSubscribed ch ->
-    io_ $ writeIORef chatChannelRef (Just ch)
+    io_ $ writeIORef grChatChannelRef (Just ch)
 
   GChatError _ -> pure ()
 
@@ -812,6 +828,217 @@ updateGame channelRef chatChannelRef clockRef = \case
 
   GChatHistoryError _ -> pure ()
 
+  -- Voice chat -------------------------------------------------------------
+
+  GVoiceInvite -> do
+    gm <- get
+    when (gmGameMode gm == MultiplayerMode && isJust (gmPlayerSide gm)
+          && gmVoiceState gm == VoiceIdle) $ do
+      modify $ \x -> x { gmVoiceState = VoiceInviteSent, gmVoiceError = Nothing }
+      withSink $ \sink -> do
+        successCb <- Function <$> asyncCallback1 (\streamVal -> sink (GVoiceGotMedia streamVal))
+        errorCb   <- Function <$> asyncCallback1 (\errVal -> do
+          errStr <- fromJSValUnchecked errVal
+          sink (GVoiceMediaError errStr))
+        js_voiceGetUserMedia successCb errorCb
+
+  GVoiceAccept -> do
+    gm <- get
+    when (gmVoiceState gm == VoiceInviteReceived) $ do
+      modify $ \x -> x { gmVoiceState = VoiceConnecting, gmVoiceError = Nothing }
+      withSink $ \sink -> do
+        successCb <- Function <$> asyncCallback1 (\streamVal -> sink (GVoiceGotMedia streamVal))
+        errorCb   <- Function <$> asyncCallback1 (\errVal -> do
+          errStr <- fromJSValUnchecked errVal
+          sink (GVoiceMediaError errStr))
+        js_voiceGetUserMedia successCb errorCb
+
+  GVoiceDecline -> do
+    gm <- get
+    when (gmVoiceState gm == VoiceInviteReceived) $ do
+      modify $ \x -> x { gmVoiceState = VoiceIdle }
+      sendVoiceBroadcast grVoiceChannelRef gm "voice-decline" []
+
+  GVoiceEnd -> do
+    gm <- get
+    when (gmVoiceState gm /= VoiceIdle) $ do
+      sendVoiceBroadcast grVoiceChannelRef gm "voice-end" []
+      io_ $ do
+        mPc <- readIORef grPeerConnRef
+        mStream <- readIORef grMediaStreamRef
+        voiceTeardownIO mPc mStream
+        writeIORef grPeerConnRef Nothing
+        writeIORef grMediaStreamRef Nothing
+      modify $ \x -> x { gmVoiceState = VoiceIdle, gmVoiceMuted = False }
+
+  GVoiceToggleMute -> do
+    gm <- get
+    when (gmVoiceState gm == VoiceConnected) $ do
+      withSink $ \sink -> do
+        mStream <- readIORef grMediaStreamRef
+        case mStream of
+          Just stream -> do
+            muted <- js_voiceToggleMute stream
+            sink GNoOp  -- trigger re-render indirectly
+            pure ()
+          Nothing -> pure ()
+      modify $ \x -> x { gmVoiceMuted = not (gmVoiceMuted x) }
+
+  GVoiceGotMedia streamVal -> do
+    io_ $ writeIORef grMediaStreamRef (Just streamVal)
+    gm <- get
+    case gmVoiceState gm of
+      VoiceInviteSent -> do
+        -- We initiated: send invite, wait for accept
+        sendVoiceBroadcast grVoiceChannelRef gm "voice-invite" []
+      VoiceConnecting -> do
+        -- We accepted: send accept, wait for offer
+        sendVoiceBroadcast grVoiceChannelRef gm "voice-accept" []
+      _ -> pure ()
+
+  GVoiceMediaError errStr -> do
+    io_ $ do
+      writeIORef grMediaStreamRef Nothing
+    modify $ \x -> x { gmVoiceState = VoiceIdle, gmVoiceError = Just errStr }
+
+  GVoiceBroadcastReceived val -> do
+    gm <- get
+    let mMsgType = parseMaybe (\v -> withObject "bc" (\o -> o .: "type") v) val :: Maybe MisoString
+        mFrom    = parseMaybe (\v -> withObject "bc" (\o -> o .: "from") v) val :: Maybe MisoString
+        mySideStr = maybe "" sideStr (gmPlayerSide gm)
+    case mMsgType of
+      Nothing -> pure ()
+      Just msgType
+        -- Filter out own messages
+        | mFrom == Just mySideStr -> pure ()
+        | msgType == "voice-invite" -> do
+            when (gmVoiceState gm == VoiceIdle) $
+              modify $ \x -> x { gmVoiceState = VoiceInviteReceived, gmVoiceError = Nothing }
+        | msgType == "voice-accept" -> do
+            when (gmVoiceState gm == VoiceInviteSent) $ do
+              modify $ \x -> x { gmVoiceState = VoiceConnecting }
+              -- Create PC, add local stream, create offer
+              withSink $ \sink -> do
+                iceCb <- Function <$> asyncCallback1 (\candVal -> do
+                  candStr <- fromJSValUnchecked candVal
+                  sink (GVoiceIceCandidate candStr))
+                trackCb <- Function <$> asyncCallback (sink GVoiceRemoteTrack)
+                pc <- js_voiceCreatePeerConnection iceCb trackCb
+                writeIORef grPeerConnRef (Just pc)
+                mStream <- readIORef grMediaStreamRef
+                case mStream of
+                  Just stream -> js_voiceAddStreamToPc pc stream
+                  Nothing -> pure ()
+                offerOk <- Function <$> asyncCallback1 (\sdpVal -> do
+                  sdpStr <- fromJSValUnchecked sdpVal
+                  sink (GVoiceOfferCreated sdpStr))
+                offerErr <- Function <$> asyncCallback1 (\errVal -> do
+                  errStr <- fromJSValUnchecked errVal
+                  sink (GVoiceOfferError errStr))
+                js_voiceCreateOffer pc offerOk offerErr
+        | msgType == "voice-decline" -> do
+            when (gmVoiceState gm == VoiceInviteSent) $
+              modify $ \x -> x { gmVoiceState = VoiceIdle }
+        | msgType == "voice-offer" -> do
+            when (gmVoiceState gm == VoiceConnecting) $ do
+              let mSdp = parseMaybe (\v -> withObject "bc" (\o -> o .: "sdp") v) val :: Maybe MisoString
+              case mSdp of
+                Nothing -> pure ()
+                Just sdpStr -> withSink $ \sink -> do
+                  iceCb <- Function <$> asyncCallback1 (\candVal -> do
+                    cStr <- fromJSValUnchecked candVal
+                    sink (GVoiceIceCandidate cStr))
+                  trackCb <- Function <$> asyncCallback (sink GVoiceRemoteTrack)
+                  pc <- js_voiceCreatePeerConnection iceCb trackCb
+                  writeIORef grPeerConnRef (Just pc)
+                  mStream <- readIORef grMediaStreamRef
+                  case mStream of
+                    Just stream -> js_voiceAddStreamToPc pc stream
+                    Nothing -> pure ()
+                  sdpJsv <- toJSVal sdpStr
+                  answerOk <- Function <$> asyncCallback1 (\ansVal -> do
+                    ansStr <- fromJSValUnchecked ansVal
+                    sink (GVoiceAnswerCreated ansStr))
+                  answerErr <- Function <$> asyncCallback1 (\errVal -> do
+                    errStr <- fromJSValUnchecked errVal
+                    sink (GVoiceAnswerError errStr))
+                  js_voiceCreateAnswer pc sdpJsv answerOk answerErr
+        | msgType == "voice-answer" -> do
+            let mSdp = parseMaybe (\v -> withObject "bc" (\o -> o .: "sdp") v) val :: Maybe MisoString
+            case mSdp of
+              Nothing -> pure ()
+              Just sdpStr -> withSink $ \sink -> do
+                mPc <- readIORef grPeerConnRef
+                case mPc of
+                  Nothing -> pure ()
+                  Just pc -> do
+                    sdpJsv <- toJSVal sdpStr
+                    okCb <- Function <$> asyncCallback (sink GVoiceRemoteAnswerSet)
+                    errCb <- Function <$> asyncCallback1 (\errVal -> do
+                      errStr <- fromJSValUnchecked errVal
+                      sink (GVoiceRemoteAnswerError errStr))
+                    js_voiceSetRemoteAnswer pc sdpJsv okCb errCb
+        | msgType == "voice-ice" -> do
+            let mCand = parseMaybe (\v -> withObject "bc" (\o -> o .: "candidate") v) val :: Maybe MisoString
+            case mCand of
+              Nothing -> pure ()
+              Just candStr -> withSink $ \sink -> do
+                mPc <- readIORef grPeerConnRef
+                case mPc of
+                  Nothing -> pure ()
+                  Just pc -> do
+                    candJsv <- toJSVal candStr
+                    okCb <- Function <$> asyncCallback (sink GVoiceIceCandidateAdded)
+                    errCb <- Function <$> asyncCallback1 (\errVal -> do
+                      errStr <- fromJSValUnchecked errVal
+                      sink (GVoiceIceCandidateError errStr))
+                    js_voiceAddIceCandidate pc candJsv okCb errCb
+        | msgType == "voice-end" -> do
+            io_ $ do
+              mPc <- readIORef grPeerConnRef
+              mStream <- readIORef grMediaStreamRef
+              voiceTeardownIO mPc mStream
+              writeIORef grPeerConnRef Nothing
+              writeIORef grMediaStreamRef Nothing
+            modify $ \x -> x { gmVoiceState = VoiceIdle, gmVoiceMuted = False }
+        | otherwise -> pure ()
+
+  GVoiceBroadcastSubscribed ch ->
+    io_ $ writeIORef grVoiceChannelRef (Just ch)
+
+  GVoiceBroadcastError _ -> pure ()
+
+  GVoiceOfferCreated sdpStr -> do
+    gm <- get
+    sendVoiceBroadcast grVoiceChannelRef gm "voice-offer" ["sdp" .= sdpStr]
+
+  GVoiceOfferError errStr ->
+    modify $ \x -> x { gmVoiceState = VoiceIdle, gmVoiceError = Just errStr }
+
+  GVoiceAnswerCreated sdpStr -> do
+    gm <- get
+    sendVoiceBroadcast grVoiceChannelRef gm "voice-answer" ["sdp" .= sdpStr]
+
+  GVoiceAnswerError errStr ->
+    modify $ \x -> x { gmVoiceState = VoiceIdle, gmVoiceError = Just errStr }
+
+  GVoiceRemoteAnswerSet ->
+    pure ()  -- ICE will complete the connection
+
+  GVoiceRemoteAnswerError errStr ->
+    modify $ \x -> x { gmVoiceState = VoiceIdle, gmVoiceError = Just errStr }
+
+  GVoiceIceCandidate candStr -> do
+    gm <- get
+    sendVoiceBroadcast grVoiceChannelRef gm "voice-ice" ["candidate" .= candStr]
+
+  GVoiceIceCandidateAdded -> pure ()
+
+  GVoiceIceCandidateError _ -> pure ()
+
+  GVoiceRemoteTrack ->
+    modify $ \x -> x { gmVoiceState = VoiceConnected }
+
   -- Persistence ------------------------------------------------------------
 
   GGameSaved _ ->
@@ -822,6 +1049,10 @@ updateGame channelRef chatChannelRef clockRef = \case
   GGameCreated _ -> pure ()
 
   GGameCreateError _ -> pure ()
+
+-- ---------------------------------------------------------------------------
+-- Helpers
+-- ---------------------------------------------------------------------------
 
 triggerAi :: IORef (Maybe Channel) -> IORef (Maybe Int) -> Effect Model GameProps GameModel GameAction
 triggerAi _channelRef _clockRef = do
@@ -979,3 +1210,40 @@ displayedGameState gm = case gmBrowseIndex gm of
             in if i >= 0 && i < length allStates
                then allStates !! i
                else gmGameState gm
+
+-- | Subscribe to a voice broadcast channel for the given game ID.
+subscribeVoiceBroadcast :: IORef (Maybe Channel) -> MisoString -> Effect Model GameProps GameModel GameAction
+subscribeVoiceBroadcast voiceChRef gameId = do
+  withSink $ \sink -> do
+    chNameJsv <- toJSVal ("voice:" <> gameId :: MisoString)
+    evtNameJsv <- toJSVal ("voice" :: MisoString)
+    msgCb <- Function <$> asyncCallback1 (\payloadVal -> do
+      v <- fromJSValUnchecked payloadVal
+      sink (GVoiceBroadcastReceived v))
+    subCb <- Function <$> asyncCallback1 (\chVal -> do
+      let ch = Channel chVal
+      writeIORef voiceChRef (Just ch)
+      sink (GVoiceBroadcastSubscribed ch))
+    errCb <- Function <$> asyncCallback1 (\errVal -> do
+      errStr <- fromJSValUnchecked errVal
+      sink (GVoiceBroadcastError errStr))
+    js_subscribeBroadcast chNameJsv evtNameJsv msgCb subCb errCb
+
+-- | Send a voice broadcast message.
+sendVoiceBroadcast :: IORef (Maybe Channel) -> GameModel -> MisoString -> [JSON.Pair] -> Effect Model GameProps GameModel GameAction
+sendVoiceBroadcast voiceChRef gm msgType extraFields = do
+  let mySideStr = maybe "" sideStr (gmPlayerSide gm)
+      payload = object (["type" .= msgType, "from" .= mySideStr] ++ extraFields)
+  io_ $ do
+    mCh <- readIORef voiceChRef
+    case mCh of
+      Just (Channel chJsv) -> js_sendBroadcast chJsv "voice" payload
+      Nothing -> pure ()
+
+-- | Tear down WebRTC peer connection and media stream (null-safe).
+-- Uses empty-string JSVals as falsy stand-ins for null when a ref is Nothing,
+-- since the JS voiceTeardown checks truthiness before operating.
+voiceTeardownIO :: Maybe JSVal -> Maybe JSVal -> IO ()
+voiceTeardownIO mPc mStream = do
+  falsyVal <- toJSVal ("" :: MisoString)
+  js_voiceTeardown (fromMaybe falsyVal mPc) (fromMaybe falsyVal mStream)

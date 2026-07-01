@@ -2,6 +2,7 @@ module App.Game.Action (GameAction(..)) where
 
 import Miso.String (MisoString)
 import Miso.JSON (Value)
+import Miso.DSL (JSVal)
 import Supabase.Miso.Realtime (Channel)
 
 import Tafl.Board (Coords, MoveAction)
@@ -58,5 +59,26 @@ data GameAction
   | GToggleSpectatorChat
   | GChatHistoryLoaded Value
   | GChatHistoryError MisoString
+  -- Voice chat
+  | GVoiceInvite
+  | GVoiceAccept
+  | GVoiceDecline
+  | GVoiceEnd
+  | GVoiceToggleMute
+  | GVoiceBroadcastReceived Value
+  | GVoiceBroadcastSubscribed Channel
+  | GVoiceBroadcastError MisoString
+  | GVoiceGotMedia JSVal
+  | GVoiceMediaError MisoString
+  | GVoiceOfferCreated MisoString
+  | GVoiceOfferError MisoString
+  | GVoiceAnswerCreated MisoString
+  | GVoiceAnswerError MisoString
+  | GVoiceRemoteAnswerSet
+  | GVoiceRemoteAnswerError MisoString
+  | GVoiceIceCandidate MisoString
+  | GVoiceIceCandidateAdded
+  | GVoiceIceCandidateError MisoString
+  | GVoiceRemoteTrack
   -- Internal
   | GNoOp

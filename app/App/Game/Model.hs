@@ -1,11 +1,16 @@
 module App.Game.Model
   ( GameModel(..)
   , GameProps(..)
+  , GameRefs(..)
+  , VoiceState(..)
   , initialGameModel
   ) where
 
+import Data.IORef (IORef)
 import Miso.String (MisoString)
+import Miso.DSL (JSVal)
 import Supabase.Miso.Auth (Session)
+import Supabase.Miso.Realtime (Channel)
 
 import Tafl.Board (Coords, Side(..), MoveAction)
 import Tafl.Rules (BoardVariant(..))
@@ -14,6 +19,25 @@ import Tafl.Game.State (GameState)
 
 import App.JSON (Profile, ChatMessage)
 import App.Model (GameMode(..), TimeControl(..), ViewMode(..), GameInitData(..))
+
+-- | Voice chat state machine.
+data VoiceState
+  = VoiceIdle
+  | VoiceInviteSent
+  | VoiceInviteReceived
+  | VoiceConnecting
+  | VoiceConnected
+  deriving (Eq, Show)
+
+-- | Mutable refs shared between the update function and the outside world.
+data GameRefs = GameRefs
+  { grChannelRef      :: IORef (Maybe Channel)  -- game realtime channel
+  , grChatChannelRef  :: IORef (Maybe Channel)  -- chat realtime channel
+  , grClockRef        :: IORef (Maybe Int)       -- clock interval ID
+  , grVoiceChannelRef :: IORef (Maybe Channel)  -- voice broadcast channel
+  , grPeerConnRef     :: IORef (Maybe JSVal)    -- RTCPeerConnection
+  , grMediaStreamRef  :: IORef (Maybe JSVal)    -- local MediaStream
+  }
 
 -- | Props passed from the root component to the game component.
 data GameProps = GameProps
@@ -70,6 +94,10 @@ data GameModel = GameModel
   , gmChatInput        :: !MisoString
   , gmChatUnread       :: !Int
   , gmShowSpectatorChat :: !Bool
+    -- Voice
+  , gmVoiceState :: !VoiceState
+  , gmVoiceMuted :: !Bool
+  , gmVoiceError :: Maybe MisoString
   } deriving (Eq)
 
 initialGameModel :: GameModel
@@ -113,4 +141,7 @@ initialGameModel = GameModel
   , gmChatInput        = ""
   , gmChatUnread       = 0
   , gmShowSpectatorChat = False
+  , gmVoiceState   = VoiceIdle
+  , gmVoiceMuted   = False
+  , gmVoiceError   = Nothing
   }

@@ -12,6 +12,18 @@ module App.FFI
   , js_stopGameClock
   , js_startDailyClock
   , js_animatePieceMove
+    -- * Voice / Broadcast FFI
+  , js_subscribeBroadcast
+  , js_sendBroadcast
+  , js_voiceGetUserMedia
+  , js_voiceCreatePeerConnection
+  , js_voiceAddStreamToPc
+  , js_voiceCreateOffer
+  , js_voiceCreateAnswer
+  , js_voiceSetRemoteAnswer
+  , js_voiceAddIceCandidate
+  , js_voiceTeardown
+  , js_voiceToggleMute
     -- * Wrapped helpers
   , js_generateUUID
   , js_copyToClipboard
@@ -83,6 +95,30 @@ foreign import javascript unsafe "globalThis.startDailyClock($1)"
 foreign import javascript unsafe "globalThis.animatePieceMove($1,$2,$3,$4,$5)"
   js_animatePieceMove :: Int -> Int -> Int -> Int -> Int -> IO ()
 
+-- Voice / Broadcast
+foreign import javascript unsafe "globalThis.subscribeBroadcast($1,$2,$3,$4,$5)"
+  js_subscribeBroadcast_ffi :: JSVal -> JSVal -> JSVal -> JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.sendBroadcast($1,$2,$3)"
+  js_sendBroadcast_ffi :: JSVal -> JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.voiceGetUserMedia($1,$2)"
+  js_voiceGetUserMedia_ffi :: JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.voiceCreatePeerConnection($1,$2)"
+  js_voiceCreatePeerConnection_ffi :: JSVal -> JSVal -> IO JSVal
+foreign import javascript unsafe "globalThis.voiceAddStreamToPc($1,$2)"
+  js_voiceAddStreamToPc :: JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.voiceCreateOffer($1,$2,$3)"
+  js_voiceCreateOffer_ffi :: JSVal -> JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.voiceCreateAnswer($1,$2,$3,$4)"
+  js_voiceCreateAnswer_ffi :: JSVal -> JSVal -> JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.voiceSetRemoteAnswer($1,$2,$3,$4)"
+  js_voiceSetRemoteAnswer_ffi :: JSVal -> JSVal -> JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.voiceAddIceCandidate($1,$2,$3,$4)"
+  js_voiceAddIceCandidate_ffi :: JSVal -> JSVal -> JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.voiceTeardown($1,$2)"
+  js_voiceTeardown :: JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.voiceToggleMute($1)"
+  js_voiceToggleMute_raw :: JSVal -> IO Bool
+
 js_loadLocalGames :: Function -> Function -> IO ()
 js_loadLocalGames (Function a) (Function b) = js_loadLocalGames_ffi a b
 
@@ -97,6 +133,37 @@ js_startGameClock a b c d (Function e) (Function f) = js_startGameClock_ffi a b 
 
 js_startDailyClock :: Function -> IO Int
 js_startDailyClock (Function a) = js_startDailyClock_ffi a
+
+js_subscribeBroadcast :: JSVal -> JSVal -> Function -> Function -> Function -> IO ()
+js_subscribeBroadcast a b (Function c) (Function d) (Function e) = js_subscribeBroadcast_ffi a b c d e
+
+js_sendBroadcast :: JSVal -> MisoString -> Value -> IO ()
+js_sendBroadcast ch evtName payload = do
+  evtJsv <- toJSVal evtName
+  payloadJsv <- toJSVal payload
+  js_sendBroadcast_ffi ch evtJsv payloadJsv
+
+js_voiceGetUserMedia :: Function -> Function -> IO ()
+js_voiceGetUserMedia (Function a) (Function b) = js_voiceGetUserMedia_ffi a b
+
+js_voiceCreatePeerConnection :: Function -> Function -> IO JSVal
+js_voiceCreatePeerConnection (Function a) (Function b) = js_voiceCreatePeerConnection_ffi a b
+
+js_voiceCreateOffer :: JSVal -> Function -> Function -> IO ()
+js_voiceCreateOffer pc (Function a) (Function b) = js_voiceCreateOffer_ffi pc a b
+
+js_voiceCreateAnswer :: JSVal -> JSVal -> Function -> Function -> IO ()
+js_voiceCreateAnswer pc sdp (Function a) (Function b) = js_voiceCreateAnswer_ffi pc sdp a b
+
+js_voiceSetRemoteAnswer :: JSVal -> JSVal -> Function -> Function -> IO ()
+js_voiceSetRemoteAnswer pc sdp (Function a) (Function b) = js_voiceSetRemoteAnswer_ffi pc sdp a b
+
+js_voiceAddIceCandidate :: JSVal -> JSVal -> Function -> Function -> IO ()
+js_voiceAddIceCandidate pc cand (Function a) (Function b) = js_voiceAddIceCandidate_ffi pc cand a b
+
+js_voiceToggleMute :: JSVal -> IO Bool
+js_voiceToggleMute = js_voiceToggleMute_raw
+
 #else
 js_playMoveSound :: IO ()
 js_playMoveSound = pure ()
@@ -138,6 +205,29 @@ js_startDailyClock :: Function -> IO Int
 js_startDailyClock _ = pure 0
 js_animatePieceMove :: Int -> Int -> Int -> Int -> Int -> IO ()
 js_animatePieceMove _ _ _ _ _ = pure ()
+-- Voice / Broadcast stubs
+js_subscribeBroadcast :: JSVal -> JSVal -> Function -> Function -> Function -> IO ()
+js_subscribeBroadcast _ _ _ _ _ = pure ()
+js_sendBroadcast :: JSVal -> MisoString -> Value -> IO ()
+js_sendBroadcast _ _ _ = pure ()
+js_voiceGetUserMedia :: Function -> Function -> IO ()
+js_voiceGetUserMedia _ _ = pure ()
+js_voiceCreatePeerConnection :: Function -> Function -> IO JSVal
+js_voiceCreatePeerConnection _ _ = toJSVal ("" :: MisoString)
+js_voiceAddStreamToPc :: JSVal -> JSVal -> IO ()
+js_voiceAddStreamToPc _ _ = pure ()
+js_voiceCreateOffer :: JSVal -> Function -> Function -> IO ()
+js_voiceCreateOffer _ _ _ = pure ()
+js_voiceCreateAnswer :: JSVal -> JSVal -> Function -> Function -> IO ()
+js_voiceCreateAnswer _ _ _ _ = pure ()
+js_voiceSetRemoteAnswer :: JSVal -> JSVal -> Function -> Function -> IO ()
+js_voiceSetRemoteAnswer _ _ _ _ = pure ()
+js_voiceAddIceCandidate :: JSVal -> JSVal -> Function -> Function -> IO ()
+js_voiceAddIceCandidate _ _ _ _ = pure ()
+js_voiceTeardown :: JSVal -> JSVal -> IO ()
+js_voiceTeardown _ _ = pure ()
+js_voiceToggleMute :: JSVal -> IO Bool
+js_voiceToggleMute _ = pure True
 #endif
 
 -- ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ module Main where
 
 import Data.IORef (newIORef)
 import Miso (startApp, defaultEvents, getURI, uriSub, Component(..), LogLevel(..), component)
-import Miso.DSL (asyncCallback, Function(..))
+import Miso.DSL (asyncCallback, Function(..), JSVal)
 import Supabase.Miso.Realtime (Channel)
 
 import App.Model (Model(..), Screen(..), initModel)
@@ -13,7 +13,7 @@ import App.Route (parseRoute, Route(..))
 import App.Update (updateModel)
 import App.View (viewModel)
 import App.FFI (js_onDocumentDblClick, js_onKeyboardShortcut)
-import App.Game.Model (GameModel, GameProps, initialGameModel)
+import App.Game.Model (GameModel, GameProps, GameRefs(..), initialGameModel)
 import App.Game.Action (GameAction(..))
 import App.Game.Update (updateGame)
 import App.Game.View (viewGame)
@@ -28,15 +28,19 @@ foreign export javascript "hs_start" main :: IO ()
 
 main :: IO ()
 main = do
-  channelRef     <- newIORef (Nothing :: Maybe Channel)
-  chatChannelRef <- newIORef (Nothing :: Maybe Channel)
-  clockRef       <- newIORef (Nothing :: Maybe Int)
+  channelRef      <- newIORef (Nothing :: Maybe Channel)
+  chatChannelRef  <- newIORef (Nothing :: Maybe Channel)
+  clockRef        <- newIORef (Nothing :: Maybe Int)
+  voiceChannelRef <- newIORef (Nothing :: Maybe Channel)
+  peerConnRef     <- newIORef (Nothing :: Maybe JSVal)
+  mediaStreamRef  <- newIORef (Nothing :: Maybe JSVal)
+  let refs = GameRefs channelRef chatChannelRef clockRef voiceChannelRef peerConnRef mediaStreamRef
   uri <- getURI
   let screen0 = case parseRoute uri of
         PlayRoute _ -> LoadingScreen
         GameRoute _ -> LoadingScreen
         _           -> HomeScreen
-      gameComp = (component initialGameModel (updateGame channelRef chatChannelRef clockRef) viewGame)
+      gameComp = (component initialGameModel (updateGame refs) viewGame)
         { mount   = Just GameMount
         , unmount = Just GameUnmount
         }

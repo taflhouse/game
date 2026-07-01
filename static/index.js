@@ -408,6 +408,102 @@ globalThis.stopGameClock = function(intervalId) {
   }
 };
 
+// -- Supabase Realtime Broadcast --
+
+globalThis.subscribeBroadcast = function(channelName, eventName, messageCb, subscribedCb, errorCb) {
+  var channel = globalThis.supabase
+    .channel(channelName)
+    .on('broadcast', { event: eventName }, function(payload) {
+      messageCb(payload.payload);
+    })
+    .subscribe(function(status) {
+      if (status === 'SUBSCRIBED') subscribedCb(channel);
+      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') errorCb(status);
+    });
+};
+
+globalThis.sendBroadcast = function(channel, eventName, payload) {
+  channel.send({ type: 'broadcast', event: eventName, payload: payload });
+};
+
+// -- Voice chat (WebRTC) --
+
+globalThis.voiceGetUserMedia = function(successCb, errorCb) {
+  navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+    .then(function(stream) { successCb(stream); })
+    .catch(function(err) { errorCb(err.message || String(err)); });
+};
+
+globalThis.voiceCreatePeerConnection = function(iceCb, trackCb) {
+  var pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ]
+  });
+  pc.onicecandidate = function(e) {
+    if (e.candidate) {
+      iceCb(JSON.stringify(e.candidate));
+    }
+  };
+  pc.ontrack = function(e) {
+    var audio = new Audio();
+    audio.srcObject = e.streams[0] || new MediaStream([e.track]);
+    audio.play().catch(function() {});
+    trackCb();
+  };
+  return pc;
+};
+
+globalThis.voiceAddStreamToPc = function(pc, stream) {
+  stream.getTracks().forEach(function(track) {
+    pc.addTrack(track, stream);
+  });
+};
+
+globalThis.voiceCreateOffer = function(pc, successCb, errorCb) {
+  pc.createOffer()
+    .then(function(offer) { return pc.setLocalDescription(offer).then(function() { return offer; }); })
+    .then(function(offer) { successCb(JSON.stringify(offer)); })
+    .catch(function(err) { errorCb(err.message || String(err)); });
+};
+
+globalThis.voiceCreateAnswer = function(pc, offerSdpJson, successCb, errorCb) {
+  var offer = JSON.parse(offerSdpJson);
+  pc.setRemoteDescription(new RTCSessionDescription(offer))
+    .then(function() { return pc.createAnswer(); })
+    .then(function(answer) { return pc.setLocalDescription(answer).then(function() { return answer; }); })
+    .then(function(answer) { successCb(JSON.stringify(answer)); })
+    .catch(function(err) { errorCb(err.message || String(err)); });
+};
+
+globalThis.voiceSetRemoteAnswer = function(pc, answerSdpJson, successCb, errorCb) {
+  var answer = JSON.parse(answerSdpJson);
+  pc.setRemoteDescription(new RTCSessionDescription(answer))
+    .then(function() { successCb(); })
+    .catch(function(err) { errorCb(err.message || String(err)); });
+};
+
+globalThis.voiceAddIceCandidate = function(pc, candidateJson, successCb, errorCb) {
+  var candidate = JSON.parse(candidateJson);
+  pc.addIceCandidate(new RTCIceCandidate(candidate))
+    .then(function() { successCb(); })
+    .catch(function(err) { errorCb(err.message || String(err)); });
+};
+
+globalThis.voiceTeardown = function(pc, stream) {
+  if (pc) { try { pc.close(); } catch(e) {} }
+  if (stream) { stream.getTracks().forEach(function(t) { t.stop(); }); }
+};
+
+globalThis.voiceToggleMute = function(stream) {
+  if (!stream) return true;
+  var track = stream.getAudioTracks()[0];
+  if (!track) return true;
+  track.enabled = !track.enabled;
+  return !track.enabled;
+};
+
 // -- WASI / WASM loading --
 
 import { WASI, OpenFile, File, ConsoleStdout } from "https://cdn.jsdelivr.net/npm/@bjorn3/browser_wasi_shim@0.3.0/dist/index.js";

@@ -90,6 +90,8 @@ viewGame props gm
       , viewZenHint gm
       , viewChatToggle gm
       , viewChatPanel gm
+      , viewVoiceButton gm
+      , viewVoiceInviteBanner gm
       ]
 
 -- | Board panel with container
@@ -605,3 +607,89 @@ viewChatMessage cm =
     [ H.span_ [ HP.class_ "font-bold text-foreground" ] [ text (cmSender cm) ]
     , text (" " <> cmMessage cm)
     ]
+
+-- ---------------------------------------------------------------------------
+-- Voice chat
+-- ---------------------------------------------------------------------------
+
+-- | Voice mic button (bottom-left corner, multiplayer players only)
+viewVoiceButton :: GameModel -> View GameModel GameAction
+viewVoiceButton gm
+  | gmGameMode gm /= MultiplayerMode = text ""
+  | isNothing (gmPlayerSide gm) = text ""  -- spectators can't voice chat
+  | otherwise =
+    let vs = gmVoiceState gm
+        baseStyle = [ ("position", "fixed"), ("bottom", "1rem"), ("left", "1rem")
+                    , ("z-index", "50"), ("touch-action", "manipulation") ]
+    in H.div_ [ style_ baseStyle, HP.class_ "flex gap-1 items-center" ]
+      (case vs of
+        VoiceIdle ->
+          [ H.button_
+              [ HP.class_ "btn btn-outline btn-sm text-foreground"
+              , SVG.onClick GVoiceInvite
+              ]
+              [ text "Mic" ]
+          ]
+        VoiceInviteSent ->
+          [ H.button_
+              [ HP.class_ "btn btn-outline btn-sm text-muted-foreground animate-pulse"
+              , HP.disabled_
+              ]
+              [ text "Calling..." ]
+          ]
+        VoiceInviteReceived ->
+          -- The banner handles accept/decline; show nothing here
+          []
+        VoiceConnecting ->
+          [ H.button_
+              [ HP.class_ "btn btn-outline btn-sm text-muted-foreground animate-pulse"
+              , HP.disabled_
+              ]
+              [ text "Connecting..." ]
+          ]
+        VoiceConnected ->
+          [ H.button_
+              [ HP.class_ ("btn btn-sm " <>
+                  if gmVoiceMuted gm
+                  then "bg-red-600 hover:bg-red-700 text-white border-red-500"
+                  else "bg-green-600 hover:bg-green-700 text-white border-green-500")
+              , SVG.onClick GVoiceToggleMute
+              ]
+              [ text (if gmVoiceMuted gm then "Unmute" else "Mute") ]
+          , H.button_
+              [ HP.class_ "btn btn-outline btn-sm text-foreground"
+              , SVG.onClick GVoiceEnd
+              ]
+              [ text "End" ]
+          ]
+      )
+
+-- | Voice invite banner (shown when receiving an invite)
+viewVoiceInviteBanner :: GameModel -> View GameModel GameAction
+viewVoiceInviteBanner gm
+  | gmVoiceState gm /= VoiceInviteReceived = text ""
+  | otherwise =
+    let oppName = fromMaybe "Opponent" (gmOpponentName gm)
+    in H.div_
+      [ HP.class_ "card px-4 py-3 shadow-lg"
+      , style_ [ ("position", "fixed"), ("bottom", "4rem"), ("left", "1rem")
+               , ("z-index", "51"), ("min-width", "14rem")
+               ]
+      ]
+      [ H.div_ [ HP.class_ "text-sm font-bold mb-2" ]
+          [ text (oppName <> " wants to voice chat") ]
+      , H.div_ [ HP.class_ "flex gap-2" ]
+          [ H.button_
+              [ HP.class_ "btn btn-sm bg-green-600 hover:bg-green-700 text-white border-green-500"
+              , style_ [("touch-action", "manipulation")]
+              , SVG.onClick GVoiceAccept
+              ]
+              [ text "Accept" ]
+          , H.button_
+              [ HP.class_ "btn btn-outline btn-sm text-foreground"
+              , style_ [("touch-action", "manipulation")]
+              , SVG.onClick GVoiceDecline
+              ]
+              [ text "Decline" ]
+          ]
+      ]
