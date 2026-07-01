@@ -17,7 +17,7 @@ module App.Board
   , viewBasicSVGBoard
   , viewBoardContainer
   , viewEvalBar
-  , viewClock
+  , viewClocks
   ) where
 
 import Miso.String (MisoString, ms)
@@ -280,24 +280,45 @@ viewEvalBar score =
         [ text displayScore ]
     ]
 
--- | Render a clock row above or below the board.
-viewClock :: Int -> MisoString -> Int -> Bool -> TimeControl -> Maybe MisoString -> Bool -> View model action
-viewClock n name timeMs isActive tc mDeadline isTop =
-  let lowTime = timeMs < 30000 && timeMs > 0
-      activeCls = if isActive then " font-bold" else " text-muted-foreground"
-      lowCls = if lowTime && isActive then " text-destructive" else ""
-      marginStyle = if isTop then [("margin-bottom", "0.3em"), ("margin-top", "1em")]
-                             else [("margin-top", "0.3em")]
-      timeDisplay = case tc of
-        BlitzControl _ -> formatClockMs timeMs
-        DailyControl _ -> case mDeadline of
-          Just d | isActive -> js_formatDeadline d
-          _                 -> "--:--"
-        NoTimeControl -> ""
+-- | Render both clocks side by side in a single row above the board.
+viewClocks :: Int
+           -> Side -> MisoString -> Int -> Bool   -- left: side, name, timeMs, isActive
+           -> Side -> MisoString -> Int -> Bool   -- right: side, name, timeMs, isActive
+           -> TimeControl -> Maybe MisoString -> View model action
+viewClocks n lSide lName lMs lActive rSide rName rMs rActive tc mDeadline =
+  let sideLabel s = case s of
+        AttackerSide -> "ATK"
+        DefenderSide -> "DEF"
+      cell side name timeMs isActive =
+        let lowTime = timeMs < 30000 && timeMs > 0
+            activeCls = if isActive then " font-bold" else " text-muted-foreground"
+            lowCls = if lowTime && isActive then " text-destructive" else ""
+            timeDisplay = case tc of
+              BlitzControl _ -> formatClockMs timeMs
+              DailyControl _ -> case mDeadline of
+                Just d | isActive -> js_formatDeadline d
+                _                 -> "--:--"
+              NoTimeControl -> ""
+        in H.div_
+          [ HP.class_ ("flex justify-between items-center flex-1 text-sm font-mono" <> activeCls <> lowCls)
+          , style_ [("padding", "0.5em 0.75em")]
+          ]
+          [ H.span_ [ HP.class_ "flex items-center gap-1.5" ]
+              [ H.span_
+                  [ HP.class_ "text-xs tracking-wider text-muted-foreground"
+                  , style_ [("font-size", "0.65rem")]
+                  ]
+                  [ text (sideLabel side) ]
+              , text name
+              ]
+          , H.span_ [ HP.class_ "tabular-nums" ] [ text timeDisplay ]
+          ]
   in H.div_
-    [ HP.class_ ("flex justify-between items-center w-full px-2 text-sm font-mono" <> activeCls <> lowCls)
-    , style_ (("max-width", ms (sqSize * n) <> "px") : marginStyle)
+    [ HP.class_ "flex w-full border border-border rounded"
+    , style_ [ ("max-width", ms (sqSize * n) <> "px")
+             , ("margin-top", "2em"), ("margin-bottom", "0") ]
     ]
-    [ H.span_ [] [ text name ]
-    , H.span_ [ HP.class_ "tabular-nums" ] [ text timeDisplay ]
+    [ cell lSide lName lMs lActive
+    , H.div_ [ style_ [("width", "1px"), ("background", "var(--border)")] ] []
+    , cell rSide rName rMs rActive
     ]

@@ -18,7 +18,7 @@ import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
 import App.JSON (Profile(..), ChatMessage(..))
 import App.Model (GameMode(..), TimeControl(..), ViewMode(..))
 import App.Board (sqSize, coordStr, svgDefs, renderSquareBg, renderSpecialSquares,
-                  renderPiece, renderLastMove, viewBoardContainer, viewEvalBar, viewClock)
+                  renderPiece, renderLastMove, viewBoardContainer, viewEvalBar, viewClocks)
 import App.Game.Model
 import App.Game.Action
 
@@ -57,26 +57,28 @@ viewGame props gm
         myName = case gpGuestName props of
           Just gn -> gn
           Nothing -> maybe "You" pUsername (gpProfile props)
+        atkName = fromMaybe myName (gmAttackerName gm)
+        defName = fromMaybe myName (gmDefenderName gm)
         turn = turnSide (gmGameState gm)
-        (topName, topMs, topIsActive, botName, botMs, botIsActive) = case gmPlayerSide gm of
+        (leftSide, leftName, leftMs, leftActive, rightSide, rightName, rightMs, rightActive) = case gmPlayerSide gm of
           Just AttackerSide ->
-            ( fromMaybe "Opponent" (gmOpponentName gm), gmDefenderTimeMs gm, turn == DefenderSide
-            , myName, gmAttackerTimeMs gm, turn == AttackerSide )
+            ( AttackerSide, atkName, gmAttackerTimeMs gm, turn == AttackerSide
+            , DefenderSide, fromMaybe "Opponent" (gmDefenderName gm), gmDefenderTimeMs gm, turn == DefenderSide )
           Just DefenderSide ->
-            ( fromMaybe "Opponent" (gmOpponentName gm), gmAttackerTimeMs gm, turn == AttackerSide
-            , myName, gmDefenderTimeMs gm, turn == DefenderSide )
+            ( DefenderSide, defName, gmDefenderTimeMs gm, turn == DefenderSide
+            , AttackerSide, fromMaybe "Opponent" (gmAttackerName gm), gmAttackerTimeMs gm, turn == AttackerSide )
           Nothing ->
-            ( fromMaybe "Attacker" (gmAttackerName gm), gmAttackerTimeMs gm, turn == AttackerSide
-            , fromMaybe "Defender" (gmDefenderName gm), gmDefenderTimeMs gm, turn == DefenderSide )
+            ( AttackerSide, fromMaybe "Attacker" (gmAttackerName gm), gmAttackerTimeMs gm, turn == AttackerSide
+            , DefenderSide, fromMaybe "Defender" (gmDefenderName gm), gmDefenderTimeMs gm, turn == DefenderSide )
     in H.div_ [HP.class_ "w-full flex flex-col items-center"]
-      [ if showClocks then viewClock n topName topMs topIsActive (gmTimeControl gm) (gmMoveDeadline gm) True else text ""
+      [ if showClocks then viewClocks n leftSide leftName leftMs leftActive rightSide rightName rightMs rightActive (gmTimeControl gm) (gmMoveDeadline gm) else text ""
       , H.div_
-          [HP.id_ "board-row"
+          ([HP.id_ "board-row"
           , HP.class_ ("flex flex-row items-stretch justify-center gap-2" <> if zen then " zen" else "")]
+          ++ [style_ [("margin-top", "2em")] | showClocks])
           [ if showEval && not zen then viewEvalBar (gmEvalScore gm) else text ""
           , viewBoardPanel gm
           ]
-      , if showClocks then viewClock n botName botMs botIsActive (gmTimeControl gm) (gmMoveDeadline gm) False else text ""
       , if not zen && gmGameMode gm == MultiplayerMode && gmPlayerSide gm == Nothing
         then viewSpectatorBadge n (gmSpectatorCount gm) else text ""
       , if zen then text "" else viewStatus gm

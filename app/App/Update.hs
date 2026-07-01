@@ -433,12 +433,15 @@ updateModel = \case
       Nothing -> do
         modify $ \x -> x { mDeferredMpAction = Just DeferCreate }
         signInAnonymously defaultSignInAnonymouslyOptions AnonAuthSuccess AnonAuthError
-      Just _ -> io $ do
-        invCode <- generateInviteCode
-        uuid    <- js_generateUUID
-        origin  <- js_getOrigin
-        qrUrl   <- js_generateQRDataURL (origin <> "/join/" <> invCode)
-        pure (InitMultiplayerGame invCode uuid qrUrl)
+      Just _ -> do
+        when (mJoinNameInput m /= "") $
+          modify $ \x -> x { mGuestName = Just (mJoinNameInput x) }
+        io $ do
+          invCode <- generateInviteCode
+          uuid    <- js_generateUUID
+          origin  <- js_getOrigin
+          qrUrl   <- js_generateQRDataURL (origin <> "/join/" <> invCode)
+          pure (InitMultiplayerGame invCode uuid qrUrl)
 
   InitMultiplayerGame invCode uuid qrUrl -> do
     m <- get
@@ -474,6 +477,8 @@ updateModel = \case
             modify $ \x -> x { mDeferredMpAction = Just DeferJoin }
             signInAnonymously defaultSignInAnonymouslyOptions AnonAuthSuccess AnonAuthError
           Just _ -> do
+            when (mJoinNameInput m' /= "") $
+              modify $ \x -> x { mGuestName = Just (mJoinNameInput x) }
             let code = mJoinCodeInput m'
             when (code /= "") $
               selectWithFilters "games" "*"
