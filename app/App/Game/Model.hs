@@ -12,7 +12,7 @@ import Tafl.Rules (BoardVariant(..))
 import Tafl.Game (initialState)
 import Tafl.Game.State (GameState)
 
-import App.JSON (Profile)
+import App.JSON (Profile, ChatMessage)
 import App.Model (GameMode(..), TimeControl(..), ViewMode(..), GameInitData(..))
 
 -- | Props passed from the root component to the game component.
@@ -63,6 +63,12 @@ data GameModel = GameModel
   , gmViewMode     :: !ViewMode
   , gmIsFullscreen  :: !Bool
   , gmZenHint      :: !Bool
+    -- Chat
+  , gmChatMessages     :: [ChatMessage]
+  , gmChatOpen         :: !Bool
+  , gmChatInput        :: !MisoString
+  , gmChatUnread       :: !Int
+  , gmShowSpectatorChat :: !Bool
   } deriving (Eq)
 
 initialGameModel :: GameModel
@@ -100,4 +106,9 @@ initialGameModel = GameModel
   , gmViewMode     = NormalView
   , gmIsFullscreen = False
   , gmZenHint      = False
+  , gmChatMessages     = []
+  , gmChatOpen         = False
+  , gmChatInput        = ""
+  , gmChatUnread       = 0
+  , gmShowSpectatorChat = False
   }

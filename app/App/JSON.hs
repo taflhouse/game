@@ -10,10 +10,12 @@ module App.JSON
     GameRow(..)
   , Profile(..)
   , GameRecord(..)
+  , ChatMessage(..)
+  , parseChatMessage
   ) where
 
 import Miso.String (MisoString, ms)
-import Miso.JSON (FromJSON(..), ToJSON(..), object, (.=), (.:), (.:?), (.!=), withObject, withText)
+import Miso.JSON (FromJSON(..), ToJSON(..), Value, object, (.=), (.:), (.:?), (.!=), withObject, withText, parseMaybe)
 
 import qualified Data.Text as T
 
@@ -158,3 +160,30 @@ instance FromJSON GameRecord where
       <*> v .: "total_moves"
       <*> v .: "ai_depth"
       <*> v .:? "moves"
+
+-- ---------------------------------------------------------------------------
+-- ChatMessage
+-- ---------------------------------------------------------------------------
+
+data ChatMessage = ChatMessage
+  { cmSender    :: !MisoString
+  , cmMessage   :: !MisoString
+  , cmChannel   :: !MisoString  -- "player" or "spectator"
+  , cmCreatedAt :: !MisoString
+  } deriving (Eq, Show)
+
+instance FromJSON ChatMessage where
+  parseJSON = withObject "ChatMessage" $ \v ->
+    ChatMessage
+      <$> v .: "sender_name"
+      <*> v .: "message"
+      <*> v .: "channel"
+      <*> v .: "created_at"
+
+-- | Parse a Realtime INSERT payload into a ChatMessage.
+-- Extracts the @"new"@ field from the Postgres Changes event.
+parseChatMessage :: Value -> Maybe ChatMessage
+parseChatMessage val =
+  parseMaybe (withObject "RealtimePayload" $ \o -> do
+    newVal <- o .: "new"
+    parseJSON newVal) val

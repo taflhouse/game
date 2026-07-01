@@ -46,5 +46,17 @@ data GameAction
   | GGameSaveError MisoString
   | GGameCreated Value
   | GGameCreateError MisoString
+  -- Chat
+  | GToggleChat
+  | GSetChatInput MisoString
+  | GSendChat
+  | GChatInserted Value
+  | GChatInsertError MisoString
+  | GChatReceived Value
+  | GChatSubscribed Channel
+  | GChatError MisoString
+  | GToggleSpectatorChat
+  | GChatHistoryLoaded Value
+  | GChatHistoryError MisoString
   -- Internal
   | GNoOp

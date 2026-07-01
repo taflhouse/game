@@ -6,15 +6,15 @@ module App.Game.Update (updateGame) where
 import Data.IORef
 import Control.Concurrent (threadDelay)
 import Control.Monad (when)
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Miso hiding ((!!))
 import Miso.String (MisoString, ms, fromMisoString)
-import Miso.JSON (Value, FromJSON(..), ToJSON(..), object, (.=), (.:), parseMaybe, withObject)
+import Miso.JSON (Value, FromJSON(..), ToJSON(..), fromJSON, Result(..), object, (.=), (.:), parseMaybe, withObject)
 import qualified Miso.JSON as JSON
 import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, asyncCallback, asyncCallback1, asyncCallback2, Function(..))
-import Supabase.Miso.Database (insert, updateTable, InsertOptions(..), UpdateOptions(..), eq)
+import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq)
 import qualified Data.Map.Strict as Map
-import Supabase.Miso.Realtime (Channel, subscribeToTableWithPresence, trackPresence, removeChannel)
+import Supabase.Miso.Realtime (Channel, subscribeToTable, subscribeToTableWithPresence, trackPresence, removeChannel)
 import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
 
 import Tafl.Board
@@ -24,15 +24,15 @@ import Tafl.Game.State
 import Tafl.Game.Move (getPossibleMovesFrom)
 import Tafl.AI (AiConfig(..), bestMove, evaluate)
 
-import App.JSON (GameRow(..), Profile(..))
+import App.JSON (GameRow(..), Profile(..), ChatMessage(..), parseChatMessage)
 import App.Model (Model, GameMode(..), TimeControl(..), ViewMode(..), GameInitData(..))
 import App.Game.Model
 import App.Game.Action
 import App.Route (replayMoves, lookupVariant, playURI)
 import App.FFI
 
-updateGame :: IORef (Maybe Channel) -> IORef (Maybe Int) -> GameAction -> Effect Model GameProps GameModel GameAction
-updateGame channelRef clockRef = \case
+updateGame :: IORef (Maybe Channel) -> IORef (Maybe Channel) -> IORef (Maybe Int) -> GameAction -> Effect Model GameProps GameModel GameAction
+updateGame channelRef chatChannelRef clockRef = \case
   GNoOp -> pure ()
 
   GameMount -> do
@@ -141,6 +141,8 @@ updateGame channelRef clockRef = \case
             insert "games" gameData (InsertOptions Nothing Nothing) GGameCreated GGameCreateError
             subscribeToTableWithPresence ("game:" <> uuid) "games" ("id=eq." <> uuid)
               GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
+            subscribeToTable ("chat:" <> uuid) "game_chat" ("game_id=eq." <> uuid)
+              GChatReceived GChatSubscribed GChatError
             io_ $ pushURI (playURI uuid)
           Nothing -> pure ()
 
@@ -169,6 +171,10 @@ updateGame channelRef clockRef = \case
           }
         subscribeToTableWithPresence ("game:" <> gid) "games" ("id=eq." <> gid)
           GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
+        subscribeToTable ("chat:" <> gid) "game_chat" ("game_id=eq." <> gid)
+          GChatReceived GChatSubscribed GChatError
+        selectWithFilters "game_chat" "*" [eq "game_id" gid]
+          (FetchOptions Nothing Nothing) GChatHistoryLoaded GChatHistoryError
         io_ $ pushURI (playURI gid)
         case gpSession props of
           Just sess -> do
@@ -229,9 +235,13 @@ updateGame channelRef clockRef = \case
                   qr <- js_generateQRDataURL (origin <> "/join/" <> code)
                   sink (GSetQrDataUrl qr)
               _ -> pure ()
-            when (grwStatus gr `elem` ["waiting", "active"]) $
+            when (grwStatus gr `elem` ["waiting", "active"]) $ do
               subscribeToTableWithPresence ("game:" <> gid) "games" ("id=eq." <> gid)
                 GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
+              subscribeToTable ("chat:" <> gid) "game_chat" ("game_id=eq." <> gid)
+                GChatReceived GChatSubscribed GChatError
+              selectWithFilters "game_chat" "*" [eq "game_id" gid]
+                (FetchOptions Nothing Nothing) GChatHistoryLoaded GChatHistoryError
             when (grwStatus gr == "active") $
               case parseTimeControl gr of
                 BlitzControl _ -> startBlitzClock channelRef clockRef
@@ -257,9 +267,13 @@ updateGame channelRef clockRef = \case
                   qr <- js_generateQRDataURL (origin <> "/join/" <> code)
                   sink (GSetQrDataUrl qr)
               _ -> pure ()
-            when (grwStatus gr `elem` ["waiting", "active"]) $
+            when (grwStatus gr `elem` ["waiting", "active"]) $ do
               subscribeToTableWithPresence ("game:" <> gid) "games" ("id=eq." <> gid)
                 GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
+              subscribeToTable ("chat:" <> gid) "game_chat" ("game_id=eq." <> gid)
+                GChatReceived GChatSubscribed GChatError
+              selectWithFilters "game_chat" "*" [eq "game_id" gid]
+                (FetchOptions Nothing Nothing) GChatHistoryLoaded GChatHistoryError
             when (grwStatus gr == "active") $
               case parseTimeControl gr of
                 BlitzControl _ -> startBlitzClock channelRef clockRef
@@ -273,6 +287,11 @@ updateGame channelRef clockRef = \case
         Just ch -> removeChannel ch
         Nothing -> pure ()
       writeIORef channelRef Nothing
+      mChatCh <- readIORef chatChannelRef
+      case mChatCh of
+        Just ch -> removeChannel ch
+        Nothing -> pure ()
+      writeIORef chatChannelRef Nothing
       mTid <- readIORef clockRef
       case mTid of
         Just tid -> js_stopGameClock tid
@@ -695,6 +714,94 @@ updateGame channelRef clockRef = \case
   GToggleFullscreen -> do
     modify $ \gm -> gm { gmIsFullscreen = not (gmIsFullscreen gm) }
     io_ js_toggleFullscreen
+
+  -- Chat -------------------------------------------------------------------
+
+  GToggleChat -> modify $ \gm -> gm
+    { gmChatOpen = not (gmChatOpen gm)
+    , gmChatUnread = if not (gmChatOpen gm) then 0 else gmChatUnread gm
+    }
+
+  GSetChatInput t -> modify $ \gm -> gm { gmChatInput = t }
+
+  GSendChat -> do
+    gm <- get
+    props <- getProps
+    let msg = gmChatInput gm
+        chan = case gmPlayerSide gm of
+          Just _  -> "player" :: MisoString
+          Nothing -> "spectator"
+    when (msg /= "" && isJust (gmGameId gm)) $
+      case gpSession props of
+        Just sess -> do
+          let uid = userId (sessionUser sess)
+              senderName = case gpGuestName props of
+                Just gn -> gn
+                Nothing -> maybe "" pUsername (gpProfile props)
+          case gmGameId gm of
+            Just gid -> do
+              let localMsg = ChatMessage
+                    { cmSender    = senderName
+                    , cmMessage   = msg
+                    , cmChannel   = chan
+                    , cmCreatedAt = ""
+                    }
+              modify $ \x -> x
+                { gmChatInput = ""
+                , gmChatMessages = gmChatMessages x ++ [localMsg]
+                }
+              insert "game_chat"
+                (object [ "game_id"     .= gid
+                        , "user_id"     .= uid
+                        , "sender_name" .= senderName
+                        , "message"     .= msg
+                        , "channel"     .= chan
+                        ])
+                (InsertOptions Nothing Nothing)
+                GChatInserted GChatInsertError
+            Nothing -> pure ()
+        Nothing -> pure ()
+
+  GChatInserted _ -> pure ()
+  GChatInsertError _ -> pure ()
+
+  GChatReceived val ->
+    case parseChatMessage val of
+      Just msg -> do
+        gm <- get
+        -- Echo suppression: skip if last message matches (optimistic add)
+        let dominated = case reverse (gmChatMessages gm) of
+              (prev:_) -> cmSender prev == cmSender msg
+                        && cmMessage prev == cmMessage msg
+                        && cmChannel prev == cmChannel msg
+                        && cmCreatedAt prev == ""
+              [] -> False
+        if dominated
+          then -- Replace optimistic entry with server version (has timestamp)
+            modify $ \x -> x
+              { gmChatMessages = init (gmChatMessages x) ++ [msg] }
+          else modify $ \x -> x
+            { gmChatMessages = gmChatMessages x ++ [msg]
+            , gmChatUnread = if gmChatOpen x then 0 else gmChatUnread x + 1
+            }
+      Nothing -> pure ()
+
+  GChatSubscribed ch ->
+    io_ $ writeIORef chatChannelRef (Just ch)
+
+  GChatError _ -> pure ()
+
+  GToggleSpectatorChat -> modify $ \gm -> gm
+    { gmShowSpectatorChat = not (gmShowSpectatorChat gm) }
+
+  GChatHistoryLoaded val ->
+    case fromJSON val of
+      Success msgs -> modify $ \gm -> gm { gmChatMessages = (msgs :: [ChatMessage]) }
+      Error _ -> pure ()
+
+  GChatHistoryError _ -> pure ()
+
+  -- Persistence ------------------------------------------------------------
 
   GGameSaved _ ->
     mailParent $ object ["type" .= ("game_finished" :: MisoString)]

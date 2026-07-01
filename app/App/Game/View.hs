@@ -15,7 +15,7 @@ import Tafl.Game.State
 
 import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
 
-import App.JSON (Profile(..))
+import App.JSON (Profile(..), ChatMessage(..))
 import App.Model (GameMode(..), TimeControl(..), ViewMode(..))
 import App.Board (sqSize, coordStr, pieceKey, svgDefs, renderSquareBg, renderSpecialSquares,
                   renderPiece, renderLastMove, viewBoardContainer, viewEvalBar, viewClock)
@@ -86,6 +86,8 @@ viewGame props gm
         then viewMultiplayerControls gm else text ""
       , if zen then text "" else viewShareLink props gm
       , viewZenHint gm
+      , viewChatToggle gm
+      , viewChatPanel gm
       ]
 
 -- | Board panel with container
@@ -444,3 +446,131 @@ viewZenHint gm
       , H.span_ [ HP.class_ "sm:hidden" ] [ text "Triple-tap board to exit zen mode" ]
       ]
   | otherwise = text ""
+
+-- ---------------------------------------------------------------------------
+-- Chat
+-- ---------------------------------------------------------------------------
+
+-- | Chat toggle button (bottom-right corner, only in multiplayer)
+viewChatToggle :: GameModel -> View GameModel GameAction
+viewChatToggle gm
+  | gmGameMode gm /= MultiplayerMode = text ""
+  | gmChatOpen gm = text ""  -- hide toggle when panel is open
+  | otherwise =
+    H.button_
+      [ HP.class_ "btn btn-outline btn-sm text-foreground"
+      , style_ [ ("position", "fixed"), ("bottom", "1rem"), ("right", "1rem")
+               , ("z-index", "50"), ("touch-action", "manipulation")
+               ]
+      , SVG.onClick GToggleChat
+      ]
+      [ text "Chat"
+      , if gmChatUnread gm > 0
+        then H.span_
+          [ HP.class_ "text-xs font-bold text-white rounded-full"
+          , style_ [ ("background", "var(--destructive)")
+                   , ("min-width", "1.25rem"), ("height", "1.25rem")
+                   , ("display", "inline-flex"), ("align-items", "center")
+                   , ("justify-content", "center"), ("margin-left", "0.4rem")
+                   , ("padding", "0 0.3rem"), ("border-radius", "9999px")
+                   ]
+          ]
+          [ text (ms (show (gmChatUnread gm))) ]
+        else text ""
+      ]
+
+-- | Chat panel (slides up from bottom when open)
+viewChatPanel :: GameModel -> View GameModel GameAction
+viewChatPanel gm
+  | not (gmChatOpen gm) = text ""
+  | gmGameMode gm /= MultiplayerMode = text ""
+  | otherwise =
+    H.div_
+      [ HP.class_ "card"
+      , style_ [ ("position", "fixed"), ("bottom", "0"), ("right", "0")
+               , ("width", "22rem"), ("max-width", "100vw")
+               , ("z-index", "50"), ("display", "flex")
+               , ("flex-direction", "column"), ("border-radius", "0.5rem 0.5rem 0 0")
+               , ("box-shadow", "0 -2px 12px rgba(0,0,0,0.15)")
+               ]
+      ]
+      [ -- Header
+        H.div_
+          [ HP.class_ "flex items-center justify-between px-3 py-2 border-b border-border" ]
+          [ H.span_ [ HP.class_ "text-sm font-bold" ]
+              [ text (case gmPlayerSide gm of
+                  Just _  -> "Player Chat"
+                  Nothing -> "Spectator Chat")
+              ]
+          , H.div_ [ HP.class_ "flex items-center gap-2" ]
+              (  (if isJust (gmPlayerSide gm)
+                  then [ H.button_
+                           [ HP.class_ ("text-xs px-2 py-0.5 rounded border " <>
+                               if gmShowSpectatorChat gm
+                               then "border-border text-foreground"
+                               else "border-transparent text-muted-foreground")
+                           , style_ [("touch-action", "manipulation"), ("background", "transparent")]
+                           , SVG.onClick GToggleSpectatorChat
+                           ]
+                           [ text "Spec" ]
+                       ]
+                  else [])
+              ++ [ H.button_
+                     [ HP.class_ "text-muted-foreground hover:text-foreground"
+                     , style_ [ ("background", "transparent"), ("border", "0")
+                              , ("cursor", "pointer"), ("font-size", "1.2rem")
+                              , ("line-height", "1"), ("padding", "0 0.25rem")
+                              , ("touch-action", "manipulation")
+                              ]
+                     , SVG.onClick GToggleChat
+                     ]
+                     [ text "\xd7" ]
+                 ]
+              )
+          ]
+      , -- Messages
+        H.div_
+          [ HP.class_ "overflow-y-auto px-3 py-2"
+          , style_ [("max-height", "12rem"), ("min-height", "4rem")]
+          ]
+          (if null visible
+           then [ H.span_ [HP.class_ "text-xs text-muted-foreground"] [text "No messages yet"] ]
+           else map viewChatMessage visible)
+      , -- Input
+        H.form_
+          [ HP.class_ "flex gap-2 px-3 py-2 border-t border-border"
+          , H.onSubmit GSendChat
+          ]
+          [ H.input_
+              [ HP.type_ "text"
+              , HP.class_ "input input-sm flex-1 bg-transparent border border-border rounded text-foreground"
+              , HP.value_ (gmChatInput gm)
+              , HP.placeholder_ "Type a message..."
+              , H.onInput GSetChatInput
+              , style_ [("font-size", "0.85rem")]
+              ]
+          , H.button_
+              [ HP.class_ "btn btn-outline btn-sm text-foreground"
+              , style_ [("touch-action", "manipulation")]
+              ]
+              [ text "Send" ]
+          ]
+      ]
+    where
+      visible = visibleMessages gm
+
+-- | Filter chat messages based on viewer role and toggle state
+visibleMessages :: GameModel -> [ChatMessage]
+visibleMessages gm = case gmPlayerSide gm of
+  Just _  -> filter (\m -> cmChannel m == "player"
+                        || (gmShowSpectatorChat gm && cmChannel m == "spectator"))
+                    (gmChatMessages gm)
+  Nothing -> filter (\m -> cmChannel m == "spectator") (gmChatMessages gm)
+
+-- | Render a single chat message
+viewChatMessage :: ChatMessage -> View GameModel GameAction
+viewChatMessage cm =
+  H.div_ [ HP.class_ "text-sm mb-1" ]
+    [ H.span_ [ HP.class_ "font-bold text-foreground" ] [ text (cmSender cm) ]
+    , text (" " <> cmMessage cm)
+    ]

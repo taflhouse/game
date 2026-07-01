@@ -28,14 +28,15 @@ foreign export javascript "hs_start" main :: IO ()
 
 main :: IO ()
 main = do
-  channelRef <- newIORef (Nothing :: Maybe Channel)
-  clockRef   <- newIORef (Nothing :: Maybe Int)
+  channelRef     <- newIORef (Nothing :: Maybe Channel)
+  chatChannelRef <- newIORef (Nothing :: Maybe Channel)
+  clockRef       <- newIORef (Nothing :: Maybe Int)
   uri <- getURI
   let screen0 = case parseRoute uri of
         PlayRoute _ -> LoadingScreen
         GameRoute _ -> LoadingScreen
         _           -> HomeScreen
-      gameComp = (component initialGameModel (updateGame channelRef clockRef) viewGame)
+      gameComp = (component initialGameModel (updateGame channelRef chatChannelRef clockRef) viewGame)
         { mount   = Just GameMount
         , unmount = Just GameUnmount
         }
