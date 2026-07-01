@@ -208,7 +208,9 @@ viewSetupMultiplayer :: Model -> View Model Action
 viewSetupMultiplayer m =
   let needsName = case mProfile m of
         Just p | pUsername p /= "" -> False
-        _ -> mGuestName m == Nothing
+        _ -> case mSession m of
+          Nothing -> True                       -- no session yet
+          Just _  -> mGuestName m /= Nothing    -- anonymous user
   in H.div_
     [ HP.class_ "text-center" ]
     ([ setupSection "Your Side"
@@ -239,7 +241,8 @@ viewSetupMultiplayer m =
                  [ HP.class_ "input w-full text-center"
                  , HP.type_ "text"
                  , HP.placeholder_ "Enter your name"
-                 , HP.value_ (mJoinNameInput m)
+                 , HP.value_ (if mJoinNameInput m /= "" then mJoinNameInput m
+                              else maybe "" id (mGuestName m))
                  , H.onInput SetJoinNameInput
                  ]
              ]
