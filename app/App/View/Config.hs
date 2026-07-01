@@ -11,6 +11,7 @@ import qualified Miso.Svg as SVG
 import Tafl.Board (Side(..))
 import Tafl.Rules (BoardVariant(..))
 
+import App.JSON (Profile(..))
 import App.Model
 import App.Action
 
@@ -73,11 +74,14 @@ viewConfigure m =
             [ HP.class_ "mt-4 flex flex-col items-center gap-2"
             ]
             [ if mGameMode m == MultiplayerMode
-                then H.button_
-                  [ HP.class_ "btn w-full bg-green-600 hover:bg-green-700 text-white border-green-500 font-bold"
-                  , style_ [("touch-action", "manipulation")]
-                  , SVG.onClick CreateMultiplayerGame
-                  ]
+                then let nameNeeded = case mProfile m of
+                           Just p | pUsername p /= "" -> False
+                           _ -> mGuestName m == Nothing
+                     in H.button_
+                  ([ HP.class_ "btn w-full bg-green-600 hover:bg-green-700 text-white border-green-500 font-bold"
+                   , style_ [("touch-action", "manipulation")]
+                   , SVG.onClick CreateMultiplayerGame
+                   ] ++ [ HP.disabled_ | nameNeeded && mJoinNameInput m == "" ])
                   [ text "Create" ]
                 else H.button_
                   [ HP.class_ "btn w-full bg-green-600 hover:bg-green-700 text-white border-green-500 font-bold"
@@ -202,9 +206,12 @@ viewSetupAi m =
 
 viewSetupMultiplayer :: Model -> View Model Action
 viewSetupMultiplayer m =
-  H.div_
+  let needsName = case mProfile m of
+        Just p | pUsername p /= "" -> False
+        _ -> mGuestName m == Nothing
+  in H.div_
     [ HP.class_ "text-center" ]
-    [ setupSection "Your Side"
+    ([ setupSection "Your Side"
         [ setupBtn (SetSidePreference "attacker") "Attackers" (mSidePreference m == "attacker")
         , setupBtn (SetSidePreference "defender") "Defenders" (mSidePreference m == "defender")
         ]
@@ -227,7 +234,17 @@ viewSetupMultiplayer m =
             , setupBtn (SetTimeControl (DailyControl 259200)) "3 days" (mTimeControl m == DailyControl 259200)
             ]
         NoTimeControl -> text ""
-    ]
+    ] ++ [ setupSection "Your Name"
+             [ H.input_
+                 [ HP.class_ "input w-full text-center"
+                 , HP.type_ "text"
+                 , HP.placeholder_ "Enter your name"
+                 , HP.value_ (mJoinNameInput m)
+                 , H.onInput SetJoinNameInput
+                 ]
+             ]
+         | needsName ]
+    )
 
 isBlitz :: TimeControl -> Bool
 isBlitz (BlitzControl _) = True

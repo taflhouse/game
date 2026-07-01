@@ -16,6 +16,7 @@ data GameAction
   | GUndo
   -- Multiplayer
   | GRealtimeChange Value
+  | GPresenceSync Value
   | GRealtimeSubscribed Channel
   | GRealtimeError MisoString
   | GMoveUpdated Value

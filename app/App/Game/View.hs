@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module App.Game.View (viewGame) where
 
-import Data.Maybe (fromMaybe, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Miso hiding ((!!))
 import Miso.CSS (style_)
 import Miso.String (MisoString, ms, fromMisoString)
@@ -25,7 +25,10 @@ import App.Game.Action
 -- | Main game view
 viewGame :: GameProps -> GameModel -> View GameModel GameAction
 viewGame props gm
-  | gmGameMode gm == MultiplayerMode, Nothing <- gmOpponentName gm =
+  -- GameMount hasn't processed yet; render nothing to avoid a flash of
+  -- the default board before the real game state is applied.
+  | isNothing (gmGameId gm) = text ""
+  | gmGameMode gm == MultiplayerMode, Just _ <- gmPlayerSide gm, Nothing <- gmOpponentName gm =
     -- Waiting screen
     H.div_ [HP.class_ "w-full flex flex-col items-center"]
       [ H.div_ [HP.class_ "card p-6 w-full max-w-md text-center", style_ [("margin-top", "4em")]]
@@ -54,13 +57,17 @@ viewGame props gm
         myName = case gpGuestName props of
           Just gn -> gn
           Nothing -> maybe "You" pUsername (gpProfile props)
+        turn = turnSide (gmGameState gm)
         (topName, topMs, topIsActive, botName, botMs, botIsActive) = case gmPlayerSide gm of
           Just AttackerSide ->
-            ( fromMaybe "Opponent" (gmOpponentName gm), gmDefenderTimeMs gm, turnSide (gmGameState gm) == DefenderSide
-            , myName, gmAttackerTimeMs gm, turnSide (gmGameState gm) == AttackerSide )
-          _ ->
-            ( fromMaybe "Opponent" (gmOpponentName gm), gmAttackerTimeMs gm, turnSide (gmGameState gm) == AttackerSide
-            , myName, gmDefenderTimeMs gm, turnSide (gmGameState gm) == DefenderSide )
+            ( fromMaybe "Opponent" (gmOpponentName gm), gmDefenderTimeMs gm, turn == DefenderSide
+            , myName, gmAttackerTimeMs gm, turn == AttackerSide )
+          Just DefenderSide ->
+            ( fromMaybe "Opponent" (gmOpponentName gm), gmAttackerTimeMs gm, turn == AttackerSide
+            , myName, gmDefenderTimeMs gm, turn == DefenderSide )
+          Nothing ->
+            ( fromMaybe "Attacker" (gmAttackerName gm), gmAttackerTimeMs gm, turn == AttackerSide
+            , fromMaybe "Defender" (gmDefenderName gm), gmDefenderTimeMs gm, turn == DefenderSide )
     in H.div_ [HP.class_ "w-full flex flex-col items-center"]
       [ if showClocks then viewClock n topName topMs topIsActive (gmTimeControl gm) (gmMoveDeadline gm) True else text ""
       , H.div_
@@ -70,10 +77,13 @@ viewGame props gm
           , viewBoardPanel gm
           ]
       , if showClocks then viewClock n botName botMs botIsActive (gmTimeControl gm) (gmMoveDeadline gm) False else text ""
+      , if not zen && gmGameMode gm == MultiplayerMode && gmPlayerSide gm == Nothing
+        then viewSpectatorBadge n (gmSpectatorCount gm) else text ""
       , if zen then text "" else viewStatus gm
       , if zen then text "" else viewMoveHistory gm
       , if zen then text ""
-        else if gmGameMode gm == MultiplayerMode then viewMultiplayerControls gm else text ""
+        else if gmGameMode gm == MultiplayerMode && isJust (gmPlayerSide gm)
+        then viewMultiplayerControls gm else text ""
       , if zen then text "" else viewShareLink props gm
       , viewZenHint gm
       ]
@@ -200,6 +210,8 @@ viewStatus gm =
             (if side == AttackerSide then "Attacker's turn" else "Defender's turn") <> " (AI)")
         | isAi = (baseCls, "Your turn")
         | isMp && myTurn = (baseCls, "Your turn")
+        | isMp && gmPlayerSide gm == Nothing = (baseCls,
+            (if side == AttackerSide then "Attacker" else "Defender") <> "'s turn")
         | isMp = (baseCls <> " text-muted-foreground",
             maybe "Opponent" fromMisoString (gmOpponentName gm) <> "'s turn")
         | side == AttackerSide = (baseCls, "Attacker's turn")
@@ -223,6 +235,20 @@ viewStatus gm =
              , ("border-radius", "0.375rem") ]
     ]
     [ text (ms fullMsg) ]
+
+-- | Spectator badge shown when watching a game you're not a player in
+viewSpectatorBadge :: Int -> Int -> View GameModel GameAction
+viewSpectatorBadge n count =
+  H.div_
+    [ HP.class_ "flex justify-center w-full mt-4"
+    , style_ [("max-width", ms (sqSize * n) <> "px")]
+    ]
+    [ H.span_
+        [ HP.class_ "text-xs text-muted-foreground tracking-widest uppercase" ]
+        [ text ("Spectating" <> if count > 1
+            then " \xb7 " <> ms (show count) <> " watching"
+            else "") ]
+    ]
 
 -- | Share link section (shown after game finishes)
 viewShareLink :: GameProps -> GameModel -> View GameModel GameAction

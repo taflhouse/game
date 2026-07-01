@@ -137,7 +137,10 @@ updateModel = \case
           , mJoinCodeInput = fromMaybe (mJoinCodeInput x) mCode
           }
         case mCode of
-          Just _  -> withSink $ \sink -> sink JoinMultiplayerGame
+          Just _ -> do
+            m' <- get
+            when (hasDisplayName m') $
+              withSink $ \sink -> sink JoinMultiplayerGame
           Nothing -> pure ()
 
   -- Home UI --------------------------------------------------------------
@@ -239,7 +242,9 @@ updateModel = \case
       Just sess -> do
         let uid   = userId (sessionUser sess)
             gName = guestNameFromId uid
-        modify $ \m -> m { mSession = Just sess, mGuestName = Just gName }
+        modify $ \m -> m { mSession = Just sess
+                         , mGuestName = Just (if mJoinNameInput m /= ""
+                                              then mJoinNameInput m else gName) }
         m <- get
         case mDeferredMpAction m of
           Just DeferCreate -> withSink $ \sink -> sink CreateMultiplayerGame
@@ -290,6 +295,9 @@ updateModel = \case
         | amProvider (userAppMetadata (sessionUser sess)) == "anonymous" -> do
             let uid = userId (sessionUser sess)
             modify $ \m' -> m' { mGuestName = Just (guestNameFromId uid) }
+            m' <- get
+            when (mScreen m' == JoinScreen && mJoinCodeInput m' /= "") $
+              withSink $ \sink -> sink JoinMultiplayerGame
         | otherwise -> do
             loadPastGames
             loadProfile sess
@@ -357,7 +365,11 @@ updateModel = \case
   ProfileLoaded val ->
     case fromJSON val of
       Success profiles -> case (profiles :: [Profile]) of
-        (p:_) -> modify $ \m -> m { mProfile = Just p, mNeedsUsername = False }
+        (p:_) -> do
+          modify $ \m -> m { mProfile = Just p, mNeedsUsername = False }
+          m' <- get
+          when (mScreen m' == JoinScreen && mJoinCodeInput m' /= "") $
+            withSink $ \sink -> sink JoinMultiplayerGame
         []    -> modify $ \m -> m { mNeedsUsername = True }
       Error _ -> modify $ \m -> m { mNeedsUsername = True }
 
@@ -435,17 +447,36 @@ updateModel = \case
 
   JoinMultiplayerGame -> do
     m <- get
-    case mSession m of
-      Nothing -> do
-        modify $ \x -> x { mDeferredMpAction = Just DeferJoin }
-        signInAnonymously defaultSignInAnonymouslyOptions AnonAuthSuccess AnonAuthError
-      Just _ -> do
-        let code = mJoinCodeInput m
-        when (code /= "") $
-          selectWithFilters "games" "*"
-            [eq "invite_code" code, eq "status" ("waiting" :: MisoString)]
-            (FetchOptions Nothing Nothing)
-            GameFoundToJoin GameJoinError
+    if not (hasDisplayName m || mJoinNameInput m /= "")
+      then pure ()  -- Wait for name input
+      else do
+        -- For non-anonymous logged-in users without a profile, save the name
+        when (mJoinNameInput m /= "") $
+          case (mSession m, mProfile m) of
+            (Just sess, Nothing)
+              | amProvider (userAppMetadata (sessionUser sess)) /= "anonymous" -> do
+                  let uid = userId (sessionUser sess)
+                  insert "profiles"
+                    (object ["id" .= uid, "username" .= mJoinNameInput m])
+                    (InsertOptions Nothing Nothing)
+                    (\_ -> NoOp) (\_ -> NoOp)
+                  modify $ \x -> x
+                    { mProfile = Just (Profile (mJoinNameInput x) Nothing)
+                    , mNeedsUsername = False
+                    }
+            _ -> pure ()
+        m' <- get
+        case mSession m' of
+          Nothing -> do
+            modify $ \x -> x { mDeferredMpAction = Just DeferJoin }
+            signInAnonymously defaultSignInAnonymouslyOptions AnonAuthSuccess AnonAuthError
+          Just _ -> do
+            let code = mJoinCodeInput m'
+            when (code /= "") $
+              selectWithFilters "games" "*"
+                [eq "invite_code" code, eq "status" ("waiting" :: MisoString)]
+                (FetchOptions Nothing Nothing)
+                GameFoundToJoin GameJoinError
 
   GameFoundToJoin val ->
     case fromJSON val of
@@ -479,6 +510,9 @@ updateModel = \case
 
   SetJoinCodeInput s ->
     modify $ \m -> m { mJoinCodeInput = s }
+
+  SetJoinNameInput s ->
+    modify $ \m -> m { mJoinNameInput = s }
 
   SetSidePreference s ->
     modify $ \m -> m { mSidePreference = s }
@@ -585,3 +619,9 @@ loadProfile sess = do
     [eq "id" uid]
     (FetchOptions Nothing Nothing)
     ProfileLoaded ProfileLoadError
+
+-- | Does the user already have a display name (profile username or guest name)?
+hasDisplayName :: Model -> Bool
+hasDisplayName m = case mProfile m of
+  Just p | pUsername p /= "" -> True
+  _ -> mGuestName m /= Nothing

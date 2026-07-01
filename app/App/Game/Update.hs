@@ -10,9 +10,11 @@ import Data.Maybe (fromMaybe, isNothing)
 import Miso hiding ((!!))
 import Miso.String (MisoString, ms, fromMisoString)
 import Miso.JSON (Value, FromJSON(..), ToJSON(..), object, (.=), (.:), parseMaybe, withObject)
+import qualified Miso.JSON as JSON
 import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, asyncCallback, asyncCallback1, asyncCallback2, Function(..))
 import Supabase.Miso.Database (insert, updateTable, InsertOptions(..), UpdateOptions(..), eq)
-import Supabase.Miso.Realtime (Channel, subscribeToTable, removeChannel)
+import qualified Data.Map.Strict as Map
+import Supabase.Miso.Realtime (Channel, subscribeToTableWithPresence, trackPresence, removeChannel)
 import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
 
 import Tafl.Board
@@ -133,10 +135,12 @@ updateGame channelRef clockRef = \case
               , gmTimeControl = tc
               , gmAttackerTimeMs = initAtkMs
               , gmDefenderTimeMs = initDefMs
+              , gmAttackerName = if mySide == AttackerSide then Just displayName else Nothing
+              , gmDefenderName = if mySide == DefenderSide then Just displayName else Nothing
               }
             insert "games" gameData (InsertOptions Nothing Nothing) GGameCreated GGameCreateError
-            subscribeToTable ("game:" <> uuid) "games" ("id=eq." <> uuid)
-              GRealtimeChange GRealtimeSubscribed GRealtimeError
+            subscribeToTableWithPresence ("game:" <> uuid) "games" ("id=eq." <> uuid)
+              GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
             io_ $ pushURI (playURI uuid)
           Nothing -> pure ()
 
@@ -159,10 +163,12 @@ updateGame channelRef clockRef = \case
           , gmMoveList = grwMoves gr
           , gmPlayerSide = Just mySide
           , gmOpponentName = oppName
+          , gmAttackerName = grwAttackerName gr
+          , gmDefenderName = grwDefenderName gr
           , gmEvalScore = evaluate gs
           }
-        subscribeToTable ("game:" <> gid) "games" ("id=eq." <> gid)
-          GRealtimeChange GRealtimeSubscribed GRealtimeError
+        subscribeToTableWithPresence ("game:" <> gid) "games" ("id=eq." <> gid)
+          GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
         io_ $ pushURI (playURI gid)
         case gpSession props of
           Just sess -> do
@@ -211,6 +217,8 @@ updateGame channelRef clockRef = \case
               , gmMoveList = grwMoves gr
               , gmPlayerSide = mySide
               , gmOpponentName = oppName
+              , gmAttackerName = grwAttackerName gr
+              , gmDefenderName = grwDefenderName gr
               , gmEvalScore = evaluate gs
               , gmInviteCode = grwInviteCode gr
               }
@@ -222,8 +230,8 @@ updateGame channelRef clockRef = \case
                   sink (GSetQrDataUrl qr)
               _ -> pure ()
             when (grwStatus gr `elem` ["waiting", "active"]) $
-              subscribeToTable ("game:" <> gid) "games" ("id=eq." <> gid)
-                GRealtimeChange GRealtimeSubscribed GRealtimeError
+              subscribeToTableWithPresence ("game:" <> gid) "games" ("id=eq." <> gid)
+                GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
             when (grwStatus gr == "active") $
               case parseTimeControl gr of
                 BlitzControl _ -> startBlitzClock channelRef clockRef
@@ -237,6 +245,8 @@ updateGame channelRef clockRef = \case
               , gmGameState = gs
               , gmHistory = hist
               , gmMoveList = grwMoves gr
+              , gmAttackerName = grwAttackerName gr
+              , gmDefenderName = grwDefenderName gr
               , gmEvalScore = evaluate gs
               , gmInviteCode = grwInviteCode gr
               }
@@ -247,6 +257,14 @@ updateGame channelRef clockRef = \case
                   qr <- js_generateQRDataURL (origin <> "/join/" <> code)
                   sink (GSetQrDataUrl qr)
               _ -> pure ()
+            when (grwStatus gr `elem` ["waiting", "active"]) $
+              subscribeToTableWithPresence ("game:" <> gid) "games" ("id=eq." <> gid)
+                GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
+            when (grwStatus gr == "active") $
+              case parseTimeControl gr of
+                BlitzControl _ -> startBlitzClock channelRef clockRef
+                DailyControl _ -> startDailyClock clockRef
+                _ -> pure ()
 
   GameUnmount -> do
     io_ $ do
@@ -385,12 +403,17 @@ updateGame channelRef clockRef = \case
             localMoves = gmMoveList gm
             variant = fromMaybe (gmVariant gm) (lookupVariant (grwVariant gr))
 
-        when (grwStatus gr == "active" && gmOpponentName gm == Nothing) $ do
+        when (grwStatus gr == "active"
+              && (gmAttackerName gm == Nothing || gmDefenderName gm == Nothing)) $ do
           let oppName = case gmPlayerSide gm of
                 Just AttackerSide -> grwDefenderName gr
                 Just DefenderSide -> grwAttackerName gr
                 Nothing -> Nothing
-          modify $ \x -> applyClockFromRow gr $ x { gmOpponentName = oppName }
+          modify $ \x -> applyClockFromRow gr $ x
+            { gmOpponentName = oppName
+            , gmAttackerName = grwAttackerName gr
+            , gmDefenderName = grwDefenderName gr
+            }
           case parseTimeControl gr of
             BlitzControl _ -> startBlitzClock channelRef clockRef
             DailyControl _ -> startDailyClock clockRef
@@ -429,8 +452,17 @@ updateGame channelRef clockRef = \case
           modify $ \x -> x { gmGameState = (gmGameState x) { gsResult = result } }
           stopClock' clockRef
 
-  GRealtimeSubscribed ch ->
+  GRealtimeSubscribed ch -> do
     io_ $ writeIORef channelRef (Just ch)
+    gm <- get
+    let role = case gmPlayerSide gm of
+          Just _  -> "player" :: MisoString
+          Nothing -> "spectator"
+    io_ $ trackPresence ch (object ["role" .= role])
+
+  GPresenceSync val -> do
+    let count = countSpectators val
+    modify $ \gm -> gm { gmSpectatorCount = count }
 
   GRealtimeError _ -> pure ()
 
@@ -807,6 +839,20 @@ saveGame _channelRef _clockRef = do
             ]
       io_ $ saveLocalGameIO gameData
   mailParent $ object ["type" .= ("game_finished" :: MisoString)]
+
+-- | Count spectator presences from a Supabase presence state value.
+--
+-- The presence state is @{ key: [{ role: "spectator"|"player" }], ... }@.
+-- We count entries where @role == "spectator"@.
+countSpectators :: Value -> Int
+countSpectators (JSON.Object m) = length
+  [ ()
+  | JSON.Array entries <- Map.elems m
+  , JSON.Object entry  <- entries
+  , Just (JSON.String role) <- [Map.lookup "role" entry]
+  , role == "spectator"
+  ]
+countSpectators _ = 0
 
 displayedGameState :: GameModel -> GameState
 displayedGameState gm = case gmBrowseIndex gm of

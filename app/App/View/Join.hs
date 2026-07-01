@@ -7,6 +7,7 @@ import qualified Miso.Html as H
 import qualified Miso.Html.Property as HP
 import qualified Miso.Svg as SVG
 
+import App.JSON (Profile(..))
 import App.Model
 import App.Action
 
@@ -16,16 +17,14 @@ import App.Action
 
 viewJoin :: Model -> View Model Action
 viewJoin m
-  | mJoinCodeInput m /= "" =
-    H.div_
-      [ HP.class_ "flex-1 flex items-center justify-center w-full" ]
-      [ H.div_
-          [ HP.class_ "text-center text-muted-foreground animate-pulse"
-          , style_ [("margin-top", "4em")]
-          ]
-          [ text "Joining game..." ]
-      ]
+  | mDeferredMpAction m == Just DeferJoin =
+    -- Waiting for anonymous sign-in
+    joiningSpinner
+  | mJoinCodeInput m /= "" && not needsName =
+    -- Has code and name, auto-joining
+    joiningSpinner
   | otherwise =
+    -- Show form (name input when needed, code input when missing)
     H.div_
       [ HP.class_ "flex-1 flex items-center justify-center w-full"
       ]
@@ -38,22 +37,47 @@ viewJoin m
               [ text "Join a Game" ]
           , H.p_
               [ HP.class_ "text-sm text-muted-foreground mb-4 text-center" ]
-              [ text "Enter the invite code shared with you to play!" ]
+              [ text (if needsName then "Enter your name to join!" else "Enter the invite code shared with you to play!") ]
           , H.div_
               [ HP.class_ "flex flex-col gap-3" ]
-              [ H.input_
-                  [ HP.class_ "input w-full text-center"
-                  , HP.type_ "text"
-                  , HP.placeholder_ "Invite code"
-                  , HP.value_ (mJoinCodeInput m)
-                  , H.onInput SetJoinCodeInput
-                  ]
-              , H.button_
-                  [ HP.class_ "btn w-full"
-                  , style_ [("touch-action", "manipulation")]
-                  , SVG.onClick JoinMultiplayerGame
-                  ]
-                  [ text "Join" ]
-              ]
+              (  [ H.input_
+                     [ HP.class_ "input w-full text-center"
+                     , HP.type_ "text"
+                     , HP.placeholder_ "Your name"
+                     , HP.value_ (mJoinNameInput m)
+                     , H.onInput SetJoinNameInput
+                     ]
+                 | needsName ]
+              ++ [ H.input_
+                     [ HP.class_ "input w-full text-center"
+                     , HP.type_ "text"
+                     , HP.placeholder_ "Invite code"
+                     , HP.value_ (mJoinCodeInput m)
+                     , H.onInput SetJoinCodeInput
+                     ]
+                 | mJoinCodeInput m == "" ]
+              ++ [ H.button_
+                     ([ HP.class_ "btn w-full"
+                      , style_ [("touch-action", "manipulation")]
+                      , SVG.onClick JoinMultiplayerGame
+                      ] ++ [ HP.disabled_ | joinDisabled ])
+                     [ text "Join" ]
+                 ]
+              )
           ]
       ]
+  where
+    needsName = case mProfile m of
+      Just p | pUsername p /= "" -> False
+      _ -> mGuestName m == Nothing
+    joinDisabled = (needsName && mJoinNameInput m == "")
+               || mJoinCodeInput m == ""
+    joiningSpinner =
+      H.div_
+        [ HP.class_ "flex-1 flex items-center justify-center w-full" ]
+        [ H.div_
+            [ HP.class_ "text-center text-muted-foreground animate-pulse"
+            , style_ [("margin-top", "4em")]
+            ]
+            [ text "Joining game..." ]
+        ]

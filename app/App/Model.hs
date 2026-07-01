@@ -128,6 +128,7 @@ data Model = Model
   , mSidePreference   :: !MisoString
   , mTimeControl      :: !TimeControl
   , mJoinCodeInput    :: !MisoString
+  , mJoinNameInput    :: !MisoString
   , mGuestName        :: Maybe MisoString
   , mDeferredMpAction :: Maybe DeferredMpAction
     -- View mode (used by replay; game component manages its own)
@@ -175,6 +176,7 @@ initModel = Model
   , mSidePreference   = "defender"
   , mTimeControl      = NoTimeControl
   , mJoinCodeInput    = ""
+  , mJoinNameInput    = ""
   , mGuestName        = Nothing
   , mDeferredMpAction = Nothing
   , mViewMode         = NormalView

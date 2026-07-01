@@ -44,11 +44,14 @@ data GameModel = GameModel
   , gmAiDepth      :: !Int
   , gmAiNodeLimit  :: !Int
     -- Multiplayer
-  , gmInviteCode   :: Maybe MisoString
-  , gmQrDataUrl    :: Maybe MisoString
-  , gmOpponentName :: Maybe MisoString
-  , gmPlayerSide   :: Maybe Side
-  , gmDrawOffered  :: !Bool
+  , gmInviteCode    :: Maybe MisoString
+  , gmQrDataUrl     :: Maybe MisoString
+  , gmOpponentName  :: Maybe MisoString
+  , gmPlayerSide    :: Maybe Side
+  , gmAttackerName  :: Maybe MisoString
+  , gmDefenderName  :: Maybe MisoString
+  , gmDrawOffered   :: !Bool
+  , gmSpectatorCount :: !Int
     -- Time control
   , gmTimeControl    :: !TimeControl
   , gmAttackerTimeMs :: !Int
@@ -82,9 +85,12 @@ initialGameModel = GameModel
   , gmAiNodeLimit  = 10000
   , gmInviteCode   = Nothing
   , gmQrDataUrl    = Nothing
-  , gmOpponentName = Nothing
-  , gmPlayerSide   = Nothing
+  , gmOpponentName  = Nothing
+  , gmPlayerSide    = Nothing
+  , gmAttackerName  = Nothing
+  , gmDefenderName  = Nothing
   , gmDrawOffered  = False
+  , gmSpectatorCount = 0
   , gmTimeControl  = NoTimeControl
   , gmAttackerTimeMs = 0
   , gmDefenderTimeMs = 0

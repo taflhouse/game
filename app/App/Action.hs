@@ -82,6 +82,7 @@ data Action
   | ResumeGameLoaded Value
   | ResumeGameLoadError MisoString
   | SetJoinCodeInput MisoString
+  | SetJoinNameInput MisoString
   | SetSidePreference MisoString
   | SetTimeControl TimeControl
   -- Replay
