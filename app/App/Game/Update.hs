@@ -75,8 +75,8 @@ updateGame channelRef chatChannelRef clockRef = \case
                   , "moves"       .= ([] :: [MoveAction])
                   ]
             insert "games" gameData (InsertOptions Nothing Nothing) GGameCreated GGameCreateError
+            io_ $ pushURI (playURI uuid)
           Nothing -> pure ()
-        io_ $ pushURI (playURI uuid)
         triggerAi channelRef clockRef
 
       NewMultiplayerGame variant tc sidePref invCode uuid qrUrl -> do
@@ -201,8 +201,15 @@ updateGame channelRef chatChannelRef clockRef = \case
             gs0 = initialState variant
             (hist, gs) = replayMoves gs0 (grwMoves gr)
             gid = grwId gr
-            isMultiplayer = grwStatus gr `elem` ["waiting", "active"]
-                           || (grwStatus gr == "finished" && fromMaybe "" (grwInviteCode gr) /= "")
+            gameMode = case grwGameMode gr of
+              Just "local"       -> PracticeMode
+              Just "multiplayer" -> MultiplayerMode
+              Just "ai"          -> AiMode
+              _ -> -- Fallback for old rows without game_mode
+                if grwStatus gr `elem` ["waiting", "active"]
+                   || (grwStatus gr == "finished" && fromMaybe "" (grwInviteCode gr) /= "")
+                then MultiplayerMode
+                else AiMode
         case gpSession props of
           Just sess -> do
             let uid = userId (sessionUser sess)
@@ -216,7 +223,7 @@ updateGame channelRef chatChannelRef clockRef = \case
                   Nothing -> Nothing
             put $ applyClockFromRow gr $ initialGameModel
               { gmGameId = Just gid
-              , gmGameMode = if isMultiplayer then MultiplayerMode else AiMode
+              , gmGameMode = gameMode
               , gmVariant = variant
               , gmGameState = gs
               , gmHistory = hist
@@ -250,7 +257,7 @@ updateGame channelRef chatChannelRef clockRef = \case
           Nothing -> do
             put $ applyClockFromRow gr $ initialGameModel
               { gmGameId = Just gid
-              , gmGameMode = if isMultiplayer then MultiplayerMode else AiMode
+              , gmGameMode = gameMode
               , gmVariant = variant
               , gmGameState = gs
               , gmHistory = hist

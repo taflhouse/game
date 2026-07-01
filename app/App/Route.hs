@@ -29,7 +29,7 @@ import Tafl.Board (MoveAction)
 import Tafl.Rules (BoardVariant(..), variantSlug)
 import Tafl.Game (act, GameState)
 
-data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute | ConfigureRoute | ProfileRoute | ProfileEditRoute
+data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute | ConfigureRoute (Maybe MisoString) | ProfileRoute | ProfileEditRoute
            | PlayRoute MisoString      -- /play/<uuid> active game
            | GameRoute MisoString      -- /games/<uuid> replay/permalink
            | JoinRoute (Maybe MisoString) -- /join or /join/<invite_code>
@@ -54,7 +54,10 @@ parseRoute uri = case uriPath uri of
   "sign-in"  -> SignInRoute
   "sign-up"  -> SignUpRoute
   "new-game" -> ConfigRoute
-  "new-game/configure" -> ConfigureRoute
+  "new-game/practice"    -> ConfigureRoute (Just "practice")
+  "new-game/ai"          -> ConfigureRoute (Just "ai")
+  "new-game/multiplayer" -> ConfigureRoute (Just "multiplayer")
+  "new-game/configure"   -> ConfigureRoute Nothing
   "profile/edit" -> ProfileEditRoute
   "profile"  -> ProfileRoute
   "join"     -> JoinRoute Nothing
@@ -110,8 +113,8 @@ signUpURI = emptyURI { uriPath = "sign-up" }
 configURI :: URI
 configURI = emptyURI { uriPath = "new-game" }
 
-configureURI :: URI
-configureURI = emptyURI { uriPath = "new-game/configure" }
+configureURI :: MisoString -> URI
+configureURI modeSlug = emptyURI { uriPath = "new-game/" <> modeSlug }
 
 playURI :: MisoString -> URI
 playURI uuid = emptyURI { uriPath = "play/" <> uuid }

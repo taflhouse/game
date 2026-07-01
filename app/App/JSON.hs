@@ -90,6 +90,7 @@ data GameRow = GameRow
   , grwMoveDeadline      :: Maybe MisoString     -- ISO 8601
   , grwTimePerMoveSec    :: Maybe Int
   , grwTimePerPlayerMs   :: Maybe Int
+  , grwGameMode          :: Maybe MisoString
   } deriving (Eq, Show)
 
 instance FromJSON GameRow where
@@ -116,6 +117,7 @@ instance FromJSON GameRow where
       <*> v .:? "move_deadline"
       <*> v .:? "time_per_move_seconds"
       <*> v .:? "time_per_player_ms"
+      <*> v .:? "game_mode"
 
 -- ---------------------------------------------------------------------------
 -- Profile

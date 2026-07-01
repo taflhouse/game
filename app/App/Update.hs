@@ -71,7 +71,7 @@ updateModel = \case
 
   SetGameMode mode -> do
     modify $ \m -> m { mGameMode = mode }
-    io_ $ pushURI configureURI
+    io_ $ pushURI (configureURI (gameModeSlug mode))
 
   SetVariant variant ->
     modify $ \m -> m { mVariant = variant }
@@ -120,8 +120,11 @@ updateModel = \case
       ConfigRoute ->
         modify $ \x -> x { mScreen = ConfigScreen, mConfigModeChosen = False
                          , mTimeControl = NoTimeControl }
-      ConfigureRoute ->
-        modify $ \x -> x { mScreen = ConfigureScreen }
+      ConfigureRoute mSlug ->
+        modify $ \x -> x
+          { mScreen = ConfigureScreen
+          , mGameMode = fromMaybe AiMode (mSlug >>= slugToGameMode)
+          }
       ProfileRoute ->
         modify $ \x -> x { mScreen = ProfileScreen }
       ProfileEditRoute -> do

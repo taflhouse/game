@@ -1,6 +1,8 @@
 module App.Model
   ( -- * Enums
     GameMode(..)
+  , gameModeSlug
+  , slugToGameMode
   , TimeControl(..)
   , Screen(..)
   , ViewMode(..)
@@ -36,6 +38,17 @@ import App.JSON (Profile, GameRow, GameRecord)
 
 data GameMode = PracticeMode | AiMode | MultiplayerMode
   deriving (Eq, Show)
+
+gameModeSlug :: GameMode -> MisoString
+gameModeSlug PracticeMode    = "practice"
+gameModeSlug AiMode          = "ai"
+gameModeSlug MultiplayerMode = "multiplayer"
+
+slugToGameMode :: MisoString -> Maybe GameMode
+slugToGameMode "practice"    = Just PracticeMode
+slugToGameMode "ai"          = Just AiMode
+slugToGameMode "multiplayer" = Just MultiplayerMode
+slugToGameMode _             = Nothing
 
 data TimeControl
   = NoTimeControl
