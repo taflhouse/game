@@ -24,6 +24,13 @@ module App.FFI
   , js_voiceAddIceCandidate
   , js_voiceTeardown
   , js_voiceToggleMute
+    -- * Video FFI
+  , js_voiceGetVideoMedia
+  , js_voiceAddVideoToPc
+  , js_voiceRemoveVideoFromPc
+  , js_voiceStopVideoStream
+  , js_voiceAttachLocalVideo
+  , js_voiceDetachLocalVideo
     -- * Wrapped helpers
   , js_generateUUID
   , js_copyToClipboard
@@ -119,6 +126,20 @@ foreign import javascript unsafe "globalThis.voiceTeardown($1,$2)"
 foreign import javascript unsafe "globalThis.voiceToggleMute($1)"
   js_voiceToggleMute_raw :: JSVal -> IO Bool
 
+-- Video
+foreign import javascript unsafe "globalThis.voiceGetVideoMedia($1,$2)"
+  js_voiceGetVideoMedia_ffi2 :: JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.voiceAddVideoToPc($1,$2)"
+  js_voiceAddVideoToPc :: JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.voiceRemoveVideoFromPc($1)"
+  js_voiceRemoveVideoFromPc :: JSVal -> IO ()
+foreign import javascript unsafe "globalThis.voiceStopVideoStream($1)"
+  js_voiceStopVideoStream :: JSVal -> IO ()
+foreign import javascript unsafe "globalThis.voiceAttachLocalVideo($1)"
+  js_voiceAttachLocalVideo :: JSVal -> IO ()
+foreign import javascript unsafe "globalThis.voiceDetachLocalVideo()"
+  js_voiceDetachLocalVideo :: IO ()
+
 js_loadLocalGames :: Function -> Function -> IO ()
 js_loadLocalGames (Function a) (Function b) = js_loadLocalGames_ffi a b
 
@@ -163,6 +184,9 @@ js_voiceAddIceCandidate pc cand (Function a) (Function b) = js_voiceAddIceCandid
 
 js_voiceToggleMute :: JSVal -> IO Bool
 js_voiceToggleMute = js_voiceToggleMute_raw
+
+js_voiceGetVideoMedia :: Function -> Function -> IO ()
+js_voiceGetVideoMedia (Function a) (Function b) = js_voiceGetVideoMedia_ffi2 a b
 
 #else
 js_playMoveSound :: IO ()
@@ -228,6 +252,19 @@ js_voiceTeardown :: JSVal -> JSVal -> IO ()
 js_voiceTeardown _ _ = pure ()
 js_voiceToggleMute :: JSVal -> IO Bool
 js_voiceToggleMute _ = pure True
+-- Video stubs
+js_voiceGetVideoMedia :: Function -> Function -> IO ()
+js_voiceGetVideoMedia _ _ = pure ()
+js_voiceAddVideoToPc :: JSVal -> JSVal -> IO ()
+js_voiceAddVideoToPc _ _ = pure ()
+js_voiceRemoveVideoFromPc :: JSVal -> IO ()
+js_voiceRemoveVideoFromPc _ = pure ()
+js_voiceStopVideoStream :: JSVal -> IO ()
+js_voiceStopVideoStream _ = pure ()
+js_voiceAttachLocalVideo :: JSVal -> IO ()
+js_voiceAttachLocalVideo _ = pure ()
+js_voiceDetachLocalVideo :: IO ()
+js_voiceDetachLocalVideo = pure ()
 #endif
 
 -- ---------------------------------------------------------------------------

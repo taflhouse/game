@@ -37,6 +37,7 @@ data GameRefs = GameRefs
   , grVoiceChannelRef :: IORef (Maybe Channel)  -- voice broadcast channel
   , grPeerConnRef     :: IORef (Maybe JSVal)    -- RTCPeerConnection
   , grMediaStreamRef  :: IORef (Maybe JSVal)    -- local MediaStream
+  , grVideoStreamRef  :: IORef (Maybe JSVal)    -- local video MediaStream
   }
 
 -- | Props passed from the root component to the game component.
@@ -98,6 +99,9 @@ data GameModel = GameModel
   , gmVoiceState :: !VoiceState
   , gmVoiceMuted :: !Bool
   , gmVoiceError :: Maybe MisoString
+    -- Video
+  , gmCameraOn      :: !Bool
+  , gmRemoteVideoOn :: !Bool
   } deriving (Eq)
 
 initialGameModel :: GameModel
@@ -144,4 +148,6 @@ initialGameModel = GameModel
   , gmVoiceState   = VoiceIdle
   , gmVoiceMuted   = False
   , gmVoiceError   = Nothing
+  , gmCameraOn      = False
+  , gmRemoteVideoOn = False
   }

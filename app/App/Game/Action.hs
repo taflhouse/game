@@ -80,5 +80,11 @@ data GameAction
   | GVoiceIceCandidateAdded
   | GVoiceIceCandidateError MisoString
   | GVoiceRemoteTrack
+  -- Video
+  | GVideoToggleCamera
+  | GVideoGotMedia JSVal
+  | GVideoMediaError MisoString
+  | GVideoRemoteTrackOn
+  | GVideoRemoteTrackOff
   -- Internal
   | GNoOp

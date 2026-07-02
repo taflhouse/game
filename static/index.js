@@ -447,10 +447,32 @@ globalThis.voiceCreatePeerConnection = function(iceCb, trackCb) {
     }
   };
   pc.ontrack = function(e) {
-    var audio = new Audio();
-    audio.srcObject = e.streams[0] || new MediaStream([e.track]);
-    audio.play().catch(function() {});
-    trackCb();
+    if (e.track.kind === 'audio') {
+      var audio = new Audio();
+      audio.srcObject = e.streams[0] || new MediaStream([e.track]);
+      audio.play().catch(function() {});
+      trackCb('audio');
+    } else if (e.track.kind === 'video') {
+      var container = document.getElementById('remote-video-pip');
+      if (container) {
+        var old = document.getElementById('remote-video-element');
+        if (old) old.remove();
+        var video = document.createElement('video');
+        video.id = 'remote-video-element';
+        video.srcObject = new MediaStream([e.track]);
+        video.autoplay = true;
+        video.playsInline = true;
+        video.muted = true;
+        video.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:inherit';
+        container.appendChild(video);
+      }
+      trackCb('video');
+      e.track.onended = function() {
+        var el = document.getElementById('remote-video-element');
+        if (el) el.remove();
+        trackCb('video-ended');
+      };
+    }
   };
   return pc;
 };
@@ -494,6 +516,54 @@ globalThis.voiceAddIceCandidate = function(pc, candidateJson, successCb, errorCb
 globalThis.voiceTeardown = function(pc, stream) {
   if (pc) { try { pc.close(); } catch(e) {} }
   if (stream) { stream.getTracks().forEach(function(t) { t.stop(); }); }
+  var rv = document.getElementById('remote-video-element');
+  if (rv) rv.remove();
+  var lv = document.getElementById('local-video-element');
+  if (lv) lv.remove();
+};
+
+globalThis.voiceGetVideoMedia = function(successCb, errorCb) {
+  navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    .then(function(stream) { successCb(stream); })
+    .catch(function(err) { errorCb(err.message || String(err)); });
+};
+
+globalThis.voiceAddVideoToPc = function(pc, stream) {
+  stream.getVideoTracks().forEach(function(track) {
+    pc.addTrack(track, stream);
+  });
+};
+
+globalThis.voiceRemoveVideoFromPc = function(pc) {
+  pc.getSenders().forEach(function(sender) {
+    if (sender.track && sender.track.kind === 'video') {
+      pc.removeTrack(sender);
+    }
+  });
+};
+
+globalThis.voiceStopVideoStream = function(stream) {
+  stream.getTracks().forEach(function(t) { t.stop(); });
+};
+
+globalThis.voiceAttachLocalVideo = function(stream) {
+  var container = document.getElementById('local-video-preview');
+  if (!container) return;
+  var old = document.getElementById('local-video-element');
+  if (old) old.remove();
+  var video = document.createElement('video');
+  video.id = 'local-video-element';
+  video.srcObject = stream;
+  video.autoplay = true;
+  video.playsInline = true;
+  video.muted = true;
+  video.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:inherit;transform:scaleX(-1)';
+  container.appendChild(video);
+};
+
+globalThis.voiceDetachLocalVideo = function() {
+  var el = document.getElementById('local-video-element');
+  if (el) el.remove();
 };
 
 globalThis.voiceToggleMute = function(stream) {

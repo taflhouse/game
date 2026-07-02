@@ -320,6 +320,12 @@ updateGame GameRefs{..} = \case
       voiceTeardownIO mPc mStream
       writeIORef grPeerConnRef Nothing
       writeIORef grMediaStreamRef Nothing
+      -- Tear down video
+      mVidStream <- readIORef grVideoStreamRef
+      case mVidStream of
+        Just vs -> js_voiceStopVideoStream vs
+        Nothing -> pure ()
+      writeIORef grVideoStreamRef Nothing
     mailParent $ object ["type" .= ("game_unmounted" :: MisoString)]
 
   GCellClicked coords -> do
@@ -869,7 +875,15 @@ updateGame GameRefs{..} = \case
         voiceTeardownIO mPc mStream
         writeIORef grPeerConnRef Nothing
         writeIORef grMediaStreamRef Nothing
-      modify $ \x -> x { gmVoiceState = VoiceIdle, gmVoiceMuted = False }
+        -- Clean up video
+        mVidStream <- readIORef grVideoStreamRef
+        case mVidStream of
+          Just vs -> js_voiceStopVideoStream vs
+          Nothing -> pure ()
+        writeIORef grVideoStreamRef Nothing
+        js_voiceDetachLocalVideo
+      modify $ \x -> x { gmVoiceState = VoiceIdle, gmVoiceMuted = False
+                       , gmCameraOn = False, gmRemoteVideoOn = False }
 
   GVoiceToggleMute -> do
     gm <- get
@@ -922,7 +936,13 @@ updateGame GameRefs{..} = \case
                 iceCb <- Function <$> asyncCallback1 (\candVal -> do
                   candStr <- fromJSValUnchecked candVal
                   sink (GVoiceIceCandidate candStr))
-                trackCb <- Function <$> asyncCallback (sink GVoiceRemoteTrack)
+                trackCb <- Function <$> asyncCallback1 (\kindVal -> do
+                  kind <- fromJSValUnchecked kindVal
+                  case (kind :: MisoString) of
+                    "audio"       -> sink GVoiceRemoteTrack
+                    "video"       -> sink GVideoRemoteTrackOn
+                    "video-ended" -> sink GVideoRemoteTrackOff
+                    _             -> pure ())
                 pc <- js_voiceCreatePeerConnection iceCb trackCb
                 writeIORef grPeerConnRef (Just pc)
                 mStream <- readIORef grMediaStreamRef
@@ -940,15 +960,21 @@ updateGame GameRefs{..} = \case
             when (gmVoiceState gm == VoiceInviteSent) $
               modify $ \x -> x { gmVoiceState = VoiceIdle }
         | msgType == "voice-offer" -> do
+            let mSdp = parseMaybe (\v -> withObject "bc" (\o -> o .: "sdp") v) val :: Maybe MisoString
             when (gmVoiceState gm == VoiceConnecting) $ do
-              let mSdp = parseMaybe (\v -> withObject "bc" (\o -> o .: "sdp") v) val :: Maybe MisoString
               case mSdp of
                 Nothing -> pure ()
                 Just sdpStr -> withSink $ \sink -> do
                   iceCb <- Function <$> asyncCallback1 (\candVal -> do
                     cStr <- fromJSValUnchecked candVal
                     sink (GVoiceIceCandidate cStr))
-                  trackCb <- Function <$> asyncCallback (sink GVoiceRemoteTrack)
+                  trackCb <- Function <$> asyncCallback1 (\kindVal -> do
+                    kind <- fromJSValUnchecked kindVal
+                    case (kind :: MisoString) of
+                      "audio"       -> sink GVoiceRemoteTrack
+                      "video"       -> sink GVideoRemoteTrackOn
+                      "video-ended" -> sink GVideoRemoteTrackOff
+                      _             -> pure ())
                   pc <- js_voiceCreatePeerConnection iceCb trackCb
                   writeIORef grPeerConnRef (Just pc)
                   mStream <- readIORef grMediaStreamRef
@@ -963,6 +989,23 @@ updateGame GameRefs{..} = \case
                     errStr <- fromJSValUnchecked errVal
                     sink (GVoiceAnswerError errStr))
                   js_voiceCreateAnswer pc sdpJsv answerOk answerErr
+            -- Renegotiation: reuse existing PC when already connected
+            when (gmVoiceState gm == VoiceConnected) $ do
+              case mSdp of
+                Nothing -> pure ()
+                Just sdpStr -> withSink $ \sink -> do
+                  mPc <- readIORef grPeerConnRef
+                  case mPc of
+                    Just pc -> do
+                      sdpJsv <- toJSVal sdpStr
+                      answerOk <- Function <$> asyncCallback1 (\ansVal -> do
+                        ansStr <- fromJSValUnchecked ansVal
+                        sink (GVoiceAnswerCreated ansStr))
+                      answerErr <- Function <$> asyncCallback1 (\errVal -> do
+                        errStr <- fromJSValUnchecked errVal
+                        sink (GVoiceAnswerError errStr))
+                      js_voiceCreateAnswer pc sdpJsv answerOk answerErr
+                    Nothing -> pure ()
         | msgType == "voice-answer" -> do
             let mSdp = parseMaybe (\v -> withObject "bc" (\o -> o .: "sdp") v) val :: Maybe MisoString
             case mSdp of
@@ -1000,7 +1043,15 @@ updateGame GameRefs{..} = \case
               voiceTeardownIO mPc mStream
               writeIORef grPeerConnRef Nothing
               writeIORef grMediaStreamRef Nothing
-            modify $ \x -> x { gmVoiceState = VoiceIdle, gmVoiceMuted = False }
+              -- Clean up video
+              mVidStream <- readIORef grVideoStreamRef
+              case mVidStream of
+                Just vs -> js_voiceStopVideoStream vs
+                Nothing -> pure ()
+              writeIORef grVideoStreamRef Nothing
+              js_voiceDetachLocalVideo
+            modify $ \x -> x { gmVoiceState = VoiceIdle, gmVoiceMuted = False
+                             , gmCameraOn = False, gmRemoteVideoOn = False }
         | otherwise -> pure ()
 
   GVoiceBroadcastSubscribed ch ->
@@ -1038,6 +1089,78 @@ updateGame GameRefs{..} = \case
 
   GVoiceRemoteTrack ->
     modify $ \x -> x { gmVoiceState = VoiceConnected }
+
+  -- Video --------------------------------------------------------------------
+
+  GVideoToggleCamera -> do
+    gm <- get
+    when (gmVoiceState gm == VoiceConnected) $ do
+      if gmCameraOn gm
+        then do
+          -- Turn camera OFF: stop video, remove from PC, renegotiate
+          io_ $ do
+            mVidStream <- readIORef grVideoStreamRef
+            case mVidStream of
+              Just vs -> js_voiceStopVideoStream vs
+              Nothing -> pure ()
+            writeIORef grVideoStreamRef Nothing
+            mPc <- readIORef grPeerConnRef
+            case mPc of
+              Just pc -> js_voiceRemoveVideoFromPc pc
+              Nothing -> pure ()
+            js_voiceDetachLocalVideo
+          modify $ \x -> x { gmCameraOn = False }
+          -- Renegotiate so remote side learns video was removed
+          withSink $ \sink -> do
+            mPc <- readIORef grPeerConnRef
+            case mPc of
+              Just pc -> do
+                offerOk <- Function <$> asyncCallback1 (\sdpVal -> do
+                  sdpStr <- fromJSValUnchecked sdpVal
+                  sink (GVoiceOfferCreated sdpStr))
+                offerErr <- Function <$> asyncCallback1 (\errVal -> do
+                  errStr <- fromJSValUnchecked errVal
+                  sink (GVoiceOfferError errStr))
+                js_voiceCreateOffer pc offerOk offerErr
+              Nothing -> pure ()
+        else do
+          -- Turn camera ON: request video media
+          withSink $ \sink -> do
+            successCb <- Function <$> asyncCallback1 (\streamVal -> sink (GVideoGotMedia streamVal))
+            errorCb   <- Function <$> asyncCallback1 (\errVal -> do
+              errStr <- fromJSValUnchecked errVal
+              sink (GVideoMediaError errStr))
+            js_voiceGetVideoMedia successCb errorCb
+
+  GVideoGotMedia streamVal -> do
+    io_ $ writeIORef grVideoStreamRef (Just streamVal)
+    -- Add video track to existing PC and attach local preview
+    withSink $ \sink -> do
+      mPc <- readIORef grPeerConnRef
+      case mPc of
+        Just pc -> do
+          js_voiceAddVideoToPc pc streamVal
+          js_voiceAttachLocalVideo streamVal
+          -- Renegotiate
+          offerOk <- Function <$> asyncCallback1 (\sdpVal -> do
+            sdpStr <- fromJSValUnchecked sdpVal
+            sink (GVoiceOfferCreated sdpStr))
+          offerErr <- Function <$> asyncCallback1 (\errVal -> do
+            errStr <- fromJSValUnchecked errVal
+            sink (GVoiceOfferError errStr))
+          js_voiceCreateOffer pc offerOk offerErr
+        Nothing -> pure ()
+    modify $ \x -> x { gmCameraOn = True }
+
+  GVideoMediaError errStr -> do
+    io_ $ writeIORef grVideoStreamRef Nothing
+    modify $ \x -> x { gmCameraOn = False, gmVoiceError = Just errStr }
+
+  GVideoRemoteTrackOn ->
+    modify $ \x -> x { gmRemoteVideoOn = True }
+
+  GVideoRemoteTrackOff ->
+    modify $ \x -> x { gmRemoteVideoOn = False }
 
   -- Persistence ------------------------------------------------------------
 

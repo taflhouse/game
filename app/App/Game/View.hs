@@ -94,6 +94,7 @@ viewGame props gm
       , if zen then text "" else viewChatPanel gm
       , if zen then text "" else viewVoiceButton gm
       , if zen then text "" else viewVoiceInviteBanner gm
+      , if zen then text "" else viewVideoPiP gm
       ]
 
 -- | Board panel with container
@@ -621,6 +622,41 @@ viewChatMessage cm =
     ]
 
 -- ---------------------------------------------------------------------------
+-- Video PiP
+-- ---------------------------------------------------------------------------
+
+-- | Floating picture-in-picture overlay for video chat.
+-- Container divs are always rendered (with stable IDs for JS-created video
+-- elements); visibility is toggled via display:none so Miso's VDOM diffing
+-- doesn't remove JS-appended children.
+viewVideoPiP :: GameModel -> View GameModel GameAction
+viewVideoPiP gm =
+  let showPiP = (gmCameraOn gm || gmRemoteVideoOn gm)
+             && gmVoiceState gm == VoiceConnected
+  in H.div_
+    [ style_ $ [ ("position", "fixed"), ("bottom", "3.5rem"), ("right", "1rem")
+               , ("z-index", "52"), ("width", "192px"), ("height", "144px")
+               , ("border-radius", "0.5rem"), ("overflow", "hidden")
+               ] ++ if showPiP then [] else [("display", "none")]
+    , HP.class_ "shadow-lg"
+    ]
+    [ H.div_
+        [ HP.id_ "remote-video-pip"
+        , style_ [ ("width", "100%"), ("height", "100%")
+                 , ("background", "var(--card)"), ("border-radius", "0.5rem")
+                 ]
+        ] []
+    , H.div_
+        [ HP.id_ "local-video-preview"
+        , style_ [ ("position", "absolute"), ("bottom", "0.25rem"), ("right", "0.25rem")
+                 , ("width", "64px"), ("height", "48px")
+                 , ("border-radius", "0.25rem"), ("overflow", "hidden")
+                 , ("border", "1px solid rgba(255,255,255,0.3)")
+                 ]
+        ] []
+    ]
+
+-- ---------------------------------------------------------------------------
 -- Voice chat
 -- ---------------------------------------------------------------------------
 
@@ -668,6 +704,14 @@ viewVoiceButton gm
               , SVG.onClick GVoiceToggleMute
               ]
               [ text (if gmVoiceMuted gm then "Unmute" else "Mute") ]
+          , H.button_
+              [ HP.class_ ("btn btn-sm " <>
+                  if gmCameraOn gm
+                  then "bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
+                  else "btn-outline text-foreground")
+              , SVG.onClick GVideoToggleCamera
+              ]
+              [ text (if gmCameraOn gm then "Cam Off" else "Cam") ]
           , H.button_
               [ HP.class_ "btn btn-outline btn-sm text-foreground"
               , SVG.onClick GVoiceEnd

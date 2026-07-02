@@ -34,8 +34,9 @@ main = do
   voiceChannelRef  <- newIORef (Nothing :: Maybe Channel)
   peerConnRef      <- newIORef (Nothing :: Maybe JSVal)
   mediaStreamRef   <- newIORef (Nothing :: Maybe JSVal)
+  videoStreamRef   <- newIORef (Nothing :: Maybe JSVal)
   loungeChannelRef <- newIORef (Nothing :: Maybe Channel)
-  let refs = GameRefs channelRef chatChannelRef clockRef voiceChannelRef peerConnRef mediaStreamRef
+  let refs = GameRefs channelRef chatChannelRef clockRef voiceChannelRef peerConnRef mediaStreamRef videoStreamRef
   uri <- getURI
   let screen0 = case parseRoute uri of
         PlayRoute _ -> LoadingScreen
