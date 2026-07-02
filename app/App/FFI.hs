@@ -31,6 +31,9 @@ module App.FFI
   , js_voiceStopVideoStream
   , js_voiceAttachLocalVideo
   , js_voiceDetachLocalVideo
+  , js_playAudioFromStream
+  , js_createRemoteVideo
+  , js_removeRemoteVideo
     -- * Wrapped helpers
   , js_generateUUID
   , js_copyToClipboard
@@ -129,16 +132,22 @@ foreign import javascript unsafe "globalThis.voiceToggleMute($1)"
 -- Video
 foreign import javascript unsafe "globalThis.voiceGetVideoMedia($1,$2)"
   js_voiceGetVideoMedia_ffi2 :: JSVal -> JSVal -> IO ()
-foreign import javascript unsafe "globalThis.voiceAddVideoToPc($1,$2)"
+foreign import javascript unsafe "$2.getVideoTracks().forEach(function(t){$1.addTrack(t,$2)})"
   js_voiceAddVideoToPc :: JSVal -> JSVal -> IO ()
-foreign import javascript unsafe "globalThis.voiceRemoveVideoFromPc($1)"
+foreign import javascript unsafe "$1.getSenders().forEach(function(s){if(s.track&&s.track.kind==='video')$1.removeTrack(s)})"
   js_voiceRemoveVideoFromPc :: JSVal -> IO ()
-foreign import javascript unsafe "globalThis.voiceStopVideoStream($1)"
+foreign import javascript unsafe "$1.getTracks().forEach(function(t){t.stop()})"
   js_voiceStopVideoStream :: JSVal -> IO ()
-foreign import javascript unsafe "globalThis.voiceAttachLocalVideo($1)"
+foreign import javascript unsafe "var c=document.getElementById('local-video-preview');if(c){var o=document.getElementById('local-video-element');if(o)o.remove();var v=document.createElement('video');v.id='local-video-element';v.srcObject=$1;v.autoplay=true;v.playsInline=true;v.muted=true;v.style.cssText='width:100%;height:100%;object-fit:cover;border-radius:inherit;transform:scaleX(-1)';c.appendChild(v)}"
   js_voiceAttachLocalVideo :: JSVal -> IO ()
-foreign import javascript unsafe "globalThis.voiceDetachLocalVideo()"
+foreign import javascript unsafe "var e=document.getElementById('local-video-element');if(e)e.remove()"
   js_voiceDetachLocalVideo :: IO ()
+foreign import javascript unsafe "var a=new Audio();a.srcObject=$1;a.play().catch(function(){})"
+  js_playAudioFromStream :: JSVal -> IO ()
+foreign import javascript unsafe "var c=document.getElementById('remote-video-pip');if(c){var o=document.getElementById('remote-video-element');if(o)o.remove();var v=document.createElement('video');v.id='remote-video-element';v.srcObject=$1;v.autoplay=true;v.playsInline=true;v.muted=true;v.style.cssText='width:100%;height:100%;object-fit:cover;border-radius:inherit';c.appendChild(v)}"
+  js_createRemoteVideo :: JSVal -> IO ()
+foreign import javascript unsafe "var e=document.getElementById('remote-video-element');if(e)e.remove()"
+  js_removeRemoteVideo :: IO ()
 
 js_loadLocalGames :: Function -> Function -> IO ()
 js_loadLocalGames (Function a) (Function b) = js_loadLocalGames_ffi a b
@@ -265,6 +274,12 @@ js_voiceAttachLocalVideo :: JSVal -> IO ()
 js_voiceAttachLocalVideo _ = pure ()
 js_voiceDetachLocalVideo :: IO ()
 js_voiceDetachLocalVideo = pure ()
+js_playAudioFromStream :: JSVal -> IO ()
+js_playAudioFromStream _ = pure ()
+js_createRemoteVideo :: JSVal -> IO ()
+js_createRemoteVideo _ = pure ()
+js_removeRemoteVideo :: IO ()
+js_removeRemoteVideo = pure ()
 #endif
 
 -- ---------------------------------------------------------------------------

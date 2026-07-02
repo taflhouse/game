@@ -936,12 +936,18 @@ updateGame GameRefs{..} = \case
                 iceCb <- Function <$> asyncCallback1 (\candVal -> do
                   candStr <- fromJSValUnchecked candVal
                   sink (GVoiceIceCandidate candStr))
-                trackCb <- Function <$> asyncCallback1 (\kindVal -> do
+                trackCb <- Function <$> asyncCallback2 (\kindVal streamVal -> do
                   kind <- fromJSValUnchecked kindVal
                   case (kind :: MisoString) of
-                    "audio"       -> sink GVoiceRemoteTrack
-                    "video"       -> sink GVideoRemoteTrackOn
-                    "video-ended" -> sink GVideoRemoteTrackOff
+                    "audio"       -> do
+                      js_playAudioFromStream streamVal
+                      sink GVoiceRemoteTrack
+                    "video"       -> do
+                      js_createRemoteVideo streamVal
+                      sink GVideoRemoteTrackOn
+                    "video-ended" -> do
+                      js_removeRemoteVideo
+                      sink GVideoRemoteTrackOff
                     _             -> pure ())
                 pc <- js_voiceCreatePeerConnection iceCb trackCb
                 writeIORef grPeerConnRef (Just pc)
@@ -968,12 +974,18 @@ updateGame GameRefs{..} = \case
                   iceCb <- Function <$> asyncCallback1 (\candVal -> do
                     cStr <- fromJSValUnchecked candVal
                     sink (GVoiceIceCandidate cStr))
-                  trackCb <- Function <$> asyncCallback1 (\kindVal -> do
+                  trackCb <- Function <$> asyncCallback2 (\kindVal streamVal -> do
                     kind <- fromJSValUnchecked kindVal
                     case (kind :: MisoString) of
-                      "audio"       -> sink GVoiceRemoteTrack
-                      "video"       -> sink GVideoRemoteTrackOn
-                      "video-ended" -> sink GVideoRemoteTrackOff
+                      "audio"       -> do
+                        js_playAudioFromStream streamVal
+                        sink GVoiceRemoteTrack
+                      "video"       -> do
+                        js_createRemoteVideo streamVal
+                        sink GVideoRemoteTrackOn
+                      "video-ended" -> do
+                        js_removeRemoteVideo
+                        sink GVideoRemoteTrackOff
                       _             -> pure ())
                   pc <- js_voiceCreatePeerConnection iceCb trackCb
                   writeIORef grPeerConnRef (Just pc)
