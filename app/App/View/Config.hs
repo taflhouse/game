@@ -110,7 +110,7 @@ setupSection label children =
   H.div_
     [ HP.class_ "text-center" ]
     [ H.div_
-        [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase mb-2 mt-4"
+        [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase mb-2 mt-6"
         ]
         [ text label ]
     , H.div_
@@ -142,7 +142,7 @@ viewSetupAi m =
   H.div_
     [ HP.class_ "text-center" ]
     [ H.div_
-        [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase mb-2 mt-4"
+        [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase mb-2 mt-6"
         ]
         [ text "AI SETTINGS" ]
     -- AI side
@@ -156,7 +156,7 @@ viewSetupAi m =
     , H.div_
         [ HP.class_ "text-center", style_ [("position", "relative")] ]
         [ H.div_
-            [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase mb-2 mt-4 flex items-center justify-center gap-1" ]
+            [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase mb-2 mt-6 flex items-center justify-center gap-1" ]
             [ text "DEPTH"
             , H.span_
                 [ HP.class_ "inline-flex items-center justify-center w-4 h-4 rounded-full border border-muted-foreground text-[10px] cursor-pointer"
@@ -183,7 +183,7 @@ viewSetupAi m =
     , H.div_
         [ HP.class_ "text-center", style_ [("position", "relative")] ]
         [ H.div_
-            [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase mb-2 mt-4 flex items-center justify-center gap-1" ]
+            [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase mb-2 mt-6 flex items-center justify-center gap-1" ]
             [ text "NODES"
             , H.span_
                 [ HP.class_ "inline-flex items-center justify-center w-4 h-4 rounded-full border border-muted-foreground text-[10px] cursor-pointer"
