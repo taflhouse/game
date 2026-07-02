@@ -303,13 +303,17 @@ viewClocks n lSide lName lMs lActive rSide rName rMs rActive tc mDeadline =
           [ HP.class_ ("flex justify-between items-center flex-1 text-sm font-mono" <> activeCls <> lowCls)
           , style_ [("padding", "0.5em 0.75em")]
           ]
-          [ H.span_ [ HP.class_ "flex items-center gap-1.5" ]
+          [ H.span_ [ HP.class_ "flex items-center gap-1.5"
+                     , style_ [("overflow", "hidden"), ("min-width", "0")]
+                     ]
               [ H.span_
                   [ HP.class_ "text-xs tracking-wider text-muted-foreground"
-                  , style_ [("font-size", "0.65rem")]
+                  , style_ [("font-size", "0.65rem"), ("flex-shrink", "0")]
                   ]
                   [ text (sideLabel side) ]
-              , text name
+              , H.span_
+                  [ style_ [("overflow", "hidden"), ("text-overflow", "ellipsis"), ("white-space", "nowrap")] ]
+                  [ text name ]
               ]
           , H.span_ [ HP.class_ "tabular-nums" ] [ text timeDisplay ]
           ]
