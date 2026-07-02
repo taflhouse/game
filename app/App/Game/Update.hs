@@ -31,6 +31,7 @@ import App.Game.Model
 import App.Game.Action
 import App.Route (replayMoves, lookupVariant, playURI)
 import App.FFI
+import Supabase.Miso.Core (successCallback, errorCallback)
 
 updateGame :: GameRefs -> GameAction -> Effect Model GameProps GameModel GameAction
 updateGame GameRefs{..} = \case
@@ -80,7 +81,7 @@ updateGame GameRefs{..} = \case
           Nothing -> pure ()
         triggerAi grChannelRef grClockRef
 
-      NewMultiplayerGame variant tc sidePref invCode uuid qrUrl -> do
+      NewMultiplayerGame variant tc sidePref invCode uuid qrUrl isRated -> do
         let gs = initialState variant
             mySide = case sidePref of
               "attacker" -> AttackerSide
@@ -124,12 +125,14 @@ updateGame GameRefs{..} = \case
                   , "attacker_name" .= atkName
                   , "defender_id"   .= defId
                   , "defender_name" .= defName
+                  , "is_rated"      .= isRated
                   ] ++ tcFields
             put $ initialGameModel
               { gmGameId = Just uuid
               , gmGameState = gs
               , gmVariant = variant
               , gmGameMode = MultiplayerMode
+              , gmIsRated = isRated
               , gmPlayerSide = Just mySide
               , gmInviteCode = Just invCode
               , gmQrDataUrl = Just qrUrl
@@ -161,6 +164,7 @@ updateGame GameRefs{..} = \case
         put $ applyClockFromRow gr $ initialGameModel
           { gmGameId = Just gid
           , gmGameMode = MultiplayerMode
+          , gmIsRated = grwIsRated gr
           , gmGameState = gs
           , gmVariant = variant
           , gmHistory = hist
@@ -227,6 +231,7 @@ updateGame GameRefs{..} = \case
             put $ applyClockFromRow gr $ initialGameModel
               { gmGameId = Just gid
               , gmGameMode = gameMode
+              , gmIsRated = grwIsRated gr
               , gmVariant = variant
               , gmGameState = gs
               , gmHistory = hist
@@ -262,6 +267,7 @@ updateGame GameRefs{..} = \case
             put $ applyClockFromRow gr $ initialGameModel
               { gmGameId = Just gid
               , gmGameMode = gameMode
+              , gmIsRated = grwIsRated gr
               , gmVariant = variant
               , gmGameState = gs
               , gmHistory = hist
@@ -465,6 +471,10 @@ updateGame GameRefs{..} = \case
             , gmAttackerName = grwAttackerName gr
             , gmDefenderName = grwDefenderName gr
             }
+          -- Detect rated -> casual downgrade
+          when (gmIsRated gm && not (grwIsRated gr)) $ do
+            modify $ \x -> x { gmIsRated = False }
+            mailParent $ object ["type" .= ("rated_downgraded" :: MisoString)]
           case parseTimeControl gr of
             BlitzControl _ -> startBlitzClock grChannelRef grClockRef
             DailyControl _ -> startDailyClock grClockRef
@@ -567,7 +577,11 @@ updateGame GameRefs{..} = \case
           GMoveUpdated GMoveUpdateError
       Nothing -> pure ()
     if finished (gsResult gs)
-      then stopClock' grClockRef
+      then do
+        stopClock' grClockRef
+        case gmGameId gm of
+          Just gid' -> triggerRatingUpdate gid'
+          Nothing   -> pure ()
       else case gmTimeControl gm of
         BlitzControl _ -> startBlitzClock grChannelRef grClockRef
         DailyControl _ -> startDailyClock grClockRef
@@ -575,9 +589,13 @@ updateGame GameRefs{..} = \case
 
   GCompleteJoinWithClock uid displayName nowStr mDeadlineStr -> do
     gm <- get
+    props <- getProps
     case (gmGameId gm, gmPlayerSide gm) of
       (Just gid, Just mySide) -> do
-        let baseJoinFields = case mySide of
+        let isAnon = case gpSession props of
+              Just sess -> amProvider (userAppMetadata (sessionUser sess)) == "anonymous"
+              Nothing   -> True
+            baseJoinFields = case mySide of
               AttackerSide ->
                 [ "attacker_id"   .= uid
                 , "attacker_name" .= displayName
@@ -588,6 +606,9 @@ updateGame GameRefs{..} = \case
                 , "defender_name" .= displayName
                 , "status"        .= ("active" :: MisoString)
                 ]
+            ratedDowngrade = if gmIsRated gm && isAnon
+                             then ["is_rated" .= False]
+                             else []
             tcFields = case gmTimeControl gm of
               BlitzControl _ -> [ "last_move_at" .= nowStr ]
               DailyControl _ ->
@@ -598,7 +619,9 @@ updateGame GameRefs{..} = \case
           NoTimeControl -> pure ()
           _ -> modify $ \x -> x { gmLastMoveAt = Just nowStr
                                 , gmMoveDeadline = mDeadlineStr }
-        updateTable "games" (object (baseJoinFields ++ tcFields))
+        when (gmIsRated gm && isAnon) $
+          modify $ \x -> x { gmIsRated = False }
+        updateTable "games" (object (baseJoinFields ++ tcFields ++ ratedDowngrade))
           [eq "id" gid]
           (UpdateOptions Nothing)
           GMoveUpdated GMoveUpdateError
@@ -627,6 +650,7 @@ updateGame GameRefs{..} = \case
             [eq "id" gid]
             (UpdateOptions Nothing)
             GMoveUpdated GMoveUpdateError
+          triggerRatingUpdate gid
         _ -> pure ()
 
   GOfferDraw -> do
@@ -656,6 +680,7 @@ updateGame GameRefs{..} = \case
             [eq "id" gid]
             (UpdateOptions Nothing)
             GMoveUpdated GMoveUpdateError
+          triggerRatingUpdate gid
           modify $ \x -> x { gmDrawOffered = False }
         Nothing -> pure ()
 
@@ -718,6 +743,7 @@ updateGame GameRefs{..} = \case
             [eq "id" gid]
             (UpdateOptions Nothing)
             GMoveUpdated GMoveUpdateError
+          triggerRatingUpdate gid
         Nothing -> pure ()
 
   GClockStarted tid ->
@@ -1197,6 +1223,12 @@ updateGame GameRefs{..} = \case
 
   GGameCreateError _ -> pure ()
 
+  -- Rating
+  GRatingUpdated _ ->
+    mailParent $ object ["type" .= ("rating_updated" :: MisoString)]
+
+  GRatingUpdateError _ -> pure ()  -- idempotent; will succeed next time
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
@@ -1388,6 +1420,16 @@ sendVoiceBroadcast voiceChRef gm msgType extraFields = do
     case mCh of
       Just (Channel chJsv) -> js_sendBroadcast chJsv "voice" payload
       Nothing -> pure ()
+
+-- | Trigger a Supabase RPC call to compute Glicko-2 ratings for a finished game.
+triggerRatingUpdate :: MisoString -> Effect Model GameProps GameModel GameAction
+triggerRatingUpdate gameId =
+  withSink $ \sink -> do
+    let ratingOk :: Value -> GameAction
+        ratingOk _ = GRatingUpdated (object [])
+    okCb  <- successCallback sink (\_ -> GRatingUpdated (object [])) ratingOk
+    errCb <- errorCallback sink GRatingUpdateError
+    js_runSupabaseRpc "update_ratings" (object ["p_game_id" .= gameId]) okCb errCb
 
 -- | Tear down WebRTC peer connection and media stream (null-safe).
 -- Uses empty-string JSVals as falsy stand-ins for null when a ref is Nothing,

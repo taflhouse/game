@@ -72,7 +72,7 @@ viewGameScreen :: Component Model GameProps GameModel GameAction -> Model -> Vie
 viewGameScreen gameComp m = case mGameInitData m of
   Just initData ->
     mountWithProps_ "game"
-      (GameProps (mSession m) (mProfile m) (mGuestName m) initData)
+      (GameProps (mSession m) (mProfile m) (mGuestName m) initData (mIsRated m))
       gameComp
   Nothing ->
     H.div_

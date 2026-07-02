@@ -89,5 +89,8 @@ data GameAction
   | GVideoRemoteTrackOn
   | GVideoRemoteTrackOff
   | GVideoSetViewMode VideoViewMode
+  -- Rating
+  | GRatingUpdated Value
+  | GRatingUpdateError MisoString
   -- Internal
   | GNoOp

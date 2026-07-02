@@ -86,6 +86,9 @@ data Action
   | SetJoinNameInput MisoString
   | SetSidePreference MisoString
   | SetTimeControl TimeControl
+  | SetRated Bool
+  | JoinRatedAsGuest
+  | JoinRatedWithSignIn
   -- Replay
   | GotoReplay MisoString
   -- View mode (replay only; game component handles its own)

@@ -399,7 +399,7 @@ updateModel loungeChannelRef = \case
   ProfileCreated _ -> do
     m <- get
     modify $ \x -> x
-      { mProfile       = Just (Profile (mUsernameInput m) Nothing)
+      { mProfile       = Just (Profile (mUsernameInput m) Nothing 1500.0 350.0 0)
       , mNeedsUsername  = False
       , mUsernameInput  = ""
       }
@@ -460,8 +460,12 @@ updateModel loungeChannelRef = \case
 
   ProfileUpdated _ -> do
     m <- get
+    let oldProfile = mProfile m
+        r  = maybe 1500.0 pRating oldProfile
+        rd = maybe 350.0 pRatingRd oldProfile
+        gr = maybe 0 pGamesRated oldProfile
     modify $ \x -> x
-      { mProfile = Just (Profile (mEditUsername m) (Just (mEditDisplayName m))) }
+      { mProfile = Just (Profile (mEditUsername m) (Just (mEditDisplayName m)) r rd gr) }
     io_ $ pushURI profileURI
 
   ProfileUpdateError _ ->
@@ -487,13 +491,18 @@ updateModel loungeChannelRef = \case
 
   InitMultiplayerGame invCode uuid qrUrl -> do
     m <- get
+    let isAnon = case mSession m of
+          Just sess -> amProvider (userAppMetadata (sessionUser sess)) == "anonymous"
+          Nothing   -> True
+        rated = mIsRated m && not isAnon
     modify $ \x -> x
       { mGameInitData = Just (NewMultiplayerGame (mVariant m) (mTimeControl m)
-                               (mSidePreference m) invCode uuid qrUrl)
+                               (mSidePreference m) invCode uuid qrUrl rated)
       , mScreen = GameScreen
       }
 
   JoinMultiplayerGame -> do
+    modify $ \x -> x { mPendingRatedJoin = Nothing }
     m <- get
     if not (hasDisplayName m || mJoinNameInput m /= "")
       then pure ()  -- Wait for name input
@@ -509,7 +518,7 @@ updateModel loungeChannelRef = \case
                     (InsertOptions Nothing Nothing)
                     (\_ -> NoOp) (\_ -> NoOp)
                   modify $ \x -> x
-                    { mProfile = Just (Profile (mJoinNameInput x) Nothing)
+                    { mProfile = Just (Profile (mJoinNameInput x) Nothing 1500.0 350.0 0)
                     , mNeedsUsername = False
                     }
             _ -> pure ()
@@ -531,11 +540,17 @@ updateModel loungeChannelRef = \case
   GameFoundToJoin val ->
     case fromJSON val of
       Success rows -> case (rows :: [GameRow]) of
-        (gr:_) ->
-          modify $ \m -> m
-            { mGameInitData = Just (JoinGame gr)
-            , mScreen       = GameScreen
-            }
+        (gr:_) -> do
+          m <- get
+          let isAnon = case mSession m of
+                Just sess -> amProvider (userAppMetadata (sessionUser sess)) == "anonymous"
+                Nothing   -> True
+          if grwIsRated gr && isAnon
+            then modify $ \x -> x { mPendingRatedJoin = Just gr }
+            else modify $ \x -> x
+              { mGameInitData = Just (JoinGame gr)
+              , mScreen       = GameScreen
+              }
         [] ->
           modify $ \m -> m { mToast = Just "No waiting game found with that code." }
       Error _ ->
@@ -569,6 +584,23 @@ updateModel loungeChannelRef = \case
 
   SetTimeControl tc ->
     modify $ \m -> m { mTimeControl = tc }
+
+  SetRated b ->
+    modify $ \m -> m { mIsRated = b }
+
+  JoinRatedWithSignIn -> do
+    modify $ \x -> x { mDeferredMpAction = Just DeferJoin }
+    io_ $ pushURI signInURI
+
+  JoinRatedAsGuest -> do
+    m <- get
+    case mPendingRatedJoin m of
+      Just gr -> modify $ \x -> x
+        { mPendingRatedJoin = Nothing
+        , mGameInitData     = Just (JoinGame gr)
+        , mScreen           = GameScreen
+        }
+      Nothing -> pure ()
 
   -- Lounge ---------------------------------------------------------------
 
@@ -646,6 +678,13 @@ updateModel loungeChannelRef = \case
           Just msg -> updateModel loungeChannelRef (ShowToast msg)
           Nothing  -> pure ()
       Just "game_finished" -> loadPastGames
+      Just "rating_updated" -> do
+        m <- get
+        case mSession m of
+          Just sess -> loadProfile sess
+          Nothing   -> pure ()
+      Just "rated_downgraded" ->
+        updateModel loungeChannelRef (ShowToast "Your opponent joined as a guest \x2014 this game is now casual.")
       Just "game_unmounted" ->
         modify $ \m -> m { mGameInitData = Nothing }
       Just "toggle_zen" -> updateModel loungeChannelRef ToggleZenMode
@@ -661,7 +700,7 @@ updateModel loungeChannelRef = \case
 -- | Extract the UUID from any GameInitData variant.
 gameInitUuid :: GameInitData -> MisoString
 gameInitUuid (NewLocalGame uuid _ _ _ _ _)        = uuid
-gameInitUuid (NewMultiplayerGame _ _ _ _ uuid _)   = uuid
+gameInitUuid (NewMultiplayerGame _ _ _ _ uuid _ _)  = uuid
 gameInitUuid (JoinGame gr)                         = grwId gr
 gameInitUuid (ResumeGame gr)                       = grwId gr
 

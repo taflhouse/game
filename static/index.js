@@ -255,6 +255,20 @@ globalThis["runSupabaseQuery"] = function (
     });
 };
 
+// -- Supabase RPC --
+
+globalThis.runSupabaseRpc = function(fnName, params, successCallback, errorCallback) {
+  console.log("[runSupabaseRpc]", fnName, params);
+  globalThis.supabase.rpc(fnName, params).then(({ data, error }) => {
+    console.log("[runSupabaseRpc] result", fnName, { data, error });
+    if (error) errorCallback(error.message || String(error));
+    else successCallback(data);
+  }).catch((err) => {
+    console.error("[runSupabaseRpc] catch", fnName, err);
+    errorCallback(err.message || String(err));
+  });
+};
+
 // -- Local game persistence (localStorage) --
 
 globalThis.loadLocalGames = function(successCb, errorCb) {

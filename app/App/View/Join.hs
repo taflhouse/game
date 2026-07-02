@@ -17,6 +17,37 @@ import App.Action
 
 viewJoin :: Model -> View Model Action
 viewJoin m
+  | Just _ <- mPendingRatedJoin m =
+    -- Rated game sign-in prompt
+    H.div_
+      [ HP.class_ "flex-1 flex items-center justify-center w-full" ]
+      [ H.div_
+          [ HP.class_ "card p-6 w-full max-w-sm"
+          , style_ [("margin-top", "4em")]
+          ]
+          [ H.h2_
+              [ HP.class_ "text-xl font-bold mb-4 text-center" ]
+              [ text "Rated Game" ]
+          , H.p_
+              [ HP.class_ "text-sm text-muted-foreground mb-4 text-center" ]
+              [ text "This is a rated game. Sign in to have it count toward your rating." ]
+          , H.div_
+              [ HP.class_ "flex flex-col gap-2" ]
+              [ H.button_
+                  [ HP.class_ "btn w-full"
+                  , style_ [("touch-action", "manipulation")]
+                  , SVG.onClick JoinRatedWithSignIn
+                  ]
+                  [ text "Sign In" ]
+              , H.button_
+                  [ HP.class_ "btn btn-outline text-foreground w-full"
+                  , style_ [("touch-action", "manipulation")]
+                  , SVG.onClick JoinRatedAsGuest
+                  ]
+                  [ text "Continue as Guest" ]
+              ]
+          ]
+      ]
   | mDeferredMpAction m == Just DeferJoin =
     -- Waiting for anonymous sign-in
     joiningSpinner

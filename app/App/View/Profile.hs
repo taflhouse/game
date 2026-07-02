@@ -41,6 +41,8 @@ viewProfile m =
                 [ HP.class_ "flex flex-col gap-3" ]
                 [ summaryRow ("Username", pUsername profile)
                 , summaryRow ("Display Name", maybe "-" id (pDisplayName profile))
+                , summaryRow ("Rating", formatRating (pRating profile) (pRatingRd profile))
+                , summaryRow ("Rated Games", ms (show (pGamesRated profile)))
                 , summaryRow ("Games Played", ms (show (length (mPastGames m))))
                 , let wins = length $ filter (\gr -> grWinner gr /= Nothing) (mPastGames m)
                       total = length (mPastGames m)
@@ -137,3 +139,9 @@ summaryRow (label, val) =
         ]
         [ text val ]
     ]
+
+-- | Format a rating with "?" suffix if provisional (RD > 100).
+formatRating :: Double -> Double -> MisoString
+formatRating r rd =
+  let rStr = ms (show (round r :: Int))
+  in if rd > 100 then rStr <> "?" else rStr

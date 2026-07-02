@@ -51,6 +51,7 @@ data GameProps = GameProps
   , gpProfile   :: Maybe Profile
   , gpGuestName :: Maybe MisoString
   , gpInitData  :: GameInitData
+  , gpIsRated   :: !Bool
   } deriving (Eq)
 
 -- | Game component model.
@@ -75,6 +76,7 @@ data GameModel = GameModel
   , gmAiDepth      :: !Int
   , gmAiNodeLimit  :: !Int
     -- Multiplayer
+  , gmIsRated       :: !Bool
   , gmInviteCode    :: Maybe MisoString
   , gmQrDataUrl     :: Maybe MisoString
   , gmOpponentName  :: Maybe MisoString
@@ -129,6 +131,7 @@ initialGameModel = GameModel
   , gmAiThinking   = False
   , gmAiDepth      = 4
   , gmAiNodeLimit  = 10000
+  , gmIsRated      = True
   , gmInviteCode   = Nothing
   , gmQrDataUrl    = Nothing
   , gmOpponentName  = Nothing

@@ -98,8 +98,8 @@ authLoading = lens _authLoading $ \r f -> r { _authLoading = f }
 data GameInitData
   = NewLocalGame !MisoString !BoardVariant !GameMode !Side !Int !Int
     -- ^ uuid variant mode aiSide aiDepth aiNodeLimit
-  | NewMultiplayerGame !BoardVariant !TimeControl !MisoString !MisoString !MisoString !MisoString
-    -- ^ variant timeControl sidePreference invCode uuid qrDataUrl
+  | NewMultiplayerGame !BoardVariant !TimeControl !MisoString !MisoString !MisoString !MisoString !Bool
+    -- ^ variant timeControl sidePreference invCode uuid qrDataUrl isRated
   | JoinGame !GameRow
     -- ^ joining via invite code (player not yet in the row)
   | ResumeGame !GameRow
@@ -139,12 +139,14 @@ data Model = Model
   , mShowQuoteRef     :: !Bool
   , mQuoteRefGen      :: !Int
     -- Multiplayer config
+  , mIsRated          :: !Bool
   , mSidePreference   :: !MisoString
   , mTimeControl      :: !TimeControl
   , mJoinCodeInput    :: !MisoString
   , mJoinNameInput    :: !MisoString
   , mGuestName        :: Maybe MisoString
   , mDeferredMpAction :: Maybe DeferredMpAction
+  , mPendingRatedJoin :: Maybe GameRow
     -- View mode (used by replay; game component manages its own)
   , mViewMode         :: !ViewMode
   , mIsFullscreen     :: !Bool
@@ -193,12 +195,14 @@ initModel = Model
   , mLocalGames       = []
   , mShowQuoteRef     = False
   , mQuoteRefGen      = 0
+  , mIsRated          = True
   , mSidePreference   = "defender"
   , mTimeControl      = NoTimeControl
   , mJoinCodeInput    = ""
   , mJoinNameInput    = ""
   , mGuestName        = Nothing
   , mDeferredMpAction = Nothing
+  , mPendingRatedJoin = Nothing
   , mViewMode         = NormalView
   , mIsFullscreen     = False
   , mZenHint          = False

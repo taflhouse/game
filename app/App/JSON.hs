@@ -91,6 +91,7 @@ data GameRow = GameRow
   , grwTimePerMoveSec    :: Maybe Int
   , grwTimePerPlayerMs   :: Maybe Int
   , grwGameMode          :: Maybe MisoString
+  , grwIsRated           :: !Bool
   } deriving (Eq, Show)
 
 instance FromJSON GameRow where
@@ -118,6 +119,7 @@ instance FromJSON GameRow where
       <*> v .:? "time_per_move_seconds"
       <*> v .:? "time_per_player_ms"
       <*> v .:? "game_mode"
+      <*> v .:? "is_rated" .!= True
 
 -- ---------------------------------------------------------------------------
 -- Profile
@@ -126,11 +128,19 @@ instance FromJSON GameRow where
 data Profile = Profile
   { pUsername    :: !MisoString
   , pDisplayName :: Maybe MisoString
+  , pRating     :: !Double
+  , pRatingRd   :: !Double
+  , pGamesRated :: !Int
   } deriving (Eq, Show)
 
 instance FromJSON Profile where
   parseJSON = withObject "Profile" $ \v ->
-    Profile <$> v .: "username" <*> v .:? "display_name"
+    Profile
+      <$> v .: "username"
+      <*> v .:? "display_name"
+      <*> v .:? "rating"      .!= 1500.0
+      <*> v .:? "rating_rd"   .!= 350.0
+      <*> v .:? "games_rated" .!= 0
 
 -- ---------------------------------------------------------------------------
 -- GameRecord (past game summaries)

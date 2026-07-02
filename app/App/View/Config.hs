@@ -11,6 +11,8 @@ import qualified Miso.Svg as SVG
 import Tafl.Board (Side(..))
 import Tafl.Rules (BoardVariant(..))
 
+import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
+
 import App.JSON (Profile(..))
 import App.Model
 import App.Action
@@ -126,6 +128,15 @@ setupBtn action label isActive =
     ]
     [ text label ]
 
+disabledBtn :: MisoString -> View Model Action
+disabledBtn label =
+  H.button_
+    [ HP.class_ "btn btn-outline text-muted-foreground"
+    , style_ [("touch-action", "manipulation"), ("opacity", "0.5"), ("cursor", "not-allowed")]
+    , HP.disabled_
+    ]
+    [ text label ]
+
 viewSetupAi :: Model -> View Model Action
 viewSetupAi m =
   H.div_
@@ -211,13 +222,26 @@ viewSetupMultiplayer m =
         _ -> case mSession m of
           Nothing -> True                       -- no session yet
           Just _  -> mGuestName m /= Nothing    -- anonymous user
+      isAnon = case mSession m of
+        Just sess -> amProvider (userAppMetadata (sessionUser sess)) == "anonymous"
+        Nothing   -> True
   in H.div_
     [ HP.class_ "text-center" ]
     ([ setupSection "Your Side"
         [ setupBtn (SetSidePreference "attacker") "Attackers" (mSidePreference m == "attacker")
         , setupBtn (SetSidePreference "defender") "Defenders" (mSidePreference m == "defender")
         ]
-    , setupSection "Time Control"
+    , setupSection "Game Type"
+        [ if isAnon
+            then disabledBtn "Rated"
+            else setupBtn (SetRated True) "Rated" (mIsRated m)
+        , setupBtn (SetRated False) "Casual" (isAnon || not (mIsRated m))
+        ]
+    ] ++ [ H.p_
+             [ HP.class_ "text-xs text-muted-foreground" ]
+             [ text "Sign in to play rated games" ]
+         | isAnon ]
+    ++ [ setupSection "Time Control"
         [ setupBtn (SetTimeControl NoTimeControl) "None" (mTimeControl m == NoTimeControl)
         , setupBtn (SetTimeControl (BlitzControl 300000)) "Blitz" (isBlitz (mTimeControl m))
         , setupBtn (SetTimeControl (DailyControl 86400)) "Daily" (isDaily (mTimeControl m))

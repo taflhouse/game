@@ -37,6 +37,8 @@ module App.FFI
     -- * PiP drag
   , js_makePipDraggable
   , js_clearPipDragTransform
+    -- * Supabase RPC
+  , js_runSupabaseRpc
     -- * Wrapped helpers
   , js_generateUUID
   , js_copyToClipboard
@@ -157,6 +159,16 @@ foreign import javascript unsafe "globalThis.makePipDraggable()"
   js_makePipDraggable :: IO ()
 foreign import javascript unsafe "globalThis.clearPipDragTransform()"
   js_clearPipDragTransform :: IO ()
+
+-- Supabase RPC
+foreign import javascript unsafe "globalThis.runSupabaseRpc($1,$2,$3,$4)"
+  js_runSupabaseRpc_ffi :: JSVal -> JSVal -> JSVal -> JSVal -> IO ()
+
+js_runSupabaseRpc :: MisoString -> Value -> Function -> Function -> IO ()
+js_runSupabaseRpc fnName params (Function okCb) (Function errCb) = do
+  fnJsv <- toJSVal fnName
+  paramsJsv <- toJSVal params
+  js_runSupabaseRpc_ffi fnJsv paramsJsv okCb errCb
 
 js_loadLocalGames :: Function -> Function -> IO ()
 js_loadLocalGames (Function a) (Function b) = js_loadLocalGames_ffi a b
@@ -294,6 +306,9 @@ js_makePipDraggable :: IO ()
 js_makePipDraggable = pure ()
 js_clearPipDragTransform :: IO ()
 js_clearPipDragTransform = pure ()
+-- Supabase RPC stub
+js_runSupabaseRpc :: MisoString -> Value -> Function -> Function -> IO ()
+js_runSupabaseRpc _ _ _ _ = pure ()
 #endif
 
 -- ---------------------------------------------------------------------------
