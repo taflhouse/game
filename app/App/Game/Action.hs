@@ -7,6 +7,8 @@ import Supabase.Miso.Realtime (Channel)
 
 import Tafl.Board (Coords, MoveAction)
 
+import App.Game.Model (VideoViewMode)
+
 data GameAction
   = GameMount
   | GameUnmount
@@ -86,5 +88,6 @@ data GameAction
   | GVideoMediaError MisoString
   | GVideoRemoteTrackOn
   | GVideoRemoteTrackOff
+  | GVideoSetViewMode VideoViewMode
   -- Internal
   | GNoOp

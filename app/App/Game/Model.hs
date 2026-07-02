@@ -3,6 +3,7 @@ module App.Game.Model
   , GameProps(..)
   , GameRefs(..)
   , VoiceState(..)
+  , VideoViewMode(..)
   , initialGameModel
   ) where
 
@@ -19,6 +20,10 @@ import Tafl.Game.State (GameState)
 
 import App.JSON (Profile, ChatMessage)
 import App.Model (GameMode(..), TimeControl(..), ViewMode(..), GameInitData(..))
+
+-- | Video overlay view mode.
+data VideoViewMode = VideoPiP | VideoTheater
+  deriving (Eq, Show)
 
 -- | Voice chat state machine.
 data VoiceState
@@ -102,6 +107,7 @@ data GameModel = GameModel
     -- Video
   , gmCameraOn      :: !Bool
   , gmRemoteVideoOn :: !Bool
+  , gmVideoViewMode :: !VideoViewMode
   } deriving (Eq)
 
 initialGameModel :: GameModel
@@ -150,4 +156,5 @@ initialGameModel = GameModel
   , gmVoiceError   = Nothing
   , gmCameraOn      = False
   , gmRemoteVideoOn = False
+  , gmVideoViewMode = VideoPiP
   }

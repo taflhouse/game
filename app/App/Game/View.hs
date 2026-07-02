@@ -645,38 +645,167 @@ viewChatMessage cm =
     ]
 
 -- ---------------------------------------------------------------------------
--- Video PiP
+-- Video PiP / Theater
 -- ---------------------------------------------------------------------------
 
--- | Floating picture-in-picture overlay for video chat.
+-- | Floating picture-in-picture overlay for video chat with theater mode.
 -- Container divs are always rendered (with stable IDs for JS-created video
 -- elements); visibility is toggled via display:none so Miso's VDOM diffing
 -- doesn't remove JS-appended children.
+--
+-- The child list is always the same length (2 children: video-area + controls
+-- placeholder) so Miso patches in place and never destroys JS-appended
+-- <video> elements.
 viewVideoPiP :: GameModel -> View GameModel GameAction
 viewVideoPiP gm =
   let showPiP = (gmCameraOn gm || gmRemoteVideoOn gm)
              && gmVoiceState gm == VoiceConnected
+      isTheater = gmVideoViewMode gm == VideoTheater
+      containerStyles = if isTheater
+        then [ ("position", "fixed"), ("inset", "0")
+             , ("z-index", "52"), ("overflow", "hidden")
+             , ("background", "#000"), ("display", "flex")
+             , ("flex-direction", "column")
+             ] ++ if showPiP then [] else [("display", "none")]
+        else [ ("position", "fixed"), ("bottom", "3.5rem"), ("right", "1rem")
+             , ("z-index", "52"), ("width", "192px"), ("height", "144px")
+             , ("border-radius", "0.5rem"), ("overflow", "hidden")
+             , ("cursor", "grab")
+             ] ++ if showPiP then [] else [("display", "none")]
+      videoAreaStyles = if isTheater
+        then [ ("width", "100%"), ("flex", "1"), ("position", "relative")
+             , ("background", "#000")
+             ]
+        else [ ("width", "100%"), ("height", "100%"), ("position", "relative")
+             , ("background", "var(--card)")
+             ]
+      localPreviewStyles = if isTheater
+        then [ ("position", "absolute"), ("bottom", "0.75rem"), ("right", "0.75rem")
+             , ("width", "128px"), ("height", "96px")
+             , ("border-radius", "0.375rem"), ("overflow", "hidden")
+             , ("border", "2px solid rgba(255,255,255,0.3)")
+             ]
+        else [ ("position", "absolute"), ("bottom", "0.25rem"), ("right", "0.25rem")
+             , ("width", "64px"), ("height", "48px")
+             , ("border-radius", "0.25rem"), ("overflow", "hidden")
+             , ("border", "1px solid rgba(255,255,255,0.3)")
+             ]
   in H.div_
-    [ style_ $ [ ("position", "fixed"), ("bottom", "3.5rem"), ("right", "1rem")
-               , ("z-index", "52"), ("width", "192px"), ("height", "144px")
-               , ("border-radius", "0.5rem"), ("overflow", "hidden")
-               ] ++ if showPiP then [] else [("display", "none")]
+    [ HP.id_ "video-overlay"
+    , style_ containerStyles
     , HP.class_ "shadow-lg"
     ]
-    [ H.div_
-        [ HP.id_ "remote-video-pip"
-        , style_ [ ("width", "100%"), ("height", "100%")
-                 , ("background", "var(--card)"), ("border-radius", "0.5rem")
-                 ]
-        ] []
-    , H.div_
-        [ HP.id_ "local-video-preview"
-        , style_ [ ("position", "absolute"), ("bottom", "0.25rem"), ("right", "0.25rem")
-                 , ("width", "64px"), ("height", "48px")
-                 , ("border-radius", "0.25rem"), ("overflow", "hidden")
-                 , ("border", "1px solid rgba(255,255,255,0.3)")
-                 ]
-        ] []
+    [ -- Video area (always 3 children: remote, local, expand/placeholder)
+      H.div_
+        [ style_ videoAreaStyles ]
+        [ H.div_
+            [ HP.id_ "remote-video-pip"
+            , style_ [ ("width", "100%"), ("height", "100%")
+                     , ("border-radius", "inherit")
+                     ]
+            ] []
+        , H.div_
+            [ HP.id_ "local-video-preview"
+            , style_ localPreviewStyles
+            ] []
+        , if isTheater
+          then text ""
+          else H.button_
+            [ HP.class_ "text-white hover:text-white"
+            , style_ [ ("position", "absolute"), ("top", "0.25rem"), ("right", "0.25rem")
+                     , ("background", "rgba(0,0,0,0.5)"), ("border", "0")
+                     , ("border-radius", "0.25rem"), ("cursor", "pointer")
+                     , ("padding", "0.15rem 0.3rem"), ("line-height", "1")
+                     , ("touch-action", "manipulation")
+                     ]
+            , SVG.onClick (GVideoSetViewMode VideoTheater)
+            , HP.title_ "Theater mode"
+            ]
+            [ iconMaximize ]
+        ]
+    , -- Theater controls bar or placeholder
+      if isTheater
+      then H.div_
+        [ HP.class_ "flex items-center px-3 py-2"
+        , style_ [("background", "rgba(0,0,0,0.7)")]
+        ]
+        [ -- Left: PiP button
+          H.button_
+            [ HP.class_ "text-xs px-2 py-0.5 rounded border border-border text-foreground"
+            , style_ [("touch-action", "manipulation"), ("background", "transparent")]
+            , SVG.onClick (GVideoSetViewMode VideoPiP)
+            ]
+            [ iconMinimize, text " PiP" ]
+        , -- Center spacer + controls
+          H.div_
+            [ HP.class_ "flex items-center gap-2 mx-auto" ]
+            [ H.button_
+                [ HP.class_ ("text-xs px-2 py-0.5 rounded border " <>
+                    if gmVoiceMuted gm
+                    then "bg-red-600 text-white border-red-500"
+                    else "bg-green-600 text-white border-green-500")
+                , style_ [("touch-action", "manipulation")]
+                , SVG.onClick GVoiceToggleMute
+                ]
+                [ text (if gmVoiceMuted gm then "Unmute" else "Mute") ]
+            , H.button_
+                [ HP.class_ ("text-xs px-2 py-0.5 rounded border " <>
+                    if gmCameraOn gm
+                    then "bg-blue-600 text-white border-blue-500"
+                    else "border-border text-foreground")
+                , style_ [("touch-action", "manipulation"), ("background", if gmCameraOn gm then "" else "transparent")]
+                , SVG.onClick GVideoToggleCamera
+                ]
+                [ text (if gmCameraOn gm then "Cam Off" else "Cam") ]
+            , H.button_
+                [ HP.class_ "text-xs px-2 py-0.5 rounded border border-border text-foreground"
+                , style_ [("touch-action", "manipulation"), ("background", "transparent")]
+                , SVG.onClick GVoiceEnd
+                ]
+                [ text "End" ]
+            ]
+        , -- Right spacer (matches PiP button width for centering)
+          H.div_ [ style_ [("width", "3.5rem")] ] []
+        ]
+      else text ""
+    ]
+
+-- | Maximize icon (Lucide Maximize2)
+iconMaximize :: View GameModel GameAction
+iconMaximize =
+  SVG.svg_
+    [ SP.viewBox_ "0 0 24 24"
+    , HP.width_ "14"
+    , HP.height_ "14"
+    , SP.fill_ "none"
+    , SP.stroke_ "currentcolor"
+    , SP.strokeWidth_ "2"
+    , SP.strokeLinecap_ "round"
+    , SP.strokeLinejoin_ "round"
+    ]
+    [ SVG.polyline_ [ SP.points_ "15 3 21 3 21 9" ]
+    , SVG.polyline_ [ SP.points_ "9 21 3 21 3 15" ]
+    , SVG.line_ [ SP.x1_ "21", SP.y1_ "3", SP.x2_ "14", SP.y2_ "10" ]
+    , SVG.line_ [ SP.x1_ "3", SP.y1_ "21", SP.x2_ "10", SP.y2_ "14" ]
+    ]
+
+-- | Minimize icon (Lucide Minimize2)
+iconMinimize :: View GameModel GameAction
+iconMinimize =
+  SVG.svg_
+    [ SP.viewBox_ "0 0 24 24"
+    , HP.width_ "14"
+    , HP.height_ "14"
+    , SP.fill_ "none"
+    , SP.stroke_ "currentcolor"
+    , SP.strokeWidth_ "2"
+    , SP.strokeLinecap_ "round"
+    , SP.strokeLinejoin_ "round"
+    ]
+    [ SVG.polyline_ [ SP.points_ "4 14 10 14 10 20" ]
+    , SVG.polyline_ [ SP.points_ "20 10 14 10 14 4" ]
+    , SVG.line_ [ SP.x1_ "14", SP.y1_ "10", SP.x2_ "21", SP.y2_ "3" ]
+    , SVG.line_ [ SP.x1_ "3", SP.y1_ "21", SP.x2_ "10", SP.y2_ "14" ]
     ]
 
 -- ---------------------------------------------------------------------------

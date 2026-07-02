@@ -883,7 +883,9 @@ updateGame GameRefs{..} = \case
         writeIORef grVideoStreamRef Nothing
         js_voiceDetachLocalVideo
       modify $ \x -> x { gmVoiceState = VoiceIdle, gmVoiceMuted = False
-                       , gmCameraOn = False, gmRemoteVideoOn = False }
+                       , gmCameraOn = False, gmRemoteVideoOn = False
+                       , gmVideoViewMode = VideoPiP }
+      io_ js_clearPipDragTransform
 
   GVoiceToggleMute -> do
     gm <- get
@@ -1063,7 +1065,9 @@ updateGame GameRefs{..} = \case
               writeIORef grVideoStreamRef Nothing
               js_voiceDetachLocalVideo
             modify $ \x -> x { gmVoiceState = VoiceIdle, gmVoiceMuted = False
-                             , gmCameraOn = False, gmRemoteVideoOn = False }
+                             , gmCameraOn = False, gmRemoteVideoOn = False
+                             , gmVideoViewMode = VideoPiP }
+            io_ js_clearPipDragTransform
         | otherwise -> pure ()
 
   GVoiceBroadcastSubscribed ch ->
@@ -1163,16 +1167,24 @@ updateGame GameRefs{..} = \case
           js_voiceCreateOffer pc offerOk offerErr
         Nothing -> pure ()
     modify $ \x -> x { gmCameraOn = True }
+    io_ js_makePipDraggable
 
   GVideoMediaError errStr -> do
     io_ $ writeIORef grVideoStreamRef Nothing
     modify $ \x -> x { gmCameraOn = False, gmVoiceError = Just errStr }
 
-  GVideoRemoteTrackOn ->
+  GVideoRemoteTrackOn -> do
     modify $ \x -> x { gmRemoteVideoOn = True }
+    io_ js_makePipDraggable
 
   GVideoRemoteTrackOff ->
     modify $ \x -> x { gmRemoteVideoOn = False }
+
+  GVideoSetViewMode mode -> do
+    case mode of
+      VideoTheater -> io_ js_clearPipDragTransform
+      VideoPiP     -> io_ js_makePipDraggable
+    modify $ \x -> x { gmVideoViewMode = mode }
 
   -- Persistence ------------------------------------------------------------
 

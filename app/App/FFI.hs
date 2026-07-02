@@ -34,6 +34,9 @@ module App.FFI
   , js_playAudioFromStream
   , js_createRemoteVideo
   , js_removeRemoteVideo
+    -- * PiP drag
+  , js_makePipDraggable
+  , js_clearPipDragTransform
     -- * Wrapped helpers
   , js_generateUUID
   , js_copyToClipboard
@@ -148,6 +151,12 @@ foreign import javascript unsafe "var c=document.getElementById('remote-video-pi
   js_createRemoteVideo :: JSVal -> IO ()
 foreign import javascript unsafe "var e=document.getElementById('remote-video-element');if(e)e.remove()"
   js_removeRemoteVideo :: IO ()
+
+-- PiP drag
+foreign import javascript unsafe "globalThis.makePipDraggable()"
+  js_makePipDraggable :: IO ()
+foreign import javascript unsafe "globalThis.clearPipDragTransform()"
+  js_clearPipDragTransform :: IO ()
 
 js_loadLocalGames :: Function -> Function -> IO ()
 js_loadLocalGames (Function a) (Function b) = js_loadLocalGames_ffi a b
@@ -280,6 +289,11 @@ js_createRemoteVideo :: JSVal -> IO ()
 js_createRemoteVideo _ = pure ()
 js_removeRemoteVideo :: IO ()
 js_removeRemoteVideo = pure ()
+-- PiP drag stubs
+js_makePipDraggable :: IO ()
+js_makePipDraggable = pure ()
+js_clearPipDragTransform :: IO ()
+js_clearPipDragTransform = pure ()
 #endif
 
 -- ---------------------------------------------------------------------------

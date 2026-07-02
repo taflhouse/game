@@ -507,6 +507,46 @@ globalThis.voiceGetVideoMedia = function(successCb, errorCb) {
     .catch(function(err) { errorCb(err.message || String(err)); });
 };
 
+// -- PiP drag-to-reposition --
+
+globalThis.makePipDraggable = function() {
+  var el = document.getElementById('video-overlay');
+  if (!el || el._draggable) return;
+  el._draggable = true;
+  var dx = 0, dy = 0, startX = 0, startY = 0, dragging = false;
+
+  el.addEventListener('pointerdown', function(e) {
+    if (e.target.closest('button')) return;
+    dragging = true;
+    startX = e.clientX - dx;
+    startY = e.clientY - dy;
+    el.setPointerCapture(e.pointerId);
+    el.style.cursor = 'grabbing';
+  });
+
+  el.addEventListener('pointermove', function(e) {
+    if (!dragging) return;
+    dx = e.clientX - startX;
+    dy = e.clientY - startY;
+    el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+  });
+
+  el.addEventListener('pointerup', function(e) {
+    if (!dragging) return;
+    dragging = false;
+    el.style.cursor = 'grab';
+  });
+};
+
+globalThis.clearPipDragTransform = function() {
+  var el = document.getElementById('video-overlay');
+  if (!el) return;
+  el.style.transform = '';
+  el._draggable = false;
+  // Remove old listeners by replacing the element with a clone
+  // (not needed — we guard with _draggable flag on re-attach)
+};
+
 globalThis.voiceToggleMute = function(stream) {
   if (!stream) return true;
   var track = stream.getAudioTracks()[0];
