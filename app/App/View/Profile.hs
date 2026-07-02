@@ -41,7 +41,7 @@ viewProfile m =
                 [ HP.class_ "flex flex-col gap-3" ]
                 [ summaryRow ("Username", pUsername profile)
                 , summaryRow ("Display Name", maybe "-" id (pDisplayName profile))
-                , summaryRow ("Rating", formatRating (pRating profile) (pRatingRd profile))
+                , ratingRow (pRating profile) (pRatingRd profile)
                 , summaryRow ("Rated Games", ms (show (pGamesRated profile)))
                 , summaryRow ("Games Played", ms (show (length (mPastGames m))))
                 , let wins = length $ filter (\gr -> grWinner gr /= Nothing) (mPastGames m)
@@ -140,8 +140,19 @@ summaryRow (label, val) =
         [ text val ]
     ]
 
--- | Format a rating with "?" suffix if provisional (RD > 100).
-formatRating :: Double -> Double -> MisoString
-formatRating r rd =
+ratingRow :: Double -> Double -> View Model Action
+ratingRow r rd =
   let rStr = ms (show (round r :: Int))
-  in if rd > 100 then rStr <> "?" else rStr
+      provisional = rd > 100
+  in H.div_
+    [ HP.class_ "flex justify-between py-1 border-b border-border text-sm" ]
+    [ H.span_ [ HP.class_ "text-muted-foreground" ] [ text "Rating" ]
+    , H.span_ [ HP.class_ "font-medium" ]
+        ([ text rStr ] ++
+         [ H.span_
+             [ HP.class_ "text-muted-foreground cursor-help"
+             , HP.title_ "Provisional \x2014 play more rated games to settle your rating"
+             ]
+             [ text "?" ]
+         | provisional ])
+    ]
