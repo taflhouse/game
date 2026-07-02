@@ -53,6 +53,9 @@ viewGame props gm
     let zen = gmViewMode gm == ZenView
         showEval = gmGameMode gm /= MultiplayerMode
         showClocks = not zen && gmTimeControl gm /= NoTimeControl && gmGameMode gm == MultiplayerMode
+        showBanner = not zen && not showClocks && gmGameMode gm == MultiplayerMode
+                  && isJust (gmPlayerSide gm) && isJust (gmOpponentName gm)
+                  && null (gmHistory gm)
         n = boardSize (gsBoard (gmGameState gm))
         myName = case gpGuestName props of
           Just gn -> gn
@@ -72,11 +75,13 @@ viewGame props gm
             , DefenderSide, fromMaybe "Defender" (gmDefenderName gm), gmDefenderTimeMs gm, turn == DefenderSide )
     in H.div_ [HP.class_ "w-full flex flex-col items-center"]
       [ if zen then viewZenBackdrop else text ""
-      , if showClocks then viewClocks n leftSide leftName leftMs leftActive rightSide rightName rightMs rightActive (gmTimeControl gm) (gmMoveDeadline gm) else text ""
+      , if showClocks then viewClocks n leftSide leftName leftMs leftActive rightSide rightName rightMs rightActive (gmTimeControl gm) (gmMoveDeadline gm)
+        else if showBanner then viewOpponentBanner n (fromMaybe "Opponent" (gmOpponentName gm))
+        else text ""
       , H.div_
           ([HP.id_ "board-row"
           , HP.class_ ("flex flex-row items-stretch justify-center gap-2" <> if zen then " zen" else "")]
-          ++ [style_ ([("margin-top", "2em") | showClocks]
+          ++ [style_ ([("margin-top", "2em") | showClocks || showBanner]
                    ++ if zen then [("position", "relative"), ("z-index", "51")] else [])])
           [ if showEval && not zen then viewEvalBar (gmEvalScore gm) else text ""
           , viewBoardPanel gm
@@ -228,6 +233,19 @@ displayedGameState gm = case gmBrowseIndex gm of
                 then allStates !! i
                 else gmGameState gm
 
+-- | Brief "vs Opponent" banner shown above the board before the first move,
+-- occupying the same slot as the clocks.  Disappears once move history exists.
+viewOpponentBanner :: Int -> MisoString -> View GameModel GameAction
+viewOpponentBanner n oppName =
+  H.div_
+    [ HP.class_ "flex w-full justify-center items-center border border-border rounded text-sm text-muted-foreground"
+    , style_ [ ("max-width", ms (sqSize * n) <> "px")
+             , ("margin-top", "2em"), ("margin-bottom", "0")
+             , ("padding", "0.5em 0.75em")
+             ]
+    ]
+    [ text ("vs " <> oppName) ]
+
 -- ---------------------------------------------------------------------------
 -- Status & Controls
 -- ---------------------------------------------------------------------------
@@ -329,7 +347,7 @@ viewShareSection gm gid =
         [ text "Copy Link" ]
     ]
 
--- | Multiplayer controls (resign, draw offer/accept/decline)
+-- | Multiplayer controls (zen, resign, draw offer/accept/decline)
 viewMultiplayerControls :: GameModel -> View GameModel GameAction
 viewMultiplayerControls gm =
   let gs = gmGameState gm
@@ -343,7 +361,8 @@ viewMultiplayerControls gm =
        [ HP.class_ "flex items-center justify-center gap-2 mt-4"
        , style_ [("max-width", ms (sqSize * n) <> "px")]
        ]
-       ([ H.button_
+       ([ ctrlBtn GToggleZenMode "Zen"
+        , H.button_
             [ HP.class_ "btn btn-outline btn-sm text-foreground"
             , style_ [("touch-action", "manipulation")]
             , SVG.onClick GResign
@@ -371,22 +390,21 @@ viewMultiplayerControls gm =
               , SVG.onClick GOfferDraw
               ]
               [ text "Offer Draw" ]
-        ] ++ case gmOpponentName gm of
-          Just opp -> [ H.span_
-            [ HP.class_ "text-sm text-muted-foreground ml-2" ]
-            [ text ("vs " <> opp) ] ]
-          Nothing -> [])
+        ])
 
 -- | Move history panel
 viewMoveHistory :: GameModel -> View GameModel GameAction
 viewMoveHistory gm
   | null (gmHistory gm) && isNothing (gmFullHistory gm) =
-      let n = boardSize (gsBoard (gmGameState gm))
-      in H.div_
-        [ HP.class_ "flex justify-center items-center w-full"
-        , style_ [("max-width", ms (sqSize * n) <> "px"), ("margin-top", "0.5em")]
-        ]
-        [ ctrlBtn GToggleZenMode "Zen" ]
+      -- In multiplayer as a player, Zen lives in the controls row
+      if gmGameMode gm == MultiplayerMode && isJust (gmPlayerSide gm)
+      then text ""
+      else let n = boardSize (gsBoard (gmGameState gm))
+           in H.div_
+             [ HP.class_ "flex justify-center items-center w-full"
+             , style_ [("max-width", ms (sqSize * n) <> "px"), ("margin-top", "0.5em")]
+             ]
+             [ ctrlBtn GToggleZenMode "Zen" ]
   | otherwise =
       let displayStates = gmHistory gm ++ [gmGameState gm]
           n = boardSize (gsBoard (gmGameState gm))
@@ -406,7 +424,9 @@ viewMoveHistory gm
                 [ text "HISTORY" ]
             , H.div_
                 [ HP.class_ "flex gap-1" ]
-                (  [ ctrlBtn GToggleZenMode "Zen" ]
+                (  [ ctrlBtn GToggleZenMode "Zen"
+                   | not (gmGameMode gm == MultiplayerMode && isJust (gmPlayerSide gm))
+                   ]
                 ++ [ ctrlBtn GUndo "Undo"
                    | gmGameMode gm /= MultiplayerMode
                      || finished (gsResult (gmGameState gm))
@@ -505,7 +525,8 @@ viewChatToggle gm
   | otherwise =
     H.button_
       [ HP.class_ "btn btn-outline btn-sm text-foreground"
-      , style_ [ ("position", "fixed"), ("bottom", "1rem"), ("right", "1rem")
+      , style_ [ ("position", "fixed"), ("bottom", "1rem"), ("left", "50%")
+               , ("transform", "translateX(-50%)")
                , ("z-index", "50"), ("touch-action", "manipulation")
                ]
       , SVG.onClick GToggleChat
@@ -533,7 +554,8 @@ viewChatPanel gm
   | otherwise =
     H.div_
       [ HP.class_ "card"
-      , style_ [ ("position", "fixed"), ("bottom", "0"), ("right", "0")
+      , style_ [ ("position", "fixed"), ("bottom", "0"), ("left", "50%")
+               , ("transform", "translateX(-50%)")
                , ("width", "22rem"), ("max-width", "100vw")
                , ("z-index", "50"), ("display", "flex")
                , ("flex-direction", "column"), ("border-radius", "0.5rem 0.5rem 0 0")
@@ -561,6 +583,7 @@ viewChatPanel gm
                            [ text "Spec" ]
                        ]
                   else [])
+              ++ voiceHeaderButtons gm
               ++ [ H.button_
                      [ HP.class_ "text-muted-foreground hover:text-foreground"
                      , style_ [ ("background", "transparent"), ("border", "0")
@@ -660,42 +683,96 @@ viewVideoPiP gm =
 -- Voice chat
 -- ---------------------------------------------------------------------------
 
--- | Voice mic button (bottom-left corner, multiplayer players only)
+-- | Voice controls rendered inline in the chat panel header.
+-- Only shown for players (not spectators).
+voiceHeaderButtons :: GameModel -> [View GameModel GameAction]
+voiceHeaderButtons gm
+  | isNothing (gmPlayerSide gm) = []
+  | otherwise = case gmVoiceState gm of
+      VoiceIdle ->
+        [ H.button_
+            [ HP.class_ "text-muted-foreground hover:text-foreground"
+            , style_ [ ("background", "transparent"), ("border", "0")
+                     , ("cursor", "pointer"), ("padding", "0 0.25rem")
+                     , ("touch-action", "manipulation"), ("display", "inline-flex")
+                     , ("align-items", "center")
+                     ]
+            , SVG.onClick GVoiceInvite
+            , HP.title_ "Voice chat"
+            ]
+            [ iconHeadset ]
+        ]
+      VoiceInviteSent ->
+        [ H.span_
+            [ HP.class_ "text-xs text-muted-foreground animate-pulse" ]
+            [ text "Calling..." ]
+        ]
+      VoiceInviteReceived -> []  -- banner handles accept/decline
+      VoiceConnecting ->
+        [ H.span_
+            [ HP.class_ "text-xs text-muted-foreground animate-pulse" ]
+            [ text "Connecting..." ]
+        ]
+      VoiceConnected ->
+        [ H.button_
+            [ HP.class_ ("text-xs px-2 py-0.5 rounded border " <>
+                if gmVoiceMuted gm
+                then "bg-red-600 text-white border-red-500"
+                else "bg-green-600 text-white border-green-500")
+            , style_ [("touch-action", "manipulation")]
+            , SVG.onClick GVoiceToggleMute
+            ]
+            [ text (if gmVoiceMuted gm then "Unmute" else "Mute") ]
+        , H.button_
+            [ HP.class_ ("text-xs px-2 py-0.5 rounded border " <>
+                if gmCameraOn gm
+                then "bg-blue-600 text-white border-blue-500"
+                else "border-border text-foreground")
+            , style_ [("touch-action", "manipulation"), ("background", if gmCameraOn gm then "" else "transparent")]
+            , SVG.onClick GVideoToggleCamera
+            ]
+            [ text (if gmCameraOn gm then "Cam Off" else "Cam") ]
+        , H.button_
+            [ HP.class_ "text-xs px-2 py-0.5 rounded border border-border text-foreground"
+            , style_ [("touch-action", "manipulation"), ("background", "transparent")]
+            , SVG.onClick GVoiceEnd
+            ]
+            [ text "End" ]
+        ]
+
+-- | Standalone voice button — only shows when chat is closed and a call is
+-- active (so the user can still see call status / end the call without
+-- opening chat).
 viewVoiceButton :: GameModel -> View GameModel GameAction
 viewVoiceButton gm
   | gmGameMode gm /= MultiplayerMode = text ""
-  | isNothing (gmPlayerSide gm) = text ""  -- spectators can't voice chat
+  | isNothing (gmPlayerSide gm) = text ""
+  | gmChatOpen gm = text ""  -- controls are in the chat header
   | otherwise =
     let vs = gmVoiceState gm
         baseStyle = [ ("position", "fixed"), ("bottom", "1rem"), ("left", "1rem")
                     , ("z-index", "50"), ("touch-action", "manipulation") ]
-    in H.div_ [ style_ baseStyle, HP.class_ "flex gap-1 items-center" ]
-      (case vs of
-        VoiceIdle ->
-          [ H.button_
-              [ HP.class_ "btn btn-outline btn-sm text-foreground"
-              , SVG.onClick GVoiceInvite
-              ]
-              [ text "Mic" ]
-          ]
-        VoiceInviteSent ->
+    in case vs of
+      VoiceIdle -> text ""  -- initiate calls from chat panel
+      VoiceInviteSent ->
+        H.div_ [ style_ baseStyle, HP.class_ "flex gap-1 items-center" ]
           [ H.button_
               [ HP.class_ "btn btn-outline btn-sm text-muted-foreground animate-pulse"
               , HP.disabled_
               ]
               [ text "Calling..." ]
           ]
-        VoiceInviteReceived ->
-          -- The banner handles accept/decline; show nothing here
-          []
-        VoiceConnecting ->
+      VoiceInviteReceived -> text ""  -- banner handles this
+      VoiceConnecting ->
+        H.div_ [ style_ baseStyle, HP.class_ "flex gap-1 items-center" ]
           [ H.button_
               [ HP.class_ "btn btn-outline btn-sm text-muted-foreground animate-pulse"
               , HP.disabled_
               ]
               [ text "Connecting..." ]
           ]
-        VoiceConnected ->
+      VoiceConnected ->
+        H.div_ [ style_ baseStyle, HP.class_ "flex gap-1 items-center" ]
           [ H.button_
               [ HP.class_ ("btn btn-sm " <>
                   if gmVoiceMuted gm
@@ -718,7 +795,24 @@ viewVoiceButton gm
               ]
               [ text "End" ]
           ]
-      )
+
+-- | Headset icon (over-ear headphones with mic boom)
+iconHeadset :: View GameModel GameAction
+iconHeadset =
+  SVG.svg_
+    [ SP.viewBox_ "0 0 24 24"
+    , HP.width_ "18"
+    , HP.height_ "18"
+    , SP.fill_ "none"
+    , SP.stroke_ "currentcolor"
+    , SP.strokeWidth_ "2"
+    , SP.strokeLinecap_ "round"
+    , SP.strokeLinejoin_ "round"
+    ]
+    [ SVG.path_ [ SP.d_ "M3 18v-6a9 9 0 0 1 18 0v6" ]
+    , SVG.path_ [ SP.d_ "M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z" ]
+    , SVG.path_ [ SP.d_ "M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" ]
+    ]
 
 -- | Voice invite banner (shown when receiving an invite)
 viewVoiceInviteBanner :: GameModel -> View GameModel GameAction
