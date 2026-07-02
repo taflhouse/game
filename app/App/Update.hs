@@ -16,8 +16,8 @@ import Miso.Lens (assign, use)
 import Supabase.Miso.Core (successCallback, errorCallback)
 import Supabase.Miso.Auth
   ( signUpEmail, signInWithPassword, signOut, signInAnonymously, getSession, getUser
-  , SignUpEmail(..), SignInCredentials(..), Email(..), Password(..)
-  , defaultSignOutOptions, defaultSignInAnonymouslyOptions
+  , SignUpEmail(..), SignUpEmailOptions(..), SignInCredentials(..), Email(..), Password(..)
+  , defaultSignOutOptions, defaultSignInAnonymouslyOptions, defaultSignUpEmailOptions
   , AuthResponse(..), AuthData(..), Session(..), User(..), AppMetadata(..)
   )
 import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq, neq)
@@ -245,14 +245,25 @@ updateModel loungeChannelRef = \case
   DoSignUp -> do
     email <- use (mAuth . authEmail)
     pwd   <- use (mAuth . authPassword)
+    m <- get
     assign (mAuth . authLoading) True
     assign (mAuth . authError) Nothing
     assign (mAuth . authMessage) Nothing
-    let signup = SignUpEmail
-          { sueEmail    = Email email
-          , suePassword = pwd
-          , sueOptions  = Nothing
-          }
+    let hasJoinCode = mDeferredMpAction m == Just DeferJoin && mJoinCodeInput m /= ""
+    if hasJoinCode
+      then io $ do
+        origin <- js_getOrigin
+        let opts = Just defaultSignUpEmailOptions
+              { sueEmailRedirectTo = Just (origin <> "/join/" <> mJoinCodeInput m) }
+            signup = SignUpEmail
+              { sueEmail = Email email, suePassword = pwd, sueOptions = opts }
+        pure (DoSignUpWith signup)
+      else do
+        let signup = SignUpEmail
+              { sueEmail = Email email, suePassword = pwd, sueOptions = Nothing }
+        signUpEmail signup AuthSuccess AuthError
+
+  DoSignUpWith signup ->
     signUpEmail signup AuthSuccess AuthError
 
   AuthSuccess resp ->
@@ -265,7 +276,12 @@ updateModel loungeChannelRef = \case
         assign mAuth initAuthState
         migrateLocalGames sess
         loadProfile sess
-        io_ $ pushURI homeURI
+        m <- get
+        case mDeferredMpAction m of
+          Just DeferJoin -> do
+            modify $ \x -> x { mDeferredMpAction = Nothing, mPendingRatedJoin = Nothing }
+            io_ $ pushURI (joinURI (mJoinCodeInput m))
+          _ -> io_ $ pushURI homeURI
       Nothing -> do
         assign mAuth initAuthState
         assign (mAuth . authMessage) (Just "Check your email to confirm your account.")
@@ -403,6 +419,9 @@ updateModel loungeChannelRef = \case
       , mNeedsUsername  = False
       , mUsernameInput  = ""
       }
+    m' <- get
+    when (mScreen m' == JoinScreen && mJoinCodeInput m' /= "") $
+      withSink $ \sink -> sink JoinMultiplayerGame
 
   ProfileCreateError _ ->
     assign (mAuth . authError) (Just "Something went wrong. Please try again.")

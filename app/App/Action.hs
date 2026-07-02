@@ -3,7 +3,7 @@ module App.Action (Action(..)) where
 import Miso (URI)
 import Miso.String (MisoString)
 import Miso.JSON (Value)
-import Supabase.Miso.Auth (AuthResponse, Session)
+import Supabase.Miso.Auth (AuthResponse, Session, SignUpEmail)
 import Supabase.Miso.Realtime (Channel)
 
 import Tafl.Board (Side)
@@ -34,6 +34,7 @@ data Action
   | SetAuthEmail MisoString
   | SetAuthPassword MisoString
   | DoSignUp
+  | DoSignUpWith SignUpEmail
   | DoSignIn
   | DoSignOut
   | AuthSuccess AuthResponse
