@@ -19,6 +19,7 @@ module App.Route
   , profileEditURI
   , joinURI
   , joinBareURI
+  , loungeURI
   ) where
 
 import Data.List (isPrefixOf)
@@ -33,6 +34,7 @@ data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute | ConfigureRout
            | PlayRoute MisoString      -- /play/<uuid> active game
            | GameRoute MisoString      -- /games/<uuid> replay/permalink
            | JoinRoute (Maybe MisoString) -- /join or /join/<invite_code>
+           | LoungeRoute               -- /lounge game browser
 
 variantSlugMs :: BoardVariant -> MisoString
 variantSlugMs v = ms (variantSlug v)
@@ -51,6 +53,7 @@ variantName = \case
 
 parseRoute :: URI -> Route
 parseRoute uri = case uriPath uri of
+  "lounge"   -> LoungeRoute
   "sign-in"  -> SignInRoute
   "sign-up"  -> SignUpRoute
   "new-game" -> ConfigRoute
@@ -133,3 +136,6 @@ joinURI code = emptyURI { uriPath = "join/" <> code }
 
 joinBareURI :: URI
 joinBareURI = emptyURI { uriPath = "join" }
+
+loungeURI :: URI
+loungeURI = emptyURI { uriPath = "lounge" }

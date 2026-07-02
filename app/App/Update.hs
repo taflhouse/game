@@ -6,7 +6,8 @@ module App.Update (updateModel) where
 import Prelude hiding ((.))
 import Control.Category ((.))
 import Control.Concurrent (threadDelay)
-import Control.Monad (when)
+import Control.Monad (filterM, when)
+import Data.IORef (IORef, readIORef, writeIORef)
 import Data.Maybe (fromMaybe)
 import Miso hiding ((!!))
 import Miso.String (MisoString, ms, fromMisoString)
@@ -20,6 +21,7 @@ import Supabase.Miso.Auth
   , AuthResponse(..), AuthData(..), Session(..), User(..), AppMetadata(..)
   )
 import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq, neq)
+import Supabase.Miso.Realtime (Channel, subscribeToTable, removeChannel)
 
 
 import App.JSON (GameRow(..), Profile(..), GameRecord(..))
@@ -32,8 +34,8 @@ import App.FFI
 -- Update
 -- ---------------------------------------------------------------------------
 
-updateModel :: Action -> Effect ROOT () Model Action
-updateModel = \case
+updateModel :: IORef (Maybe Channel) -> Action -> Effect ROOT () Model Action
+updateModel loungeChannelRef = \case
   NoOp -> pure ()
 
   -- Navigation -----------------------------------------------------------
@@ -70,7 +72,12 @@ updateModel = \case
   -- Game config ----------------------------------------------------------
 
   SetGameMode mode -> do
-    modify $ \m -> m { mGameMode = mode }
+    modify $ \m -> m
+      { mGameMode = mode
+      , mTimeControl = case mode of
+          MultiplayerMode -> BlitzControl 1200000  -- 20 min default
+          _               -> NoTimeControl
+      }
     io_ $ pushURI (configureURI (gameModeSlug mode))
 
   SetVariant variant ->
@@ -87,9 +94,20 @@ updateModel = \case
 
   -- URI handling ---------------------------------------------------------
 
+  GotoLounge ->
+    io_ $ pushURI loungeURI
+
   HandleURI uri -> do
     modify $ \x -> x { mToast = Nothing }
     m <- get
+    -- Clean up lounge channel when leaving LoungeScreen
+    when (mScreen m == LoungeScreen && not (isLoungeRoute (parseRoute uri))) $
+      io_ $ do
+        mCh <- readIORef loungeChannelRef
+        case mCh of
+          Just ch -> removeChannel ch
+          Nothing -> pure ()
+        writeIORef loungeChannelRef Nothing
     case parseRoute uri of
       PlayRoute uuid
         | mScreen m == GameScreen
@@ -134,6 +152,22 @@ updateModel = \case
           , mEditUsername     = maybe "" pUsername (mProfile m')
           , mEditDisplayName = maybe "" (maybe "" id . pDisplayName) (mProfile m')
           }
+      LoungeRoute -> do
+        -- Clean up any existing lounge channel before re-subscribing
+        io_ $ do
+          mCh <- readIORef loungeChannelRef
+          case mCh of
+            Just ch -> removeChannel ch
+            Nothing -> pure ()
+          writeIORef loungeChannelRef Nothing
+        modify $ \x -> x
+          { mScreen = LoungeScreen
+          , mLoungeLoading = True
+          , mLoungeFilter = Nothing
+          }
+        loadLoungeGames
+        subscribeToTable "lounge" "games" ""
+          LoungeRealtimeChange LoungeRealtimeSubscribed LoungeRealtimeError
       JoinRoute mCode -> do
         modify $ \x -> x
           { mScreen        = JoinScreen
@@ -261,6 +295,14 @@ updateModel = \case
     modify $ \m -> m { mToast = Just ("Sign-in failed: " <> msg), mDeferredMpAction = Nothing }
 
   DoSignOut -> do
+    m <- get
+    when (mScreen m == LoungeScreen) $
+      io_ $ do
+        mCh <- readIORef loungeChannelRef
+        case mCh of
+          Just ch -> removeChannel ch
+          Nothing -> pure ()
+        writeIORef loungeChannelRef Nothing
     signOut defaultSignOutOptions SignOutSuccess AuthError
     assign (mAuth . authError) Nothing
     modify $ \x -> x
@@ -528,6 +570,43 @@ updateModel = \case
   SetTimeControl tc ->
     modify $ \m -> m { mTimeControl = tc }
 
+  -- Lounge ---------------------------------------------------------------
+
+  LoungeOpenLoaded val ->
+    case fromJSON val of
+      Success games -> modify $ \x -> x { mLoungeOpen = games, mLoungeLoading = False }
+      Error _       -> modify $ \x -> x { mLoungeOpen = [], mLoungeLoading = False }
+
+  LoungeLiveLoaded val ->
+    case fromJSON val of
+      Success games ->
+        withSink $ \sink -> do
+          recent <- filterRecentGames games
+          sink (LoungeLiveFiltered recent)
+      Error _       -> modify $ \x -> x { mLoungeLive = [], mLoungeLoading = False }
+
+  LoungeLiveFiltered games ->
+    modify $ \x -> x { mLoungeLive = games, mLoungeLoading = False }
+
+  LoungeLoadError _ ->
+    modify $ \x -> x { mLoungeLoading = False }
+
+  LoungeRealtimeChange _ -> do
+    m <- get
+    when (mScreen m == LoungeScreen) $
+      loadLoungeGames
+
+  LoungeRealtimeSubscribed ch ->
+    io_ $ writeIORef loungeChannelRef (Just ch)
+
+  LoungeRealtimeError _ -> pure ()
+
+  SetLoungeFilter mFilter ->
+    modify $ \x -> x { mLoungeFilter = mFilter }
+
+  JoinFromLounge code ->
+    io_ $ pushURI (joinURI code)
+
   -- Replay ---------------------------------------------------------------
 
   GotoReplay gid ->
@@ -551,7 +630,7 @@ updateModel = \case
   DocumentDblClick -> do
     m <- get
     when (mScreen m == ReplayScreen) $
-      updateModel ToggleZenMode
+      updateModel loungeChannelRef ToggleZenMode
 
   ToggleFullscreen ->
     modify $ \m -> m { mIsFullscreen = not (mIsFullscreen m) }
@@ -564,13 +643,13 @@ updateModel = \case
     case parseMaybe (withObject "Mailbox" (\o -> o .: "type")) val of
       Just ("toast" :: MisoString) ->
         case parseMaybe (withObject "Mailbox" (\o -> o .: "msg")) val of
-          Just msg -> updateModel (ShowToast msg)
+          Just msg -> updateModel loungeChannelRef (ShowToast msg)
           Nothing  -> pure ()
       Just "game_finished" -> loadPastGames
       Just "game_unmounted" ->
         modify $ \m -> m { mGameInitData = Nothing }
-      Just "toggle_zen" -> updateModel ToggleZenMode
-      Just "toggle_fullscreen" -> updateModel ToggleFullscreen
+      Just "toggle_zen" -> updateModel loungeChannelRef ToggleZenMode
+      Just "toggle_fullscreen" -> updateModel loungeChannelRef ToggleFullscreen
       Just "replay_unmounted" ->
         modify $ \m -> m { mReplayGameId = Nothing }
       _ -> pure ()
@@ -633,3 +712,31 @@ hasDisplayName :: Model -> Bool
 hasDisplayName m = case mProfile m of
   Just p | pUsername p /= "" -> True
   _ -> mGuestName m /= Nothing
+
+-- | Load all open and live games for the lounge (filtering is done client-side).
+loadLoungeGames :: Effect ROOT () Model Action
+loadLoungeGames = do
+  selectWithFilters "games" "*"
+    [eq "status" ("waiting" :: MisoString)]
+    (FetchOptions Nothing Nothing)
+    LoungeOpenLoaded LoungeLoadError
+  selectWithFilters "games" "*"
+    [eq "status" ("active" :: MisoString)]
+    (FetchOptions Nothing Nothing)
+    LoungeLiveLoaded LoungeLoadError
+
+-- | Filter active games to only those with activity in the last 30 minutes.
+filterRecentGames :: [GameRow] -> IO [GameRow]
+filterRecentGames = filterM isRecent
+  where
+    thirtyMinMs = 30 * 60 * 1000 :: Int
+    isRecent gr = case grwLastMoveAt gr of
+      Just ts -> do
+        elapsed <- js_elapsedMs ts
+        pure (elapsed < thirtyMinMs)
+      Nothing -> pure False  -- no last_move_at means no moves yet; skip
+
+-- | Check if a Route is the LoungeRoute.
+isLoungeRoute :: Route -> Bool
+isLoungeRoute LoungeRoute = True
+isLoungeRoute _           = False

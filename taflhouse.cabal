@@ -53,6 +53,7 @@ executable app
                       , App.View.Config
                       , App.View.Profile
                       , App.View.Join
+                      , App.View.Lounge
                       , App.Game.Model
                       , App.Game.Action
                       , App.Game.Update

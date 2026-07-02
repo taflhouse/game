@@ -28,17 +28,19 @@ foreign export javascript "hs_start" main :: IO ()
 
 main :: IO ()
 main = do
-  channelRef      <- newIORef (Nothing :: Maybe Channel)
-  chatChannelRef  <- newIORef (Nothing :: Maybe Channel)
-  clockRef        <- newIORef (Nothing :: Maybe Int)
-  voiceChannelRef <- newIORef (Nothing :: Maybe Channel)
-  peerConnRef     <- newIORef (Nothing :: Maybe JSVal)
-  mediaStreamRef  <- newIORef (Nothing :: Maybe JSVal)
+  channelRef       <- newIORef (Nothing :: Maybe Channel)
+  chatChannelRef   <- newIORef (Nothing :: Maybe Channel)
+  clockRef         <- newIORef (Nothing :: Maybe Int)
+  voiceChannelRef  <- newIORef (Nothing :: Maybe Channel)
+  peerConnRef      <- newIORef (Nothing :: Maybe JSVal)
+  mediaStreamRef   <- newIORef (Nothing :: Maybe JSVal)
+  loungeChannelRef <- newIORef (Nothing :: Maybe Channel)
   let refs = GameRefs channelRef chatChannelRef clockRef voiceChannelRef peerConnRef mediaStreamRef
   uri <- getURI
   let screen0 = case parseRoute uri of
         PlayRoute _ -> LoadingScreen
         GameRoute _ -> LoadingScreen
+        LoungeRoute -> LoungeScreen
         _           -> HomeScreen
       gameComp = (component initialGameModel (updateGame refs) viewGame)
         { mount   = Just GameMount
@@ -48,12 +50,12 @@ main = do
         { mount   = Just ReplayMount
         , unmount = Just ReplayUnmount
         }
-  startApp defaultEvents (app screen0 gameComp replayComp)
+  startApp defaultEvents (app loungeChannelRef screen0 gameComp replayComp)
   where
-    app s gc rc = Component
+    app lcRef s gc rc = Component
       { model            = initModel { mScreen = s }
       , hydrateModel     = Nothing
-      , update           = updateModel
+      , update           = updateModel lcRef
       , view             = viewModel gc rc
       , subs             = [ uriSub HandleURI
                            , \sink -> getURI >>= sink . HandleURI

@@ -23,6 +23,7 @@ import App.View.Auth (viewSignIn, viewSignUp, viewUsernameGate)
 import App.View.Config (viewConfig, viewConfigure)
 import App.View.Profile (viewProfile, viewProfileEdit)
 import App.View.Join (viewJoin)
+import App.View.Lounge (viewLounge)
 
 -- ---------------------------------------------------------------------------
 -- View: Top-level layout
@@ -59,6 +60,7 @@ viewModel gameComp replayComp _ m =
                   ReplayScreen      -> viewReplayScreen replayComp m
                   ProfileScreen     -> viewProfile m
                   ProfileEditScreen -> viewProfileEdit m
+                  LoungeScreen      -> viewLounge m
                   LoadingScreen     -> text ""
             ]
         ]
@@ -135,9 +137,18 @@ viewNavbar m =
           H.div_
             [ HP.class_ "flex items-center gap-4"
             ]
-            (themeToggleBtn : navAuthButtons m)
+            (loungeLink : themeToggleBtn : navAuthButtons m)
         ]
     ]
+
+loungeLink :: View Model Action
+loungeLink =
+  H.span_
+    [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+    , style_ [("touch-action", "manipulation")]
+    , SVG.onClick GotoLounge
+    ]
+    [ text "Lounge" ]
 
 themeToggleBtn :: View Model Action
 themeToggleBtn =

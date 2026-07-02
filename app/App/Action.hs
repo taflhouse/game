@@ -4,12 +4,13 @@ import Miso (URI)
 import Miso.String (MisoString)
 import Miso.JSON (Value)
 import Supabase.Miso.Auth (AuthResponse, Session)
+import Supabase.Miso.Realtime (Channel)
 
 import Tafl.Board (Side)
 import Tafl.Rules (BoardVariant)
 
 import App.Model (GameMode, TimeControl)
-import App.JSON (GameRecord)
+import App.JSON (GameRecord, GameRow)
 
 data Action
   = NoOp
@@ -93,5 +94,16 @@ data Action
   | DismissZenHint
   | ToggleFullscreen
   | Undo
+  -- Lounge
+  | GotoLounge
+  | LoungeOpenLoaded Value
+  | LoungeLiveLoaded Value
+  | LoungeLiveFiltered [GameRow]
+  | LoungeLoadError MisoString
+  | LoungeRealtimeChange Value
+  | LoungeRealtimeSubscribed Channel
+  | LoungeRealtimeError MisoString
+  | SetLoungeFilter (Maybe MisoString)
+  | JoinFromLounge MisoString
   -- Game component mailbox
   | GameMailbox Value

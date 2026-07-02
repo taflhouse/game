@@ -56,7 +56,7 @@ data TimeControl
   | DailyControl !Int    -- seconds per move
   deriving (Eq, Show)
 
-data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | ConfigureScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen | LoadingScreen
+data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | ConfigureScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen | LoadingScreen | LoungeScreen
   deriving (Eq, Show)
 
 data DeferredMpAction = DeferCreate | DeferJoin
@@ -155,6 +155,11 @@ data Model = Model
   , mToast            :: Maybe MisoString
   , mShowDepthInfo    :: !Bool
   , mShowNodesInfo    :: !Bool
+    -- Lounge
+  , mLoungeOpen       :: [GameRow]
+  , mLoungeLive       :: [GameRow]
+  , mLoungeLoading    :: !Bool
+  , mLoungeFilter     :: Maybe MisoString
   } deriving (Eq)
 
 mAuth :: Lens Model AuthState
@@ -202,4 +207,8 @@ initModel = Model
   , mToast            = Nothing
   , mShowDepthInfo    = False
   , mShowNodesInfo    = False
+  , mLoungeOpen       = []
+  , mLoungeLive       = []
+  , mLoungeLoading    = False
+  , mLoungeFilter     = Nothing
   }

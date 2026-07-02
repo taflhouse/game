@@ -228,6 +228,7 @@ viewSetupMultiplayer m =
             [ setupBtn (SetTimeControl (BlitzControl 120000)) "2 min" (mTimeControl m == BlitzControl 120000)
             , setupBtn (SetTimeControl (BlitzControl 300000)) "5 min" (mTimeControl m == BlitzControl 300000)
             , setupBtn (SetTimeControl (BlitzControl 600000)) "10 min" (mTimeControl m == BlitzControl 600000)
+            , setupBtn (SetTimeControl (BlitzControl 1200000)) "20 min" (mTimeControl m == BlitzControl 1200000)
             ]
         DailyControl _ ->
           setupSection "Time Per Move"

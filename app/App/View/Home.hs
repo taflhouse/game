@@ -32,12 +32,21 @@ viewHome m =
               ]
               [ text "New Game" ]
           , viewOrDivider
-          , H.span_
-              [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
-              , style_ [("touch-action", "manipulation")]
-              , SVG.onClick GotoJoin
+          , H.div_
+              [ HP.class_ "flex items-center gap-4" ]
+              [ H.span_
+                  [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+                  , style_ [("touch-action", "manipulation")]
+                  , SVG.onClick GotoJoin
+                  ]
+                  [ text "Join Game" ]
+              , H.span_
+                  [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+                  , style_ [("touch-action", "manipulation")]
+                  , SVG.onClick GotoLounge
+                  ]
+                  [ text "Browse Games" ]
               ]
-              [ text "Join Game" ]
           ]
       ] ++ homeContent
     )
