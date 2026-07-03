@@ -81,6 +81,7 @@ data Action
   | JoinMultiplayerGame
   | GameFoundToJoin Value
   | GameJoinError MisoString
+  | InviteCodeLookup Value
   | ResumeGameLoaded Value
   | ResumeGameLoadError MisoString
   | SetJoinCodeInput MisoString

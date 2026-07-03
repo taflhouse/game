@@ -368,8 +368,11 @@ updateModel loungeChannelRef = \case
     -- If a game was fetched while session was being restored, show it now.
     pendingM <- get
     case (mGameInitData pendingM, mScreen pendingM) of
-      (Just (ResumeGame _), LoadingScreen) ->
-        modify $ \x -> x { mScreen = GameScreen }
+      (Just (ResumeGame gr), LoadingScreen)
+        | grwStatus gr == "finished" && not (isParticipant mSess gr) ->
+            io_ $ replaceURI (gamePermalinkURI (grwId gr))
+        | otherwise ->
+            modify $ \x -> x { mScreen = GameScreen }
       _ -> pure ()
     case mSess of
       Just sess
@@ -605,10 +608,28 @@ updateModel loungeChannelRef = \case
               { mGameInitData = Just (JoinGame gr)
               , mScreen       = GameScreen
               }
-        [] ->
-          modify $ \m -> m { mToast = Just "No waiting game found with that code." }
+        [] -> do
+          m <- get
+          let code = mJoinCodeInput m
+          if code /= ""
+            then selectWithFilters "games" "*"
+                   [eq "invite_code" code]
+                   (FetchOptions Nothing Nothing)
+                   InviteCodeLookup (\_ -> ShowToast "No game found with that code.")
+            else modify $ \m' -> m' { mToast = Just "No waiting game found with that code." }
       Error _ ->
         modify $ \m -> m { mToast = Just "Failed to look up game." }
+
+  InviteCodeLookup val ->
+    case fromJSON val of
+      Success rows -> case (rows :: [GameRow]) of
+        (gr:_) -> do
+          m <- get
+          if isParticipant (mSession m) gr
+            then io_ $ replaceURI (playURI (grwId gr))
+            else io_ $ replaceURI loungeURI
+        [] -> modify $ \m -> m { mToast = Just "No game found with that code." }
+      Error _ -> modify $ \m -> m { mToast = Just "Failed to look up game." }
 
   GameJoinError msg ->
     modify $ \m -> m { mToast = Just ("Join error: " <> msg) }
@@ -618,12 +639,14 @@ updateModel loungeChannelRef = \case
       Success rows -> case (rows :: [GameRow]) of
         (gr:_) -> do
           m <- get
-          modify $ \x -> x
-            { mGameInitData = Just (ResumeGame gr)
-            -- Wait for session check before mounting so the game component
-            -- sees the restored session and correctly identifies the player.
-            , mScreen = if mSessionChecked m then GameScreen else mScreen x
-            }
+          if mSessionChecked m && grwStatus gr == "finished" && not (isParticipant (mSession m) gr)
+            then io_ $ replaceURI (gamePermalinkURI (grwId gr))
+            else modify $ \x -> x
+              { mGameInitData = Just (ResumeGame gr)
+              -- Wait for session check before mounting so the game component
+              -- sees the restored session and correctly identifies the player.
+              , mScreen = if mSessionChecked m then GameScreen else mScreen x
+              }
         [] -> modify $ \m -> m { mToast = Just "Game not found." }
       Error _ -> modify $ \m -> m { mToast = Just "Failed to load game." }
 
@@ -908,6 +931,13 @@ updateModel loungeChannelRef = \case
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
+
+-- | Is the user a participant (attacker or defender) in this game?
+isParticipant :: Maybe Session -> GameRow -> Bool
+isParticipant Nothing _ = False
+isParticipant (Just sess) gr =
+  let uid = userId (sessionUser sess)
+  in grwAttackerId gr == Just uid || grwDefenderId gr == Just uid
 
 -- | Extract the UUID from any GameInitData variant.
 gameInitUuid :: GameInitData -> MisoString
