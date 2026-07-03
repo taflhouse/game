@@ -672,7 +672,6 @@ updateModel loungeChannelRef = \case
           modify $ \x -> x { mGuestName = Just (mJoinNameInput x) }
         let isAnon = case mSession m of
               Just sess -> amProvider (userAppMetadata (sessionUser sess)) == "anonymous"
-              Nothing   -> True
             rated = mIsRated m && not isAnon
             creatorR  = if rated then Just (maybe 1500.0 pRating (mProfile m)) else Nothing
             creatorRd' = if rated then Just (maybe 350.0 pRatingRd (mProfile m)) else Nothing
@@ -1047,7 +1046,9 @@ bestMatch m grs =
         Nothing -> 0  -- unrated/casual games have no gap
       -- Sort by rating proximity, then by ID (earlier ID = longer waiting)
       sorted = sortOn (\gr -> (ratingDiff gr, grwId gr)) grs
-  in Just (head sorted)
+  in case sorted of
+       (best:_) -> Just best
+       []       -> Nothing
 
 -- | Activate the match interest toggle: ensure auth, subscribe, and query.
 activateMatchInterest :: Effect ROOT () Model Action
