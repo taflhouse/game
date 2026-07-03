@@ -676,28 +676,38 @@ viewZenHint gm
 -- Chat
 -- ---------------------------------------------------------------------------
 
--- | Chat toggle button (bottom-right corner, only in multiplayer)
+-- | Chat toggle button (bottom-left corner, round icon, only in multiplayer)
 viewChatToggle :: GameModel -> View GameModel GameAction
 viewChatToggle gm
   | gmGameMode gm /= MultiplayerMode = text ""
   | gmChatOpen gm = text ""  -- hide toggle when panel is open
   | otherwise =
-    H.button_
-      [ HP.class_ "btn btn-outline btn-sm text-foreground"
-      , style_ [ ("position", "fixed"), ("bottom", "1rem"), ("left", "50%")
-               , ("transform", "translateX(-50%)")
-               , ("z-index", "50"), ("touch-action", "manipulation")
+    H.div_
+      [ style_ [ ("position", "fixed"), ("bottom", "1rem"), ("left", "1rem")
+               , ("z-index", "50")
                ]
-      , SVG.onClick GToggleChat
       ]
-      [ text "Chat"
+      [ H.button_
+          [ style_ [ ("width", "44px"), ("height", "44px"), ("border-radius", "9999px")
+                   , ("background", "var(--card)"), ("border", "1px solid var(--border)")
+                   , ("cursor", "pointer"), ("display", "inline-flex")
+                   , ("align-items", "center"), ("justify-content", "center")
+                   , ("color", "var(--foreground)")
+                   , ("box-shadow", "0 2px 8px rgba(0,0,0,0.12)")
+                   , ("touch-action", "manipulation"), ("padding", "0")
+                   ]
+          , SVG.onClick GToggleChat
+          , HP.title_ "Chat"
+          ]
+          [ iconMessageCircle ]
       , if gmChatUnread gm > 0
         then H.span_
-          [ HP.class_ "text-xs font-bold text-white rounded-full"
-          , style_ [ ("background", "var(--destructive)")
+          [ HP.class_ "text-xs font-bold text-white"
+          , style_ [ ("position", "absolute"), ("top", "-4px"), ("right", "-4px")
+                   , ("background", "var(--destructive)")
                    , ("min-width", "1.25rem"), ("height", "1.25rem")
                    , ("display", "inline-flex"), ("align-items", "center")
-                   , ("justify-content", "center"), ("margin-left", "0.4rem")
+                   , ("justify-content", "center")
                    , ("padding", "0 0.3rem"), ("border-radius", "9999px")
                    ]
           ]
@@ -817,117 +827,197 @@ viewChatMessage cm =
 -- <video> elements.
 viewVideoPiP :: GameModel -> View GameModel GameAction
 viewVideoPiP gm =
-  let showPiP = (gmCameraOn gm || gmRemoteVideoOn gm)
-             && gmVoiceState gm == VoiceConnected
+  let voiceConnected = gmVoiceState gm == VoiceConnected
+      hasVideo = gmCameraOn gm || gmRemoteVideoOn gm
+      isConnecting = gmVoiceState gm == VoiceConnecting
+                  || gmVoiceState gm == VoiceInviteSent
+      -- Show PiP when: connected (with or without video) or connecting
+      showPiP = voiceConnected || isConnecting
       isTheater = gmVideoViewMode gm == VideoTheater
-      containerStyles = if isTheater
-        then [ ("position", "fixed"), ("inset", "0")
-             , ("z-index", "52"), ("overflow", "hidden")
-             , ("background", "#000"), ("display", "flex")
-             , ("flex-direction", "column")
-             ] ++ if showPiP then [] else [("display", "none")]
-        else [ ("position", "fixed"), ("bottom", "3.5rem"), ("right", "1rem")
-             , ("z-index", "52"), ("width", "192px"), ("height", "144px")
-             , ("border-radius", "0.5rem"), ("overflow", "hidden")
-             , ("cursor", "grab")
-             ] ++ if showPiP then [] else [("display", "none")]
-      videoAreaStyles = if isTheater
-        then [ ("width", "100%"), ("flex", "1"), ("position", "relative")
-             , ("background", "#000")
+      -- Voice-only connected: compact floating pill
+      voiceOnly = voiceConnected && not hasVideo && not isTheater
+      -- Connecting states: small status pill
+      connectingPill = isConnecting && not voiceConnected
+  in if connectingPill
+     then -- Small floating pill for Calling.../Connecting... states
+       H.div_
+         [ HP.id_ "video-overlay"
+         , HP.class_ "shadow-lg"
+         , style_ ([ ("position", "fixed"), ("bottom", "1rem"), ("right", "1rem")
+                   , ("z-index", "52"), ("border-radius", "9999px")
+                   , ("display", "flex"), ("align-items", "center"), ("gap", "0.5rem")
+                   , ("padding", "0.25rem 0.75rem 0.25rem 1rem")
+                   , ("background", "var(--card)"), ("border", "1px solid var(--border)")
+                   ] ++ if showPiP then [] else [("display", "none")])
+         ]
+         [ H.span_ [ HP.class_ "text-xs text-muted-foreground animate-pulse" ]
+             [ text (if gmVoiceState gm == VoiceInviteSent then "Calling..." else "Connecting...") ]
+         , pipControlButton False "rgba(239,68,68,0.9)" GVoiceEnd "Cancel" iconPhoneOff
+         ]
+     else if voiceOnly
+     then -- Compact pill-shaped widget for voice-only calls (~160x40)
+       H.div_
+         [ HP.id_ "video-overlay"
+         , HP.class_ "shadow-lg"
+         , style_ ([ ("position", "fixed"), ("bottom", "1rem"), ("right", "1rem")
+                   , ("z-index", "52"), ("border-radius", "9999px")
+                   , ("display", "flex"), ("align-items", "center"), ("gap", "0.5rem")
+                   , ("padding", "0.25rem 0.5rem")
+                   , ("background", "var(--card)"), ("border", "1px solid var(--border)")
+                   , ("cursor", "grab"), ("touch-action", "none"), ("will-change", "transform")
+                   ] ++ if showPiP then [] else [("display", "none")])
+         ]
+         [ pipControlButton (gmVoiceMuted gm)
+             (if gmVoiceMuted gm then "rgba(239,68,68,0.9)" else "rgba(34,197,94,0.9)")
+             GVoiceToggleMute "Toggle mute"
+             (if gmVoiceMuted gm then iconMicOff else iconMic)
+         , pipControlButton False "rgba(59,130,246,0.9)" GVideoToggleCamera "Toggle camera" iconCameraIcon
+         , pipControlButton False "rgba(239,68,68,0.9)" GVoiceEnd "End call" iconPhoneOff
+         ]
+     else -- Video mode: full PiP / theater
+       let containerStyles = if isTheater
+             then [ ("position", "fixed"), ("inset", "0")
+                  , ("z-index", "52"), ("overflow", "hidden")
+                  , ("background", "#000"), ("display", "flex")
+                  , ("flex-direction", "column")
+                  ] ++ if showPiP then [] else [("display", "none")]
+             else [ ("position", "fixed"), ("bottom", "3.5rem"), ("right", "1rem")
+                  , ("z-index", "52"), ("width", "192px"), ("height", "144px")
+                  , ("border-radius", "0.5rem"), ("overflow", "hidden")
+                  , ("cursor", "grab"), ("touch-action", "none"), ("will-change", "transform")
+                  ] ++ if showPiP then [] else [("display", "none")]
+           videoAreaStyles = if isTheater
+             then [ ("width", "100%"), ("flex", "1"), ("position", "relative")
+                  , ("background", "#000")
+                  ]
+             else [ ("width", "100%"), ("height", "100%"), ("position", "relative")
+                  , ("background", "var(--card)")
+                  ]
+           localPreviewStyles = if isTheater
+             then [ ("position", "absolute"), ("bottom", "0.75rem"), ("right", "0.75rem")
+                  , ("width", "128px"), ("height", "96px")
+                  , ("border-radius", "0.375rem"), ("overflow", "hidden")
+                  , ("border", "2px solid rgba(255,255,255,0.3)")
+                  ]
+             else [ ("position", "absolute"), ("bottom", "0.25rem"), ("right", "0.25rem")
+                  , ("width", "64px"), ("height", "48px")
+                  , ("border-radius", "0.25rem"), ("overflow", "hidden")
+                  , ("border", "1px solid rgba(255,255,255,0.3)")
+                  ]
+       in H.div_
+         [ HP.id_ "video-overlay"
+         , style_ containerStyles
+         , HP.class_ "shadow-lg"
+         ]
+         [ -- Video area (always 3 children: remote, local, expand/placeholder)
+           H.div_
+             [ style_ videoAreaStyles ]
+             [ H.div_
+                 [ HP.id_ "remote-video-pip"
+                 , style_ [ ("width", "100%"), ("height", "100%")
+                          , ("border-radius", "inherit")
+                          ]
+                 ] []
+             , H.div_
+                 [ HP.id_ "local-video-preview"
+                 , style_ localPreviewStyles
+                 ] []
+             , if isTheater
+               then text ""
+               else -- PiP mode: overlay control bar at bottom + expand button at top
+                 H.div_ []
+                   [ H.button_
+                       [ HP.class_ "text-white hover:text-white"
+                       , style_ [ ("position", "absolute"), ("top", "0.25rem"), ("right", "0.25rem")
+                                , ("background", "rgba(0,0,0,0.5)"), ("border", "0")
+                                , ("border-radius", "0.25rem"), ("cursor", "pointer")
+                                , ("padding", "0.15rem 0.3rem"), ("line-height", "1")
+                                , ("touch-action", "manipulation")
+                                ]
+                       , SVG.onClick (GVideoSetViewMode VideoTheater)
+                       , HP.title_ "Theater mode"
+                       ]
+                       [ iconMaximize ]
+                   , -- Semi-transparent control bar at bottom of PiP
+                     H.div_
+                       [ style_ [ ("position", "absolute"), ("bottom", "0"), ("left", "0")
+                                , ("right", "0"), ("display", "flex"), ("justify-content", "center")
+                                , ("gap", "0.375rem"), ("padding", "0.25rem")
+                                , ("background", "rgba(0,0,0,0.5)")
+                                ]
+                       ]
+                       [ pipControlButton (gmVoiceMuted gm)
+                           (if gmVoiceMuted gm then "rgba(239,68,68,0.9)" else "rgba(34,197,94,0.9)")
+                           GVoiceToggleMute "Toggle mute"
+                           (if gmVoiceMuted gm then iconMicOff else iconMic)
+                       , pipControlButton False
+                           (if gmCameraOn gm then "rgba(59,130,246,0.9)" else "rgba(100,116,139,0.7)")
+                           GVideoToggleCamera "Toggle camera"
+                           (if gmCameraOn gm then iconCameraIcon else iconCameraOff)
+                       , pipControlButton False "rgba(239,68,68,0.9)" GVoiceEnd "End call" iconPhoneOff
+                       ]
+                   ]
              ]
-        else [ ("width", "100%"), ("height", "100%"), ("position", "relative")
-             , ("background", "var(--card)")
+         , -- Theater controls bar or placeholder
+           if isTheater
+           then H.div_
+             [ HP.class_ "flex items-center px-3 py-2"
+             , style_ [("background", "rgba(0,0,0,0.7)")]
              ]
-      localPreviewStyles = if isTheater
-        then [ ("position", "absolute"), ("bottom", "0.75rem"), ("right", "0.75rem")
-             , ("width", "128px"), ("height", "96px")
-             , ("border-radius", "0.375rem"), ("overflow", "hidden")
-             , ("border", "2px solid rgba(255,255,255,0.3)")
-             ]
-        else [ ("position", "absolute"), ("bottom", "0.25rem"), ("right", "0.25rem")
-             , ("width", "64px"), ("height", "48px")
-             , ("border-radius", "0.25rem"), ("overflow", "hidden")
-             , ("border", "1px solid rgba(255,255,255,0.3)")
-             ]
-  in H.div_
-    [ HP.id_ "video-overlay"
-    , style_ containerStyles
-    , HP.class_ "shadow-lg"
-    ]
-    [ -- Video area (always 3 children: remote, local, expand/placeholder)
-      H.div_
-        [ style_ videoAreaStyles ]
-        [ H.div_
-            [ HP.id_ "remote-video-pip"
-            , style_ [ ("width", "100%"), ("height", "100%")
-                     , ("border-radius", "inherit")
+             [ -- Left: PiP button
+               H.button_
+                 [ HP.class_ "text-xs px-2 py-0.5 rounded border border-border text-foreground"
+                 , style_ [("touch-action", "manipulation"), ("background", "transparent")]
+                 , SVG.onClick (GVideoSetViewMode VideoPiP)
+                 ]
+                 [ iconMinimize, text " PiP" ]
+             , -- Center spacer + controls
+               H.div_
+                 [ HP.class_ "flex items-center gap-2 mx-auto" ]
+                 [ H.button_
+                     [ HP.class_ ("text-xs px-2 py-0.5 rounded border " <>
+                         if gmVoiceMuted gm
+                         then "bg-red-600 text-white border-red-500"
+                         else "bg-green-600 text-white border-green-500")
+                     , style_ [("touch-action", "manipulation")]
+                     , SVG.onClick GVoiceToggleMute
                      ]
-            ] []
-        , H.div_
-            [ HP.id_ "local-video-preview"
-            , style_ localPreviewStyles
-            ] []
-        , if isTheater
-          then text ""
-          else H.button_
-            [ HP.class_ "text-white hover:text-white"
-            , style_ [ ("position", "absolute"), ("top", "0.25rem"), ("right", "0.25rem")
-                     , ("background", "rgba(0,0,0,0.5)"), ("border", "0")
-                     , ("border-radius", "0.25rem"), ("cursor", "pointer")
-                     , ("padding", "0.15rem 0.3rem"), ("line-height", "1")
-                     , ("touch-action", "manipulation")
+                     [ text (if gmVoiceMuted gm then "Unmute" else "Mute") ]
+                 , H.button_
+                     [ HP.class_ ("text-xs px-2 py-0.5 rounded border " <>
+                         if gmCameraOn gm
+                         then "bg-blue-600 text-white border-blue-500"
+                         else "border-border text-foreground")
+                     , style_ [("touch-action", "manipulation"), ("background", if gmCameraOn gm then "" else "transparent")]
+                     , SVG.onClick GVideoToggleCamera
                      ]
-            , SVG.onClick (GVideoSetViewMode VideoTheater)
-            , HP.title_ "Theater mode"
-            ]
-            [ iconMaximize ]
-        ]
-    , -- Theater controls bar or placeholder
-      if isTheater
-      then H.div_
-        [ HP.class_ "flex items-center px-3 py-2"
-        , style_ [("background", "rgba(0,0,0,0.7)")]
-        ]
-        [ -- Left: PiP button
-          H.button_
-            [ HP.class_ "text-xs px-2 py-0.5 rounded border border-border text-foreground"
-            , style_ [("touch-action", "manipulation"), ("background", "transparent")]
-            , SVG.onClick (GVideoSetViewMode VideoPiP)
-            ]
-            [ iconMinimize, text " PiP" ]
-        , -- Center spacer + controls
-          H.div_
-            [ HP.class_ "flex items-center gap-2 mx-auto" ]
-            [ H.button_
-                [ HP.class_ ("text-xs px-2 py-0.5 rounded border " <>
-                    if gmVoiceMuted gm
-                    then "bg-red-600 text-white border-red-500"
-                    else "bg-green-600 text-white border-green-500")
-                , style_ [("touch-action", "manipulation")]
-                , SVG.onClick GVoiceToggleMute
-                ]
-                [ text (if gmVoiceMuted gm then "Unmute" else "Mute") ]
-            , H.button_
-                [ HP.class_ ("text-xs px-2 py-0.5 rounded border " <>
-                    if gmCameraOn gm
-                    then "bg-blue-600 text-white border-blue-500"
-                    else "border-border text-foreground")
-                , style_ [("touch-action", "manipulation"), ("background", if gmCameraOn gm then "" else "transparent")]
-                , SVG.onClick GVideoToggleCamera
-                ]
-                [ text (if gmCameraOn gm then "Cam Off" else "Cam") ]
-            , H.button_
-                [ HP.class_ "text-xs px-2 py-0.5 rounded border border-border text-foreground"
-                , style_ [("touch-action", "manipulation"), ("background", "transparent")]
-                , SVG.onClick GVoiceEnd
-                ]
-                [ text "End" ]
-            ]
-        , -- Right spacer (matches PiP button width for centering)
-          H.div_ [ style_ [("width", "3.5rem")] ] []
-        ]
-      else text ""
+                     [ text (if gmCameraOn gm then "Cam Off" else "Cam") ]
+                 , H.button_
+                     [ HP.class_ "text-xs px-2 py-0.5 rounded border border-border text-foreground"
+                     , style_ [("touch-action", "manipulation"), ("background", "transparent")]
+                     , SVG.onClick GVoiceEnd
+                     ]
+                     [ text "End" ]
+                 ]
+             , -- Right spacer (matches PiP button width for centering)
+               H.div_ [ style_ [("width", "3.5rem")] ] []
+             ]
+           else text ""
+         ]
+
+-- | Circular icon button used inside the PiP overlay.
+pipControlButton :: Bool -> MisoString -> GameAction -> MisoString -> View GameModel GameAction -> View GameModel GameAction
+pipControlButton _active bg action titleText icon =
+  H.button_
+    [ style_ [ ("width", "28px"), ("height", "28px"), ("border-radius", "9999px")
+             , ("border", "0"), ("background", bg), ("color", "#fff")
+             , ("display", "inline-flex"), ("align-items", "center"), ("justify-content", "center")
+             , ("cursor", "pointer"), ("padding", "0"), ("touch-action", "manipulation")
+             ]
+    , SVG.onClick action
+    , HP.title_ titleText
     ]
+    [ icon ]
 
 -- | Maximize icon (Lucide Maximize2)
 iconMaximize :: View GameModel GameAction
@@ -1002,87 +1092,20 @@ voiceHeaderButtons gm
             [ text "Connecting..." ]
         ]
       VoiceConnected ->
-        [ H.button_
-            [ HP.class_ ("text-xs px-2 py-0.5 rounded border " <>
-                if gmVoiceMuted gm
-                then "bg-red-600 text-white border-red-500"
-                else "bg-green-600 text-white border-green-500")
-            , style_ [("touch-action", "manipulation")]
-            , SVG.onClick GVoiceToggleMute
+        [ H.span_
+            [ HP.class_ "text-xs text-green-500 flex items-center gap-1" ]
+            [ H.span_
+                [ style_ [ ("width", "6px"), ("height", "6px"), ("border-radius", "9999px")
+                         , ("background", "#22c55e"), ("display", "inline-block")
+                         ]
+                ] []
+            , text "Connected"
             ]
-            [ text (if gmVoiceMuted gm then "Unmute" else "Mute") ]
-        , H.button_
-            [ HP.class_ ("text-xs px-2 py-0.5 rounded border " <>
-                if gmCameraOn gm
-                then "bg-blue-600 text-white border-blue-500"
-                else "border-border text-foreground")
-            , style_ [("touch-action", "manipulation"), ("background", if gmCameraOn gm then "" else "transparent")]
-            , SVG.onClick GVideoToggleCamera
-            ]
-            [ text (if gmCameraOn gm then "Cam Off" else "Cam") ]
-        , H.button_
-            [ HP.class_ "text-xs px-2 py-0.5 rounded border border-border text-foreground"
-            , style_ [("touch-action", "manipulation"), ("background", "transparent")]
-            , SVG.onClick GVoiceEnd
-            ]
-            [ text "End" ]
         ]
 
--- | Standalone voice button — only shows when chat is closed and a call is
--- active (so the user can still see call status / end the call without
--- opening chat).
+-- | Standalone voice button — replaced by PiP-based controls.
 viewVoiceButton :: GameModel -> View GameModel GameAction
-viewVoiceButton gm
-  | gmGameMode gm /= MultiplayerMode = text ""
-  | isNothing (gmPlayerSide gm) = text ""
-  | gmChatOpen gm = text ""  -- controls are in the chat header
-  | otherwise =
-    let vs = gmVoiceState gm
-        baseStyle = [ ("position", "fixed"), ("bottom", "1rem"), ("left", "1rem")
-                    , ("z-index", "50"), ("touch-action", "manipulation") ]
-    in case vs of
-      VoiceIdle -> text ""  -- initiate calls from chat panel
-      VoiceInviteSent ->
-        H.div_ [ style_ baseStyle, HP.class_ "flex gap-1 items-center" ]
-          [ H.button_
-              [ HP.class_ "btn btn-outline btn-sm text-muted-foreground animate-pulse"
-              , HP.disabled_
-              ]
-              [ text "Calling..." ]
-          ]
-      VoiceInviteReceived -> text ""  -- banner handles this
-      VoiceConnecting ->
-        H.div_ [ style_ baseStyle, HP.class_ "flex gap-1 items-center" ]
-          [ H.button_
-              [ HP.class_ "btn btn-outline btn-sm text-muted-foreground animate-pulse"
-              , HP.disabled_
-              ]
-              [ text "Connecting..." ]
-          ]
-      VoiceConnected ->
-        H.div_ [ style_ baseStyle, HP.class_ "flex gap-1 items-center" ]
-          [ H.button_
-              [ HP.class_ ("btn btn-sm " <>
-                  if gmVoiceMuted gm
-                  then "bg-red-600 hover:bg-red-700 text-white border-red-500"
-                  else "bg-green-600 hover:bg-green-700 text-white border-green-500")
-              , SVG.onClick GVoiceToggleMute
-              ]
-              [ text (if gmVoiceMuted gm then "Unmute" else "Mute") ]
-          , H.button_
-              [ HP.class_ ("btn btn-sm " <>
-                  if gmCameraOn gm
-                  then "bg-blue-600 hover:bg-blue-700 text-white border-blue-500"
-                  else "btn-outline text-foreground")
-              , SVG.onClick GVideoToggleCamera
-              ]
-              [ text (if gmCameraOn gm then "Cam Off" else "Cam") ]
-          , H.button_
-              [ HP.class_ "btn btn-outline btn-sm text-foreground"
-              , SVG.onClick GVoiceEnd
-              ]
-              [ text "End" ]
-          ]
+viewVoiceButton _ = text ""
 
 -- | Headset icon (over-ear headphones with mic boom)
 iconHeadset :: View GameModel GameAction
@@ -1101,6 +1124,89 @@ iconHeadset =
     , SVG.path_ [ SP.d_ "M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z" ]
     , SVG.path_ [ SP.d_ "M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z" ]
     ]
+
+-- | Mic icon (Lucide Mic)
+iconMic :: View GameModel GameAction
+iconMic =
+  SVG.svg_
+    [ SP.viewBox_ "0 0 24 24"
+    , HP.width_ "16", HP.height_ "16"
+    , SP.fill_ "none", SP.stroke_ "currentcolor"
+    , SP.strokeWidth_ "2", SP.strokeLinecap_ "round", SP.strokeLinejoin_ "round"
+    ]
+    [ SVG.path_ [ SP.d_ "M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" ]
+    , SVG.path_ [ SP.d_ "M19 10v2a7 7 0 0 1-14 0v-2" ]
+    , SVG.line_ [ SP.x1_ "12", SP.y1_ "19", SP.x2_ "12", SP.y2_ "22" ]
+    ]
+
+-- | Mic-off icon (Lucide MicOff)
+iconMicOff :: View GameModel GameAction
+iconMicOff =
+  SVG.svg_
+    [ SP.viewBox_ "0 0 24 24"
+    , HP.width_ "16", HP.height_ "16"
+    , SP.fill_ "none", SP.stroke_ "currentcolor"
+    , SP.strokeWidth_ "2", SP.strokeLinecap_ "round", SP.strokeLinejoin_ "round"
+    ]
+    [ SVG.line_ [ SP.x1_ "2", SP.y1_ "2", SP.x2_ "22", SP.y2_ "22" ]
+    , SVG.path_ [ SP.d_ "M18.89 13.23A7.12 7.12 0 0 0 19 12v-2" ]
+    , SVG.path_ [ SP.d_ "M5 10v2a7 7 0 0 0 12 5" ]
+    , SVG.path_ [ SP.d_ "M15 9.34V5a3 3 0 0 0-5.68-1.33" ]
+    , SVG.path_ [ SP.d_ "M9 9v3a3 3 0 0 0 5.12 2.12" ]
+    , SVG.line_ [ SP.x1_ "12", SP.y1_ "19", SP.x2_ "12", SP.y2_ "22" ]
+    ]
+
+-- | Camera icon (Lucide Video)
+iconCameraIcon :: View GameModel GameAction
+iconCameraIcon =
+  SVG.svg_
+    [ SP.viewBox_ "0 0 24 24"
+    , HP.width_ "16", HP.height_ "16"
+    , SP.fill_ "none", SP.stroke_ "currentcolor"
+    , SP.strokeWidth_ "2", SP.strokeLinecap_ "round", SP.strokeLinejoin_ "round"
+    ]
+    [ SVG.path_ [ SP.d_ "m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.934a.5.5 0 0 0-.777-.416L16 11" ]
+    , SVG.rect_ [ SP.x_ "2", SP.y_ "7", HP.width_ "14", HP.height_ "10", SP.rx_ "2" ]
+    ]
+
+-- | Camera-off icon (Lucide VideoOff)
+iconCameraOff :: View GameModel GameAction
+iconCameraOff =
+  SVG.svg_
+    [ SP.viewBox_ "0 0 24 24"
+    , HP.width_ "16", HP.height_ "16"
+    , SP.fill_ "none", SP.stroke_ "currentcolor"
+    , SP.strokeWidth_ "2", SP.strokeLinecap_ "round", SP.strokeLinejoin_ "round"
+    ]
+    [ SVG.path_ [ SP.d_ "M10.66 5H14a2 2 0 0 1 2 2v2.34" ]
+    , SVG.path_ [ SP.d_ "M16 11v1a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2" ]
+    , SVG.path_ [ SP.d_ "m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.934a.5.5 0 0 0-.777-.416L16 11" ]
+    , SVG.line_ [ SP.x1_ "2", SP.y1_ "2", SP.x2_ "22", SP.y2_ "22" ]
+    ]
+
+-- | Phone-off icon (Lucide PhoneOff)
+iconPhoneOff :: View GameModel GameAction
+iconPhoneOff =
+  SVG.svg_
+    [ SP.viewBox_ "0 0 24 24"
+    , HP.width_ "16", HP.height_ "16"
+    , SP.fill_ "none", SP.stroke_ "currentcolor"
+    , SP.strokeWidth_ "2", SP.strokeLinecap_ "round", SP.strokeLinejoin_ "round"
+    ]
+    [ SVG.path_ [ SP.d_ "M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91" ]
+    , SVG.line_ [ SP.x1_ "22", SP.y1_ "2", SP.x2_ "2", SP.y2_ "22" ]
+    ]
+
+-- | MessageCircle icon (Lucide MessageCircle)
+iconMessageCircle :: View GameModel GameAction
+iconMessageCircle =
+  SVG.svg_
+    [ SP.viewBox_ "0 0 24 24"
+    , HP.width_ "20", HP.height_ "20"
+    , SP.fill_ "none", SP.stroke_ "currentcolor"
+    , SP.strokeWidth_ "2", SP.strokeLinecap_ "round", SP.strokeLinejoin_ "round"
+    ]
+    [ SVG.path_ [ SP.d_ "M7.9 20A9 9 0 1 0 4 16.1L2 22Z" ] ]
 
 -- | Voice invite banner (shown when receiving an invite)
 viewVoiceInviteBanner :: GameModel -> View GameModel GameAction

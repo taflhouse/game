@@ -69,8 +69,10 @@ viewJoin m
           , H.p_
               [ HP.class_ "text-sm text-muted-foreground mb-4 text-center" ]
               [ text (if needsName then "Enter your name to join!" else "Enter the invite code shared with you to play!") ]
-          , H.div_
-              [ HP.class_ "flex flex-col gap-3" ]
+          , H.form_
+              [ HP.class_ "flex flex-col gap-3"
+              , H.onSubmit JoinMultiplayerGame
+              ]
               (  [ H.input_
                      [ HP.class_ "input w-full text-center"
                      , HP.type_ "text"
@@ -89,8 +91,8 @@ viewJoin m
                  | mJoinCodeInput m == "" ]
               ++ [ H.button_
                      ([ HP.class_ "btn w-full"
+                      , HP.type_ "submit"
                       , style_ [("touch-action", "manipulation")]
-                      , SVG.onClick JoinMultiplayerGame
                       ] ++ [ HP.disabled_ | joinDisabled ])
                      [ text "Join" ]
                  ]

@@ -278,14 +278,17 @@ viewSetupMultiplayer m =
             , setupBtn (SetTimeControl (DailyControl 259200)) "3 days" (mTimeControl m == DailyControl 259200)
             ]
         NoTimeControl -> text ""
-    ] ++ [ setupSection "Your Name"
-             [ H.input_
-                 [ HP.class_ "input w-full text-center"
-                 , HP.type_ "text"
-                 , HP.placeholder_ "Enter your name"
-                 , HP.value_ (if mJoinNameInput m /= "" then mJoinNameInput m
-                              else maybe "" id (mGuestName m))
-                 , H.onInput SetJoinNameInput
+    ] ++ [ H.form_
+             [ H.onSubmit FindMatch ]
+             [ setupSection "Your Name"
+                 [ H.input_
+                     [ HP.class_ "input w-full text-center"
+                     , HP.type_ "text"
+                     , HP.placeholder_ "Enter your name"
+                     , HP.value_ (if mJoinNameInput m /= "" then mJoinNameInput m
+                                  else maybe "" id (mGuestName m))
+                     , H.onInput SetJoinNameInput
+                     ]
                  ]
              ]
          | needsName ]

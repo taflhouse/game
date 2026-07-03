@@ -527,10 +527,12 @@ globalThis.makePipDraggable = function() {
   var el = document.getElementById('video-overlay');
   if (!el || el._draggable) return;
   el._draggable = true;
+  el.style.touchAction = 'none';
   var dx = 0, dy = 0, startX = 0, startY = 0, dragging = false;
 
   el.addEventListener('pointerdown', function(e) {
     if (e.target.closest('button')) return;
+    e.preventDefault();
     dragging = true;
     startX = e.clientX - dx;
     startY = e.clientY - dy;
