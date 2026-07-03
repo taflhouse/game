@@ -973,7 +973,7 @@ loadLoungeGames = do
     (FetchOptions Nothing Nothing)
     LoungeOpenLoaded LoungeLoadError
   selectWithFilters "games" "*"
-    [eq "status" ("active" :: MisoString)]
+    [eq "status" ("active" :: MisoString), eq "result_desc" ("in_progress" :: MisoString)]
     (FetchOptions Nothing Nothing)
     LoungeLiveLoaded LoungeLoadError
 
@@ -982,11 +982,14 @@ filterRecentGames :: [GameRow] -> IO [GameRow]
 filterRecentGames = filterM isRecent
   where
     thirtyMinMs = 30 * 60 * 1000 :: Int
+    windowMs moves
+      | moves < 10 = (moves + 1) * 60 * 1000
+      | otherwise  = thirtyMinMs
     isRecent gr = case grwLastMoveAt gr of
       Just ts -> do
         elapsed <- js_elapsedMs ts
-        pure (elapsed < thirtyMinMs)
-      Nothing -> pure False  -- no last_move_at means no moves yet; skip
+        pure (elapsed < windowMs (grwTotalMoves gr))
+      Nothing -> pure False
 
 -- | Check if a Route is the LoungeRoute.
 isLoungeRoute :: Route -> Bool
