@@ -56,7 +56,7 @@ viewConfigure m =
     ]
     [ H.div_
         [ HP.class_ "card p-6 w-full max-w-md"
-        , style_ [("margin-top", "4em")]
+        , style_ [("margin-top", "4em"), ("gap", "0")]
         ]
         [ H.h2_
             [ HP.class_ "text-xl font-bold mb-4 text-center"
@@ -73,7 +73,7 @@ viewConfigure m =
           else if mGameMode m == MultiplayerMode then viewSetupMultiplayer m
           else H.div_ [] []
         , H.div_
-            [ HP.class_ "mt-4 flex flex-col items-center gap-2"
+            [ HP.class_ "mt-6 flex flex-col items-center gap-2"
             ]
             [ if mGameMode m == MultiplayerMode
                 then let nameNeeded = case mProfile m of
