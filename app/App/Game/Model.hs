@@ -85,6 +85,13 @@ data GameModel = GameModel
   , gmDefenderName  :: Maybe MisoString
   , gmDrawOffered   :: !Bool
   , gmSpectatorCount :: !Int
+  , gmOpponentOnline  :: !Bool
+  , gmOpponentNotice  :: Maybe MisoString
+  , gmRematchOffered  :: !Bool
+  , gmRematchPending  :: !Bool
+  , gmRematchGameId   :: Maybe MisoString
+  , gmAttackerId      :: Maybe MisoString
+  , gmDefenderId      :: Maybe MisoString
     -- Time control
   , gmTimeControl    :: !TimeControl
   , gmAttackerTimeMs :: !Int
@@ -140,6 +147,13 @@ initialGameModel = GameModel
   , gmDefenderName  = Nothing
   , gmDrawOffered  = False
   , gmSpectatorCount = 0
+  , gmOpponentOnline  = True
+  , gmOpponentNotice  = Nothing
+  , gmRematchOffered  = False
+  , gmRematchPending  = False
+  , gmRematchGameId   = Nothing
+  , gmAttackerId      = Nothing
+  , gmDefenderId      = Nothing
   , gmTimeControl  = NoTimeControl
   , gmAttackerTimeMs = 0
   , gmDefenderTimeMs = 0

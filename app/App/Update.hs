@@ -351,6 +351,12 @@ updateModel loungeChannelRef = \case
 
   SessionRestored mSess -> do
     modify $ \m -> m { mSession = mSess, mSessionChecked = True }
+    -- If a game was fetched while session was being restored, show it now.
+    pendingM <- get
+    case (mGameInitData pendingM, mScreen pendingM) of
+      (Just (ResumeGame _), LoadingScreen) ->
+        modify $ \x -> x { mScreen = GameScreen }
+      _ -> pure ()
     case mSess of
       Just sess
         | amProvider (userAppMetadata (sessionUser sess)) == "anonymous" -> do
@@ -581,10 +587,13 @@ updateModel loungeChannelRef = \case
   ResumeGameLoaded val ->
     case fromJSON val of
       Success rows -> case (rows :: [GameRow]) of
-        (gr:_) ->
-          modify $ \m -> m
+        (gr:_) -> do
+          m <- get
+          modify $ \x -> x
             { mGameInitData = Just (ResumeGame gr)
-            , mScreen       = GameScreen
+            -- Wait for session check before mounting so the game component
+            -- sees the restored session and correctly identifies the player.
+            , mScreen = if mSessionChecked m then GameScreen else mScreen x
             }
         [] -> modify $ \m -> m { mToast = Just "Game not found." }
       Error _ -> modify $ \m -> m { mToast = Just "Failed to load game." }

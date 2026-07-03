@@ -1,0 +1,2 @@
+ALTER TABLE games ADD COLUMN IF NOT EXISTS rematch_offered_by TEXT;
+ALTER TABLE games ADD COLUMN IF NOT EXISTS rematch_game_id UUID REFERENCES games(id);

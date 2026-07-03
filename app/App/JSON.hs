@@ -92,6 +92,8 @@ data GameRow = GameRow
   , grwTimePerPlayerMs   :: Maybe Int
   , grwGameMode          :: Maybe MisoString
   , grwIsRated           :: !Bool
+  , grwRematchOfferedBy  :: Maybe MisoString
+  , grwRematchGameId     :: Maybe MisoString
   } deriving (Eq, Show)
 
 instance FromJSON GameRow where
@@ -120,6 +122,8 @@ instance FromJSON GameRow where
       <*> v .:? "time_per_player_ms"
       <*> v .:? "game_mode"
       <*> v .:? "is_rated" .!= True
+      <*> v .:? "rematch_offered_by"
+      <*> v .:? "rematch_game_id"
 
 -- ---------------------------------------------------------------------------
 -- Profile

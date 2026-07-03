@@ -92,5 +92,13 @@ data GameAction
   -- Rating
   | GRatingUpdated Value
   | GRatingUpdateError MisoString
+  -- Presence
+  | GDismissNotice
+  -- Rematch
+  | GRequestRematch
+  | GAcceptRematch
+  | GDeclineRematch
+  | GRematchInserted Value
+  | GRematchInsertError MisoString
   -- Internal
   | GNoOp

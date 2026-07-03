@@ -89,10 +89,12 @@ viewGame props gm
       , if not zen && gmGameMode gm == MultiplayerMode && gmPlayerSide gm == Nothing
         then viewSpectatorBadge n (gmSpectatorCount gm) else text ""
       , if zen then text "" else viewStatus gm
+      , if zen then text "" else viewOpponentNotice gm
       , if zen then text "" else viewMoveHistory gm
       , if zen then text ""
         else if gmGameMode gm == MultiplayerMode && isJust (gmPlayerSide gm)
         then viewMultiplayerControls gm else text ""
+      , if zen then text "" else viewPostGamePanel gm
       , if zen then text "" else viewShareLink props gm
       , viewZenHint gm
       , if zen then text "" else viewChatToggle gm
@@ -391,6 +393,83 @@ viewMultiplayerControls gm =
               ]
               [ text "Offer Draw" ]
         ])
+
+-- | Opponent disconnect/reconnect notice banner.
+viewOpponentNotice :: GameModel -> View GameModel GameAction
+viewOpponentNotice gm = case gmOpponentNotice gm of
+  Nothing -> text ""
+  Just notice ->
+    let n = boardSize (gsBoard (gmGameState gm))
+        isDisconnect = notice == "Opponent disconnected"
+        color = if isDisconnect then "var(--destructive)" else "#22c55e"
+    in H.div_
+      [ HP.class_ "text-center text-sm font-medium w-full"
+      , style_ [ ("max-width", ms (sqSize * n) <> "px")
+               , ("color", color)
+               , ("padding", "0.25em 0")
+               ]
+      ]
+      [ text notice ]
+
+-- | Post-game panel with rematch controls.
+-- Only shown for multiplayer players when the game is finished.
+viewPostGamePanel :: GameModel -> View GameModel GameAction
+viewPostGamePanel gm
+  | gmGameMode gm /= MultiplayerMode = text ""
+  | isNothing (gmPlayerSide gm) = text ""
+  | not (finished (gsResult (gmGameState gm))) = text ""
+  | gmRematchOffered gm =
+    let n = boardSize (gsBoard (gmGameState gm))
+    in H.div_
+      [ HP.class_ "flex items-center justify-center gap-2 mt-4"
+      , style_ [("max-width", ms (sqSize * n) <> "px")]
+      ]
+      [ H.button_
+          [ HP.class_ "btn btn-sm bg-green-600 hover:bg-green-700 text-white border-green-500"
+          , style_ [("touch-action", "manipulation")]
+          , SVG.onClick GAcceptRematch
+          ]
+          [ text "Accept Rematch" ]
+      , H.button_
+          [ HP.class_ "btn btn-outline btn-sm text-foreground"
+          , style_ [("touch-action", "manipulation")]
+          , SVG.onClick GDeclineRematch
+          ]
+          [ text "Decline" ]
+      ]
+  | gmRematchPending gm =
+    let n = boardSize (gsBoard (gmGameState gm))
+    in H.div_
+      [ HP.class_ "flex items-center justify-center mt-4"
+      , style_ [("max-width", ms (sqSize * n) <> "px")]
+      ]
+      [ H.span_
+          [ HP.class_ "text-sm text-muted-foreground animate-pulse" ]
+          [ text "Rematch offer sent..." ]
+      ]
+  | gmOpponentOnline gm =
+    let n = boardSize (gsBoard (gmGameState gm))
+    in H.div_
+      [ HP.class_ "flex items-center justify-center mt-4"
+      , style_ [("max-width", ms (sqSize * n) <> "px")]
+      ]
+      [ H.button_
+          [ HP.class_ "btn btn-outline btn-sm text-foreground"
+          , style_ [("touch-action", "manipulation")]
+          , SVG.onClick GRequestRematch
+          ]
+          [ text "Rematch" ]
+      ]
+  | otherwise =
+    let n = boardSize (gsBoard (gmGameState gm))
+    in H.div_
+      [ HP.class_ "flex items-center justify-center mt-4"
+      , style_ [("max-width", ms (sqSize * n) <> "px")]
+      ]
+      [ H.span_
+          [ HP.class_ "text-sm text-muted-foreground" ]
+          [ text "Opponent has left" ]
+      ]
 
 -- | Move history panel
 viewMoveHistory :: GameModel -> View GameModel GameAction

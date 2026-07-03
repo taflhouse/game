@@ -173,6 +173,8 @@ updateGame GameRefs{..} = \case
           , gmOpponentName = oppName
           , gmAttackerName = grwAttackerName gr
           , gmDefenderName = grwDefenderName gr
+          , gmAttackerId = grwAttackerId gr
+          , gmDefenderId = grwDefenderId gr
           , gmEvalScore = evaluate gs
           }
         subscribeToTableWithPresence ("game:" <> gid) "games" ("id=eq." <> gid)
@@ -240,6 +242,8 @@ updateGame GameRefs{..} = \case
               , gmOpponentName = oppName
               , gmAttackerName = grwAttackerName gr
               , gmDefenderName = grwDefenderName gr
+              , gmAttackerId = grwAttackerId gr
+              , gmDefenderId = grwDefenderId gr
               , gmEvalScore = evaluate gs
               , gmInviteCode = grwInviteCode gr
               }
@@ -250,7 +254,7 @@ updateGame GameRefs{..} = \case
                   qr <- js_generateQRDataURL (origin <> "/join/" <> code)
                   sink (GSetQrDataUrl qr)
               _ -> pure ()
-            when (grwStatus gr `elem` ["waiting", "active"]) $ do
+            when (grwStatus gr `elem` ["waiting", "active", "finished"]) $ do
               subscribeToTableWithPresence ("game:" <> gid) "games" ("id=eq." <> gid)
                 GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
               subscribeToTable ("chat:" <> gid) "game_chat" ("game_id=eq." <> gid)
@@ -274,6 +278,8 @@ updateGame GameRefs{..} = \case
               , gmMoveList = grwMoves gr
               , gmAttackerName = grwAttackerName gr
               , gmDefenderName = grwDefenderName gr
+              , gmAttackerId = grwAttackerId gr
+              , gmDefenderId = grwDefenderId gr
               , gmEvalScore = evaluate gs
               , gmInviteCode = grwInviteCode gr
               }
@@ -284,7 +290,7 @@ updateGame GameRefs{..} = \case
                   qr <- js_generateQRDataURL (origin <> "/join/" <> code)
                   sink (GSetQrDataUrl qr)
               _ -> pure ()
-            when (grwStatus gr `elem` ["waiting", "active"]) $ do
+            when (grwStatus gr `elem` ["waiting", "active", "finished"]) $ do
               subscribeToTableWithPresence ("game:" <> gid) "games" ("id=eq." <> gid)
                 GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
               subscribeToTable ("chat:" <> gid) "game_chat" ("game_id=eq." <> gid)
@@ -470,6 +476,8 @@ updateGame GameRefs{..} = \case
             { gmOpponentName = oppName
             , gmAttackerName = grwAttackerName gr
             , gmDefenderName = grwDefenderName gr
+            , gmAttackerId = grwAttackerId gr
+            , gmDefenderId = grwDefenderId gr
             }
           -- Detect rated -> casual downgrade
           when (gmIsRated gm && not (grwIsRated gr)) $ do
@@ -505,26 +513,67 @@ updateGame GameRefs{..} = \case
           Nothing -> modify $ \x -> x { gmDrawOffered = False }
           _ -> pure ()
 
+        -- Rematch offer detection
+        case grwRematchOfferedBy gr of
+          Just offeredBy | Just mySide <- gmPlayerSide gm
+                         , sideStr mySide /= offeredBy
+                         -> modify $ \x -> x { gmRematchOffered = True }
+          Nothing -> modify $ \x -> x { gmRematchOffered = False, gmRematchPending = False }
+          _ -> pure ()
+
+        -- Rematch navigation: when rematch_game_id is set, navigate both players
+        case grwRematchGameId gr of
+          Just newGid | isNothing (gmRematchGameId gm) -> do
+            modify $ \x -> x { gmRematchGameId = Just newGid }
+            io_ $ pushURI (playURI newGid)
+          _ -> pure ()
+
         when (grwResultDesc gr /= "in_progress" && grwStatus gr == "finished") $ do
           let winSide = case grwWinner gr of
                 Just "attacker" -> Just AttackerSide
                 Just "defender" -> Just DefenderSide
                 _ -> Nothing
               result = GameResult True winSide (fromMisoString (grwResultDesc gr))
-          modify $ \x -> x { gmGameState = (gmGameState x) { gsResult = result } }
+          modify $ \x -> x { gmGameState = (gmGameState x) { gsResult = result }
+                           , gmOpponentNotice = Nothing }
           stopClock' grClockRef
 
   GRealtimeSubscribed ch -> do
     io_ $ writeIORef grChannelRef (Just ch)
     gm <- get
-    let role = case gmPlayerSide gm of
-          Just _  -> "player" :: MisoString
-          Nothing -> "spectator"
-    io_ $ trackPresence ch (object ["role" .= role])
+    let (role, sideVal) = case gmPlayerSide gm of
+          Just s  -> ("player" :: MisoString, Just (sideStr s))
+          Nothing -> ("spectator", Nothing)
+    io_ $ trackPresence ch (object ["role" .= role, "side" .= sideVal])
 
   GPresenceSync val -> do
-    let count = countSpectators val
-    modify $ \gm -> gm { gmSpectatorCount = count }
+    gm <- get
+    let pi' = parsePresence val
+        prevOnline = gmOpponentOnline gm
+        oppOnline = case gmPlayerSide gm of
+          Just AttackerSide -> piDefenderOnline pi'
+          Just DefenderSide -> piAttackerOnline pi'
+          Nothing           -> True
+        isPlayer = isJust (gmPlayerSide gm)
+        gameActive = not (finished (gsResult (gmGameState gm)))
+        hasOpp = isJust (gmOpponentName gm)
+        notice
+          | isPlayer && hasOpp && gameActive && prevOnline && not oppOnline
+            = Just "Opponent disconnected"
+          | isPlayer && hasOpp && not prevOnline && oppOnline
+            = Just "Opponent reconnected"
+          | otherwise = Nothing
+    modify $ \x -> x
+      { gmSpectatorCount = piSpectatorCount pi'
+      , gmOpponentOnline = oppOnline
+      , gmOpponentNotice = case notice of
+          Just n  -> Just n
+          Nothing -> gmOpponentNotice x
+      }
+    when (notice == Just "Opponent reconnected") $
+      withSink $ \sink -> do
+        threadDelay 3000000
+        sink GDismissNotice
 
   GRealtimeError _ -> pure ()
 
@@ -1229,6 +1278,108 @@ updateGame GameRefs{..} = \case
 
   GRatingUpdateError _ -> pure ()  -- idempotent; will succeed next time
 
+  -- Presence ----------------------------------------------------------------
+
+  GDismissNotice ->
+    modify $ \gm -> gm { gmOpponentNotice = Nothing }
+
+  -- Rematch -----------------------------------------------------------------
+
+  GRequestRematch -> do
+    gm <- get
+    when (gmGameMode gm == MultiplayerMode && finished (gsResult (gmGameState gm))) $
+      case (gmGameId gm, gmPlayerSide gm) of
+        (Just gid, Just mySide) -> do
+          modify $ \x -> x { gmRematchPending = True }
+          updateTable "games"
+            (object ["rematch_offered_by" .= sideStr mySide])
+            [eq "id" gid]
+            (UpdateOptions Nothing)
+            GMoveUpdated GMoveUpdateError
+        _ -> pure ()
+
+  GAcceptRematch -> do
+    gm <- get
+    props <- getProps
+    when (gmGameMode gm == MultiplayerMode && gmRematchOffered gm) $
+      case (gmGameId gm, gpSession props) of
+        (Just oldGid, Just _) ->
+          withSink $ \sink -> do
+            uuid <- js_generateUUID
+            nowStr <- js_nowISO
+            sink (GRematchInserted (object ["uuid" .= uuid, "nowStr" .= nowStr, "oldGid" .= oldGid]))
+        _ -> pure ()
+
+  GRematchInserted val -> do
+    gm <- get
+    props <- getProps
+    let mUuid   = parseMaybe (withObject "r" $ \o -> o .: "uuid") val :: Maybe MisoString
+        mNow    = parseMaybe (withObject "r" $ \o -> o .: "nowStr") val :: Maybe MisoString
+        mOldGid = parseMaybe (withObject "r" $ \o -> o .: "oldGid") val :: Maybe MisoString
+    case (mUuid, mNow, mOldGid, gpSession props) of
+      (Just newUuid, Just nowStr, Just oldGid, Just sess) -> do
+        let uid = userId (sessionUser sess)
+            variant = gmVariant gm
+            newAtkId = gmDefenderId gm
+            newAtkName = gmDefenderName gm
+            newDefId = gmAttackerId gm
+            newDefName = gmAttackerName gm
+            tcFields = case gmTimeControl gm of
+              BlitzControl totalMs ->
+                [ "time_control"               .= ("blitz" :: MisoString)
+                , "attacker_time_remaining_ms" .= totalMs
+                , "defender_time_remaining_ms" .= totalMs
+                , "time_per_player_ms"         .= totalMs
+                , "last_move_at"               .= nowStr
+                ]
+              DailyControl perMoveSec ->
+                [ "time_control"          .= ("daily" :: MisoString)
+                , "time_per_move_seconds" .= perMoveSec
+                , "last_move_at"          .= nowStr
+                ]
+              NoTimeControl -> []
+            gameData = object $
+              [ "id"            .= newUuid
+              , "user_id"       .= uid
+              , "variant"       .= variantSlug variant
+              , "result_desc"   .= ("in_progress" :: MisoString)
+              , "total_moves"   .= (0 :: Int)
+              , "game_mode"     .= ("multiplayer" :: MisoString)
+              , "moves"         .= ([] :: [MoveAction])
+              , "status"        .= ("active" :: MisoString)
+              , "current_turn"  .= ("attacker" :: MisoString)
+              , "attacker_id"   .= newAtkId
+              , "attacker_name" .= newAtkName
+              , "defender_id"   .= newDefId
+              , "defender_name" .= newDefName
+              , "is_rated"      .= gmIsRated gm
+              ] ++ tcFields
+        modify $ \x -> x { gmRematchGameId = Just newUuid }
+        insert "games" gameData (InsertOptions Nothing Nothing) GGameCreated GRematchInsertError
+        updateTable "games"
+          (object ["rematch_game_id" .= newUuid])
+          [eq "id" oldGid]
+          (UpdateOptions Nothing)
+          GMoveUpdated GMoveUpdateError
+        io_ $ pushURI (playURI newUuid)
+      _ -> pure ()
+
+  GDeclineRematch -> do
+    gm <- get
+    when (gmGameMode gm == MultiplayerMode) $
+      case gmGameId gm of
+        Just gid -> do
+          updateTable "games"
+            (object ["rematch_offered_by" .= (Nothing :: Maybe MisoString)])
+            [eq "id" gid]
+            (UpdateOptions Nothing)
+            GMoveUpdated GMoveUpdateError
+          modify $ \x -> x { gmRematchOffered = False }
+        Nothing -> pure ()
+
+  GRematchInsertError msg ->
+    mailParent $ object ["type" .= ("toast" :: MisoString), "msg" .= ("Rematch failed: " <> msg)]
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
@@ -1370,19 +1521,28 @@ saveGame _channelRef _clockRef = do
       io_ $ saveLocalGameIO gameData
   mailParent $ object ["type" .= ("game_finished" :: MisoString)]
 
--- | Count spectator presences from a Supabase presence state value.
+-- | Parsed presence state for player/spectator tracking.
+data PresenceInfo = PresenceInfo
+  { piSpectatorCount :: !Int
+  , piAttackerOnline :: !Bool
+  , piDefenderOnline :: !Bool
+  }
+
+-- | Parse a Supabase presence state value into structured presence info.
 --
--- The presence state is @{ key: [{ role: "spectator"|"player" }], ... }@.
--- We count entries where @role == "spectator"@.
-countSpectators :: Value -> Int
-countSpectators (JSON.Object m) = length
-  [ ()
-  | JSON.Array entries <- Map.elems m
-  , JSON.Object entry  <- entries
-  , Just (JSON.String role) <- [Map.lookup "role" entry]
-  , role == "spectator"
-  ]
-countSpectators _ = 0
+-- The presence state is @{ key: [{ role: "spectator"|"player", side: "attacker"|"defender" }], ... }@.
+parsePresence :: Value -> PresenceInfo
+parsePresence (JSON.Object m) =
+  let entries = [ e | JSON.Array arr <- Map.elems m, JSON.Object e <- arr ]
+      specs   = length [ () | e <- entries
+                       , Just (JSON.String r) <- [Map.lookup "role" e]
+                       , r == "spectator" ]
+      hasPlayer s = any (\e ->
+        case (Map.lookup "role" e, Map.lookup "side" e) of
+          (Just (JSON.String "player"), Just (JSON.String s')) -> s == s'
+          _ -> False) entries
+  in PresenceInfo specs (hasPlayer "attacker") (hasPlayer "defender")
+parsePresence _ = PresenceInfo 0 False False
 
 displayedGameState :: GameModel -> GameState
 displayedGameState gm = case gmBrowseIndex gm of
