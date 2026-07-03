@@ -90,6 +90,31 @@ data Action
   | SetRated Bool
   | JoinRatedAsGuest
   | JoinRatedWithSignIn
+  -- Matchmaking
+  | FindMatch
+  | InitMatchmakingGame MisoString MisoString MisoString Bool (Maybe Double) (Maybe Double)
+    -- ^ invCode uuid qrDataUrl isRated creatorRating creatorRd
+  -- Match interest (passive side)
+  | ToggleMatchInterest
+  | MatchInterestChange Value
+  | MatchInterestSubscribed Channel
+  | MatchInterestError MisoString
+  | MatchInterestInitialLoad Value
+  | MatchInterestInitialError MisoString
+  | ViewMatchDetails GameRow
+  | AcceptMatch GameRow
+  | DeclineMatch MisoString
+  | DeclineMatchUpdated Value
+  | DeclineMatchError MisoString
+  | DismissMatchToast
+  | ShowReadyPopover
+  | DismissReadyPopover
+  | ConfirmReadyPopover
+  | ConfirmMatchFilters
+  | SetMatchAny Bool
+  | SetMatchWantRated MisoString
+  | SetMatchWantTimed MisoString
+  | SetMatchWantSide MisoString
   -- Replay
   | GotoReplay MisoString
   -- View mode (replay only; game component handles its own)

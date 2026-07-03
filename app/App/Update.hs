@@ -8,6 +8,7 @@ import Control.Category ((.))
 import Control.Concurrent (threadDelay)
 import Control.Monad (filterM, when)
 import Data.IORef (IORef, readIORef, writeIORef)
+import Data.List (sortOn)
 import Data.Maybe (fromMaybe)
 import Miso hiding ((!!))
 import Miso.String (MisoString, ms, fromMisoString)
@@ -23,6 +24,8 @@ import Supabase.Miso.Auth
 import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq, neq)
 import Supabase.Miso.Realtime (Channel, subscribeToTable, removeChannel)
 
+
+import Tafl.Rules (variantSlug)
 
 import App.JSON (GameRow(..), Profile(..), GameRecord(..))
 import App.Model
@@ -300,9 +303,11 @@ updateModel loungeChannelRef = \case
                                               then mJoinNameInput m else gName) }
         m <- get
         case mDeferredMpAction m of
-          Just DeferCreate -> withSink $ \sink -> sink CreateMultiplayerGame
-          Just DeferJoin   -> withSink $ \sink -> sink JoinMultiplayerGame
-          Nothing          -> pure ()
+          Just DeferCreate         -> withSink $ \sink -> sink CreateMultiplayerGame
+          Just DeferJoin           -> withSink $ \sink -> sink JoinMultiplayerGame
+          Just DeferFindMatch      -> withSink $ \sink -> sink FindMatch
+          Just DeferToggleInterest -> withSink $ \sink -> sink ToggleMatchInterest
+          Nothing                  -> pure ()
         modify $ \x -> x { mDeferredMpAction = Nothing }
       Nothing ->
         modify $ \m -> m { mToast = Just "Anonymous sign-in failed", mDeferredMpAction = Nothing }
@@ -319,6 +324,11 @@ updateModel loungeChannelRef = \case
           Just ch -> removeChannel ch
           Nothing -> pure ()
         writeIORef loungeChannelRef Nothing
+    -- Clean up match interest channel
+    case mMatchInterestChannel m of
+      Just ch -> io_ $ removeChannel ch
+      Nothing -> pure ()
+    io_ $ js_setLocalStorage "taflhouse_ready" "false"
     signOut defaultSignOutOptions SignOutSuccess AuthError
     assign (mAuth . authError) Nothing
     modify $ \x -> x
@@ -332,6 +342,10 @@ updateModel loungeChannelRef = \case
       , mViewMode        = NormalView
       , mGuestName       = Nothing
       , mGameInitData    = Nothing
+      , mMatchInterested      = False
+      , mMatchInterestChannel = Nothing
+      , mMatchToast           = Nothing
+      , mMatchModal           = Nothing
       }
     io_ $ pushURI homeURI
 
@@ -369,6 +383,20 @@ updateModel loungeChannelRef = \case
             loadPastGames
             loadProfile sess
       Nothing -> pure ()
+    -- Restore "Ready" toggle and preferences from localStorage
+    when (mSess /= Nothing) $
+      withSink $ \sink -> do
+        val <- js_getLocalStorage "taflhouse_ready"
+        when (val == "true") $ do
+          anyVal   <- js_getLocalStorage "taflhouse_match_any"
+          ratedVal <- js_getLocalStorage "taflhouse_match_rated"
+          timedVal <- js_getLocalStorage "taflhouse_match_timed"
+          sideVal  <- js_getLocalStorage "taflhouse_match_side"
+          sink (SetMatchAny (anyVal /= "false"))
+          when (ratedVal /= "") $ sink (SetMatchWantRated ratedVal)
+          when (timedVal /= "") $ sink (SetMatchWantTimed timedVal)
+          when (sideVal  /= "") $ sink (SetMatchWantSide sideVal)
+          sink ConfirmMatchFilters
 
   -- Games / migration ----------------------------------------------------
 
@@ -522,7 +550,8 @@ updateModel loungeChannelRef = \case
         rated = mIsRated m && not isAnon
     modify $ \x -> x
       { mGameInitData = Just (NewMultiplayerGame (mVariant m) (mTimeControl m)
-                               (mSidePreference m) invCode uuid qrUrl rated)
+                               (mSidePreference m) invCode uuid qrUrl rated
+                               False Nothing Nothing)
       , mScreen = GameScreen
       }
 
@@ -630,6 +659,162 @@ updateModel loungeChannelRef = \case
         }
       Nothing -> pure ()
 
+  -- Matchmaking ----------------------------------------------------------
+
+  FindMatch -> do
+    m <- get
+    case mSession m of
+      Nothing -> do
+        modify $ \x -> x { mDeferredMpAction = Just DeferFindMatch }
+        signInAnonymously defaultSignInAnonymouslyOptions AnonAuthSuccess AnonAuthError
+      Just _ -> do
+        when (mJoinNameInput m /= "") $
+          modify $ \x -> x { mGuestName = Just (mJoinNameInput x) }
+        let isAnon = case mSession m of
+              Just sess -> amProvider (userAppMetadata (sessionUser sess)) == "anonymous"
+              Nothing   -> True
+            rated = mIsRated m && not isAnon
+            creatorR  = if rated then Just (maybe 1500.0 pRating (mProfile m)) else Nothing
+            creatorRd' = if rated then Just (maybe 350.0 pRatingRd (mProfile m)) else Nothing
+        io $ do
+          invCode <- generateInviteCode
+          uuid    <- js_generateUUID
+          origin  <- js_getOrigin
+          qrUrl   <- js_generateQRDataURL (origin <> "/join/" <> invCode)
+          pure (InitMatchmakingGame invCode uuid qrUrl rated creatorR creatorRd')
+
+  InitMatchmakingGame invCode uuid qrUrl rated creatorR creatorRd' -> do
+    m <- get
+    let sidePref = mSidePreference m
+        resolvedPref = if sidePref == "either"
+          then case filter (/= '-') (fromMisoString uuid :: String) of
+                 (c:_) -> if c < '8' then "attacker" else "defender"
+                 []    -> "attacker"
+          else sidePref
+    modify $ \x -> x
+      { mGameInitData = Just (NewMultiplayerGame (mVariant m) (mTimeControl m)
+                               resolvedPref invCode uuid qrUrl rated
+                               True creatorR creatorRd')
+      , mScreen = GameScreen
+      }
+
+  -- Match interest (passive side) ----------------------------------------
+
+  ToggleMatchInterest -> do
+    m <- get
+    if mMatchInterested m
+      then do
+        -- Turn OFF: unsubscribe and clear state
+        case mMatchInterestChannel m of
+          Just ch -> io_ $ removeChannel ch
+          Nothing -> pure ()
+        modify $ \x -> x
+          { mMatchInterested      = False
+          , mMatchInterestChannel = Nothing
+          , mMatchToast           = Nothing
+          , mMatchModal           = Nothing
+          }
+        io_ $ js_setLocalStorage "taflhouse_ready" "false"
+      else do
+        -- Check if user has seen explanation before
+        withSink $ \sink -> do
+          seen <- js_getLocalStorage "taflhouse_ready_seen"
+          if seen /= "true"
+            then sink ShowReadyPopover       -- step 0: explanation
+            else sink ConfirmReadyPopover    -- step 1: filters
+
+  ShowReadyPopover ->
+    modify $ \x -> x { mMatchReadyStep = Just 0 }
+
+  DismissReadyPopover ->
+    modify $ \x -> x { mMatchReadyStep = Nothing }
+
+  ConfirmReadyPopover -> do
+    -- Transition from explanation to filters step
+    io_ $ js_setLocalStorage "taflhouse_ready_seen" "true"
+    modify $ \x -> x { mMatchReadyStep = Just 1 }
+
+  ConfirmMatchFilters -> do
+    m <- get
+    modify $ \x -> x { mMatchReadyStep = Nothing }
+    -- Persist filter preferences
+    io_ $ do
+      js_setLocalStorage "taflhouse_match_any" (if mMatchAny m then "true" else "false")
+      js_setLocalStorage "taflhouse_match_rated" (mMatchWantRated m)
+      js_setLocalStorage "taflhouse_match_timed" (mMatchWantTimed m)
+      js_setLocalStorage "taflhouse_match_side" (mMatchWantSide m)
+    activateMatchInterest
+
+  SetMatchAny v -> modify $ \x -> x { mMatchAny = v }
+  SetMatchWantRated v -> modify $ \x -> x { mMatchWantRated = v }
+  SetMatchWantTimed v -> modify $ \x -> x { mMatchWantTimed = v }
+  SetMatchWantSide v -> modify $ \x -> x { mMatchWantSide = v }
+
+  MatchInterestSubscribed ch -> do
+    modify $ \x -> x { mMatchInterestChannel = Just ch }
+
+  MatchInterestError _ -> pure ()
+
+  MatchInterestChange val -> do
+    m <- get
+    when (mMatchInterested m) $
+      case parseRealtimePayload val of
+        Nothing -> pure ()
+        Just gr ->
+          when (matchesPrefs m gr) $
+            modify $ \x -> x { mMatchToast = Just gr }
+
+  MatchInterestInitialLoad val -> do
+    m <- get
+    when (mMatchInterested m) $
+      case fromJSON val of
+        Success rows ->
+          case bestMatch m (filter (matchesPrefs m) (rows :: [GameRow])) of
+            Just best -> modify $ \x -> x { mMatchToast = Just best }
+            Nothing   -> pure ()
+        Error _ -> pure ()
+
+  MatchInterestInitialError _ -> pure ()
+
+  ViewMatchDetails gr -> do
+    modify $ \x -> x { mMatchModal = Just gr, mMatchToast = Nothing }
+    -- Notify creator that someone is viewing
+    updateTable "games"
+      (object ["interest_status" .= ("viewing" :: MisoString)])
+      [eq "id" (grwId gr)]
+      (UpdateOptions Nothing)
+      DeclineMatchUpdated DeclineMatchError
+
+  AcceptMatch gr -> do
+    m <- get
+    -- Turn off interest toggle and unsubscribe
+    case mMatchInterestChannel m of
+      Just ch -> io_ $ removeChannel ch
+      Nothing -> pure ()
+    modify $ \x -> x
+      { mMatchInterested      = False
+      , mMatchInterestChannel = Nothing
+      , mMatchToast           = Nothing
+      , mMatchModal           = Nothing
+      , mGameInitData         = Just (JoinGame gr)
+      , mScreen               = GameScreen
+      }
+
+  DeclineMatch gameId -> do
+    modify $ \x -> x { mMatchModal = Nothing }
+    updateTable "games"
+      (object ["interest_status" .= ("declined" :: MisoString)])
+      [eq "id" gameId]
+      (UpdateOptions Nothing)
+      DeclineMatchUpdated DeclineMatchError
+
+  DeclineMatchUpdated _ -> pure ()
+
+  DeclineMatchError _ -> pure ()
+
+  DismissMatchToast ->
+    modify $ \x -> x { mMatchToast = Nothing }
+
   -- Lounge ---------------------------------------------------------------
 
   LoungeOpenLoaded val ->
@@ -727,10 +912,10 @@ updateModel loungeChannelRef = \case
 
 -- | Extract the UUID from any GameInitData variant.
 gameInitUuid :: GameInitData -> MisoString
-gameInitUuid (NewLocalGame uuid _ _ _ _ _)        = uuid
-gameInitUuid (NewMultiplayerGame _ _ _ _ uuid _ _)  = uuid
-gameInitUuid (JoinGame gr)                         = grwId gr
-gameInitUuid (ResumeGame gr)                       = grwId gr
+gameInitUuid (NewLocalGame uuid _ _ _ _ _)                  = uuid
+gameInitUuid (NewMultiplayerGame _ _ _ _ uuid _ _ _ _ _)    = uuid
+gameInitUuid (JoinGame gr)                                  = grwId gr
+gameInitUuid (ResumeGame gr)                                = grwId gr
 
 -- | Load past games (Supabase if authenticated, localStorage if guest).
 loadPastGames :: Effect ROOT () Model Action
@@ -807,3 +992,76 @@ filterRecentGames = filterM isRecent
 isLoungeRoute :: Route -> Bool
 isLoungeRoute LoungeRoute = True
 isLoungeRoute _           = False
+
+-- | Parse a GameRow from a Supabase Realtime payload (extracts @new@ field).
+parseRealtimePayload :: Value -> Maybe GameRow
+parseRealtimePayload val =
+  parseMaybe (\v -> withObject "RealtimePayload" (\o -> o .: "new" >>= parseJSON) v) val
+
+-- | Does a matchmaking GameRow pass the user's preference filters?
+matchesPrefs :: Model -> GameRow -> Bool
+matchesPrefs m gr =
+  grwStatus gr == "waiting"
+  && grwIsMatchmaking gr
+  -- Don't show own games
+  && not (isOwnGame m gr)
+  -- Variant must match the selected variant
+  && grwVariant gr == ms (variantSlug (mVariant m))
+  -- Preference filters (Any overrides all)
+  && (mMatchAny m || passesFilters)
+  where
+    passesFilters =
+      ratedOk && timedOk && sideOk
+
+    ratedOk = case mMatchWantRated m of
+      "rated"  -> grwIsRated gr
+      "casual" -> not (grwIsRated gr)
+      _        -> True  -- "either"
+
+    timedOk = case mMatchWantTimed m of
+      "timed"   -> grwTimeControl gr /= Nothing
+      "untimed" -> grwTimeControl gr == Nothing
+      _         -> True  -- "either"
+
+    sideOk = case mMatchWantSide m of
+      "attacker" -> grwAttackerId gr == Nothing   -- attacker slot open
+      "defender" -> grwDefenderId gr == Nothing   -- defender slot open
+      _          -> True  -- "either"
+
+    isOwnGame mdl gr' = case mSession mdl of
+      Just sess -> let uid = userId (sessionUser sess)
+                   in grwAttackerId gr' == Just uid || grwDefenderId gr' == Just uid
+      Nothing   -> False
+
+-- | Pick the best match from a list of eligible games:
+-- closest in rating (tiebreak: longest-waiting game first).
+bestMatch :: Model -> [GameRow] -> Maybe GameRow
+bestMatch _ []  = Nothing
+bestMatch m grs =
+  let myRating = maybe 1500.0 pRating (mProfile m)
+      ratingDiff gr = case grwCreatorRating gr of
+        Just r  -> abs (myRating - r)
+        Nothing -> 0  -- unrated/casual games have no gap
+      -- Sort by rating proximity, then by ID (earlier ID = longer waiting)
+      sorted = sortOn (\gr -> (ratingDiff gr, grwId gr)) grs
+  in Just (head sorted)
+
+-- | Activate the match interest toggle: ensure auth, subscribe, and query.
+activateMatchInterest :: Effect ROOT () Model Action
+activateMatchInterest = do
+  m <- get
+  case mSession m of
+    Nothing -> do
+      modify $ \x -> x { mDeferredMpAction = Just DeferToggleInterest }
+      signInAnonymously defaultSignInAnonymouslyOptions AnonAuthSuccess AnonAuthError
+    Just _ -> do
+      modify $ \x -> x { mMatchInterested = True }
+      io_ $ js_setLocalStorage "taflhouse_ready" "true"
+      subscribeToTable "matchinterest" "games" "is_matchmaking=eq.true"
+        MatchInterestChange MatchInterestSubscribed MatchInterestError
+      selectWithFilters "games" "*"
+        [ eq "status" ("waiting" :: MisoString)
+        , eq "is_matchmaking" True
+        ]
+        (FetchOptions Nothing Nothing)
+        MatchInterestInitialLoad MatchInterestInitialError

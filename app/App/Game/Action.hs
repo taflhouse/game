@@ -100,5 +100,13 @@ data GameAction
   | GDeclineRematch
   | GRematchInserted Value
   | GRematchInsertError MisoString
+  -- Matchmaking
+  | GMatchmakingTick
+  | GMatchmakingTimerStarted Int
+  | GCancelMatchmaking
+  | GMatchmakingCancelled Value
+  | GMatchmakingCancelError MisoString
+  | GAcceptAiFallback
+  | GKeepSearching
   -- Internal
   | GNoOp

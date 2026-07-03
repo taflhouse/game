@@ -7,6 +7,7 @@ module App.Game.Update (updateGame) where
 import Data.IORef
 import Control.Concurrent (threadDelay)
 import Control.Monad (when)
+
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Miso hiding ((!!))
 import Miso.String (MisoString, ms, fromMisoString)
@@ -29,7 +30,7 @@ import App.JSON (GameRow(..), Profile(..), ChatMessage(..), parseChatMessage)
 import App.Model (Model, GameMode(..), TimeControl(..), ViewMode(..), GameInitData(..))
 import App.Game.Model
 import App.Game.Action
-import App.Route (replayMoves, lookupVariant, playURI)
+import App.Route (replayMoves, lookupVariant, playURI, configureURI)
 import App.FFI
 import Supabase.Miso.Core (successCallback, errorCallback)
 
@@ -81,7 +82,7 @@ updateGame GameRefs{..} = \case
           Nothing -> pure ()
         triggerAi grChannelRef grClockRef
 
-      NewMultiplayerGame variant tc sidePref invCode uuid qrUrl isRated -> do
+      NewMultiplayerGame variant tc sidePref invCode uuid qrUrl isRated isMatchmaking creatorRating creatorRd -> do
         let gs = initialState variant
             mySide = case sidePref of
               "attacker" -> AttackerSide
@@ -110,6 +111,12 @@ updateGame GameRefs{..} = \case
                     , "time_per_move_seconds" .= perMoveSec
                     ]
                   NoTimeControl -> []
+                matchmakingFields = if isMatchmaking
+                  then [ "is_matchmaking"  .= True
+                       , "creator_rating"  .= creatorRating
+                       , "creator_rd"      .= creatorRd
+                       ]
+                  else []
                 gameData = object $
                   [ "id"            .= uuid
                   , "user_id"       .= uid
@@ -126,13 +133,14 @@ updateGame GameRefs{..} = \case
                   , "defender_id"   .= defId
                   , "defender_name" .= defName
                   , "is_rated"      .= isRated
-                  ] ++ tcFields
+                  ] ++ tcFields ++ matchmakingFields
             put $ initialGameModel
               { gmGameId = Just uuid
               , gmGameState = gs
               , gmVariant = variant
               , gmGameMode = MultiplayerMode
               , gmIsRated = isRated
+              , gmIsMatchmaking = isMatchmaking
               , gmPlayerSide = Just mySide
               , gmInviteCode = Just invCode
               , gmQrDataUrl = Just qrUrl
@@ -148,6 +156,9 @@ updateGame GameRefs{..} = \case
             subscribeToTable ("chat:" <> uuid) "game_chat" ("game_id=eq." <> uuid)
               GChatReceived GChatSubscribed GChatError
             subscribeVoiceBroadcast grVoiceChannelRef uuid
+            -- Start matchmaking polling timer
+            when isMatchmaking $
+              startMatchmakingTimer grChannelRef
             io_ $ pushURI (playURI uuid)
           Nothing -> pure ()
 
@@ -305,6 +316,11 @@ updateGame GameRefs{..} = \case
                 _ -> pure ()
 
   GameUnmount -> do
+    gm <- get
+    -- Clean up matchmaking timer
+    case gmMatchmakingTimerId gm of
+      Just tid -> io_ $ js_clearInterval tid
+      Nothing  -> pure ()
     io_ $ do
       mCh <- readIORef grChannelRef
       case mCh of
@@ -347,7 +363,8 @@ updateGame GameRefs{..} = \case
         board = gsBoard gs
         side = turnSide gs
         piece = pieceAt board coords
-        aiBlocked = gmGameMode gm == AiMode && gmAiSide gm == side
+        aiBlocked = (gmGameMode gm == AiMode && gmAiSide gm == side)
+                 || gmAiOpponent gm == Just side
         mpBlocked = gmGameMode gm == MultiplayerMode && gmPlayerSide gm /= Just side
         browsing = gmBrowseIndex gm /= Nothing
         mpBrowseBlocked = browsing && gmGameMode gm == MultiplayerMode
@@ -415,7 +432,22 @@ updateGame GameRefs{..} = \case
           , gmAnimateMove = Just move
           }
         io_ js_playMoveSound
-        when (finished (gsResult gs')) $ saveGame grChannelRef grClockRef
+        -- In multiplayer-AI games, write the AI move to DB
+        case gmAiOpponent gm of
+          Just _ -> case gmTimeControl gm of
+            BlitzControl _ ->
+              withSink $ \sink -> do
+                nowStr <- js_nowISO
+                sink (GWriteMpMoveWithClock nowStr Nothing)
+            DailyControl perMoveSec ->
+              withSink $ \sink -> do
+                nowStr <- js_nowISO
+                deadlineStr <- js_addSecondsISO nowStr perMoveSec
+                sink (GWriteMpMoveWithClock nowStr (Just deadlineStr))
+            NoTimeControl ->
+              io (pure (GWriteMpMoveWithClock "" Nothing))
+          Nothing ->
+            when (finished (gsResult gs')) $ saveGame grChannelRef grClockRef
       else pure ()
 
   GGotoMove i -> do
@@ -468,6 +500,12 @@ updateGame GameRefs{..} = \case
 
         when (grwStatus gr == "active"
               && (gmAttackerName gm == Nothing || gmDefenderName gm == Nothing)) $ do
+          -- Cancel matchmaking timer when opponent joins
+          case gmMatchmakingTimerId gm of
+            Just tid -> do
+              io_ $ js_clearInterval tid
+              modify $ \x -> x { gmMatchmakingTimerId = Nothing, gmIsMatchmaking = False }
+            Nothing -> pure ()
           let oppName = case gmPlayerSide gm of
                 Just AttackerSide -> grwDefenderName gr
                 Just DefenderSide -> grwAttackerName gr
@@ -512,6 +550,28 @@ updateGame GameRefs{..} = \case
                          -> modify $ \x -> x { gmDrawOffered = True }
           Nothing -> modify $ \x -> x { gmDrawOffered = False }
           _ -> pure ()
+
+        -- Interest status on waiting matchmaking games
+        when (gmIsMatchmaking gm && grwStatus gr == "waiting") $ do
+          case grwInterestStatus gr of
+            Just "viewing" | not (gmInterestShown gm) -> do
+              modify $ \x -> x { gmInterestShown = True }
+              -- Extend timeout: subtract 3 ticks to give more time
+              modify $ \x -> x { gmMatchmakingTicks = max 0 (gmMatchmakingTicks x - 3) }
+              -- Restart timer if it was stopped
+              case gmMatchmakingTimerId gm of
+                Nothing -> startMatchmakingTimer grChannelRef
+                Just _  -> pure ()
+            Just "declined" -> do
+              modify $ \x -> x { gmInterestShown = False }
+              -- Stop timer and show AI fallback (same as tick >= 6)
+              case gmMatchmakingTimerId gm of
+                Just tid -> do
+                  io_ $ js_clearInterval tid
+                  modify $ \x -> x { gmMatchmakingTimerId = Nothing, gmMatchmakingTicks = 6 }
+                Nothing ->
+                  modify $ \x -> x { gmMatchmakingTicks = 6 }
+            _ -> pure ()
 
         -- Rematch offer detection
         case grwRematchOfferedBy gr of
@@ -1261,6 +1321,107 @@ updateGame GameRefs{..} = \case
       VideoPiP     -> io_ js_makePipDraggable
     modify $ \x -> x { gmVideoViewMode = mode }
 
+  -- Matchmaking -----------------------------------------------------------
+
+  GMatchmakingTimerStarted tid ->
+    modify $ \x -> x { gmMatchmakingTimerId = Just tid }
+
+  GMatchmakingTick -> do
+    gm <- get
+    when (gmIsMatchmaking gm) $ do
+      let ticks = gmMatchmakingTicks gm
+          newTicks = ticks + 1
+      modify $ \x -> x { gmMatchmakingTicks = newTicks }
+      when (newTicks >= 6) $ do
+        -- Stop timer but keep the game in waiting status
+        case gmMatchmakingTimerId gm of
+          Just tid -> do
+            io_ $ js_clearInterval tid
+            modify $ \x -> x { gmMatchmakingTimerId = Nothing }
+          Nothing -> pure ()
+
+  GCancelMatchmaking -> do
+    gm <- get
+    -- Cancel the matchmaking timer
+    case gmMatchmakingTimerId gm of
+      Just tid -> io_ $ js_clearInterval tid
+      Nothing  -> pure ()
+    modify $ \x -> x { gmMatchmakingTimerId = Nothing, gmIsMatchmaking = False }
+    -- Cancel the waiting game
+    case gmGameId gm of
+      Just gid ->
+        updateTable "games"
+          (object ["status" .= ("cancelled" :: MisoString)])
+          [eq "id" gid]
+          (UpdateOptions Nothing)
+          GMatchmakingCancelled GMatchmakingCancelError
+      Nothing -> pure ()
+    -- Navigate back to config screen
+    io_ $ pushURI (configureURI "multiplayer")
+
+  GMatchmakingCancelled _ -> pure ()
+
+  GMatchmakingCancelError _ -> pure ()
+
+  GAcceptAiFallback -> do
+    gm <- get
+    props <- getProps
+    case (gmGameId gm, gmPlayerSide gm, gpSession props) of
+      (Just gid, Just mySide, Just sess) -> do
+        let uid = userId (sessionUser sess)
+            aiSide = case mySide of
+              AttackerSide -> DefenderSide
+              DefenderSide -> AttackerSide
+            -- Fill in AI side's player fields
+            aiFields = case aiSide of
+              AttackerSide ->
+                [ "attacker_id"   .= uid
+                , "attacker_name" .= ("AI" :: MisoString)
+                ]
+              DefenderSide ->
+                [ "defender_id"   .= uid
+                , "defender_name" .= ("AI" :: MisoString)
+                ]
+            updateData = object $
+              [ "status"          .= ("active" :: MisoString)
+              , "is_rated"        .= False
+              , "is_matchmaking"  .= False
+              ] ++ aiFields
+        updateTable "games" updateData
+          [eq "id" gid]
+          (UpdateOptions Nothing)
+          GMoveUpdated GMoveUpdateError
+        modify $ \x -> x
+          { gmAiOpponent   = Just aiSide
+          , gmIsRated       = False
+          , gmIsMatchmaking = False
+          , gmOpponentName  = Just "AI"
+          , gmAiDepth       = 4
+          , gmAiNodeLimit   = 10000
+          , gmAttackerName  = if aiSide == AttackerSide then Just "AI" else gmAttackerName x
+          , gmDefenderName  = if aiSide == DefenderSide then Just "AI" else gmDefenderName x
+          , gmAttackerId    = if aiSide == AttackerSide then Just uid else gmAttackerId x
+          , gmDefenderId    = if aiSide == DefenderSide then Just uid else gmDefenderId x
+          }
+        -- Start clock if blitz
+        case gmTimeControl gm of
+          BlitzControl _ -> startBlitzClock grChannelRef grClockRef
+          DailyControl _ -> startDailyClock grClockRef
+          _ -> pure ()
+        -- Trigger AI if it's the AI's turn (attacker goes first)
+        triggerAi grChannelRef grClockRef
+      _ -> pure ()
+
+  GKeepSearching -> do
+    gm <- get
+    -- Clear any existing timer
+    case gmMatchmakingTimerId gm of
+      Just tid -> io_ $ js_clearInterval tid
+      Nothing  -> pure ()
+    modify $ \x -> x { gmMatchmakingTicks = 0, gmMatchmakingTimerId = Nothing }
+    -- Restart the matchmaking timer
+    startMatchmakingTimer grChannelRef
+
   -- Persistence ------------------------------------------------------------
 
   GGameSaved _ ->
@@ -1388,7 +1549,9 @@ triggerAi :: IORef (Maybe Channel) -> IORef (Maybe Int) -> Effect Model GameProp
 triggerAi _channelRef _clockRef = do
   gm <- get
   let gs = gmGameState gm
-  if gmGameMode gm == AiMode && not (finished (gsResult gs)) && gmAiSide gm == turnSide gs
+      shouldTrigger = (gmGameMode gm == AiMode && gmAiSide gm == turnSide gs)
+                   || (gmAiOpponent gm == Just (turnSide gs))
+  if shouldTrigger && not (finished (gsResult gs))
     then do
       modify $ \x -> x { gmAiThinking = True }
       let cfg = AiConfig (gmAiDepth gm) (gmAiNodeLimit gm)
@@ -1590,6 +1753,17 @@ triggerRatingUpdate gameId =
     okCb  <- successCallback sink (\_ -> GRatingUpdated (object [])) ratingOk
     errCb <- errorCallback sink GRatingUpdateError
     js_runSupabaseRpc "update_ratings" (object ["p_game_id" .= gameId]) okCb errCb
+
+-- | Start a periodic matchmaking search timer (every 3 seconds).
+startMatchmakingTimer :: IORef (Maybe Channel) -> Effect Model GameProps GameModel GameAction
+startMatchmakingTimer _channelRef = do
+  withSink $ \sink -> do
+    cb <- Function <$> asyncCallback (sink GMatchmakingTick)
+    tid <- js_setInterval cb 3000
+    sink (GMatchmakingTimerStarted tid)
+
+-- | Internal action for storing the matchmaking timer ID.
+-- Handled inline in the case expression below.
 
 -- | Tear down WebRTC peer connection and media stream (null-safe).
 -- Uses empty-string JSVals as falsy stand-ins for null when a ref is Nothing,

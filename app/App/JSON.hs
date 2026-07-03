@@ -94,6 +94,10 @@ data GameRow = GameRow
   , grwIsRated           :: !Bool
   , grwRematchOfferedBy  :: Maybe MisoString
   , grwRematchGameId     :: Maybe MisoString
+  , grwIsMatchmaking     :: !Bool
+  , grwCreatorRating     :: Maybe Double
+  , grwCreatorRd         :: Maybe Double
+  , grwInterestStatus    :: Maybe MisoString
   } deriving (Eq, Show)
 
 instance FromJSON GameRow where
@@ -124,6 +128,10 @@ instance FromJSON GameRow where
       <*> v .:? "is_rated" .!= True
       <*> v .:? "rematch_offered_by"
       <*> v .:? "rematch_game_id"
+      <*> v .:? "is_matchmaking" .!= False
+      <*> v .:? "creator_rating"
+      <*> v .:? "creator_rd"
+      <*> v .:? "interest_status"
 
 -- ---------------------------------------------------------------------------
 -- Profile

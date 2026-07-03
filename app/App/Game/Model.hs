@@ -92,6 +92,12 @@ data GameModel = GameModel
   , gmRematchGameId   :: Maybe MisoString
   , gmAttackerId      :: Maybe MisoString
   , gmDefenderId      :: Maybe MisoString
+    -- Matchmaking
+  , gmIsMatchmaking        :: !Bool
+  , gmMatchmakingTimerId   :: Maybe Int
+  , gmMatchmakingTicks     :: !Int
+  , gmAiOpponent           :: Maybe Side
+  , gmInterestShown        :: !Bool
     -- Time control
   , gmTimeControl    :: !TimeControl
   , gmAttackerTimeMs :: !Int
@@ -154,6 +160,11 @@ initialGameModel = GameModel
   , gmRematchGameId   = Nothing
   , gmAttackerId      = Nothing
   , gmDefenderId      = Nothing
+  , gmIsMatchmaking        = False
+  , gmMatchmakingTimerId   = Nothing
+  , gmMatchmakingTicks     = 0
+  , gmAiOpponent           = Nothing
+  , gmInterestShown        = False
   , gmTimeControl  = NoTimeControl
   , gmAttackerTimeMs = 0
   , gmDefenderTimeMs = 0

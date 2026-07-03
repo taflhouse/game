@@ -26,6 +26,7 @@ module App.Model
 import Miso.String (MisoString)
 import Miso.Lens (Lens, lens)
 import Supabase.Miso.Auth (Session)
+import Supabase.Miso.Realtime (Channel)
 
 import Tafl.Board (Side(..))
 import Tafl.Rules (BoardVariant(..))
@@ -59,7 +60,7 @@ data TimeControl
 data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | ConfigureScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen | LoadingScreen | LoungeScreen
   deriving (Eq, Show)
 
-data DeferredMpAction = DeferCreate | DeferJoin
+data DeferredMpAction = DeferCreate | DeferJoin | DeferFindMatch | DeferToggleInterest
   deriving (Eq, Show)
 
 data ViewMode = NormalView | ZenView
@@ -98,8 +99,8 @@ authLoading = lens _authLoading $ \r f -> r { _authLoading = f }
 data GameInitData
   = NewLocalGame !MisoString !BoardVariant !GameMode !Side !Int !Int
     -- ^ uuid variant mode aiSide aiDepth aiNodeLimit
-  | NewMultiplayerGame !BoardVariant !TimeControl !MisoString !MisoString !MisoString !MisoString !Bool
-    -- ^ variant timeControl sidePreference invCode uuid qrDataUrl isRated
+  | NewMultiplayerGame !BoardVariant !TimeControl !MisoString !MisoString !MisoString !MisoString !Bool !Bool !(Maybe Double) !(Maybe Double)
+    -- ^ variant timeControl sidePreference invCode uuid qrDataUrl isRated isMatchmaking creatorRating creatorRd
   | JoinGame !GameRow
     -- ^ joining via invite code (player not yet in the row)
   | ResumeGame !GameRow
@@ -147,6 +148,15 @@ data Model = Model
   , mGuestName        :: Maybe MisoString
   , mDeferredMpAction :: Maybe DeferredMpAction
   , mPendingRatedJoin :: Maybe GameRow
+  , mMatchInterested      :: !Bool
+  , mMatchInterestChannel :: Maybe Channel
+  , mMatchToast           :: Maybe GameRow
+  , mMatchModal           :: Maybe GameRow
+  , mMatchReadyStep       :: Maybe Int        -- Nothing=hidden, 0=explain, 1=filters
+  , mMatchAny             :: !Bool
+  , mMatchWantRated       :: !MisoString      -- "rated" / "casual" / "either"
+  , mMatchWantTimed       :: !MisoString      -- "timed" / "untimed" / "either"
+  , mMatchWantSide        :: !MisoString      -- "attacker" / "defender" / "either"
     -- View mode (used by replay; game component manages its own)
   , mViewMode         :: !ViewMode
   , mIsFullscreen     :: !Bool
@@ -162,7 +172,47 @@ data Model = Model
   , mLoungeLive       :: [GameRow]
   , mLoungeLoading    :: !Bool
   , mLoungeFilter     :: Maybe MisoString
-  } deriving (Eq)
+  }
+
+-- Manual Eq instance: skip mMatchInterestChannel (Channel wraps JSVal, no Eq)
+instance Eq Model where
+  a == b =
+    mScreen a == mScreen b && mGameMode a == mGameMode b
+    && mVariant a == mVariant b && mGameInitData a == mGameInitData b
+    && mReplayGameId a == mReplayGameId b
+    && mAiSide a == mAiSide b && mAiDepth a == mAiDepth b
+    && mAiNodeLimit a == mAiNodeLimit b
+    && mSession a == mSession b && mSessionChecked a == mSessionChecked b
+    && _mAuth a == _mAuth b
+    && mProfile a == mProfile b && mNeedsUsername a == mNeedsUsername b
+    && mUsernameInput a == mUsernameInput b
+    && mEditUsername a == mEditUsername b && mEditDisplayName a == mEditDisplayName b
+    && mProfileDropdown a == mProfileDropdown b
+    && mPastGames a == mPastGames b && mGamesLoading a == mGamesLoading b
+    && mLocalGames a == mLocalGames b
+    && mShowQuoteRef a == mShowQuoteRef b && mQuoteRefGen a == mQuoteRefGen b
+    && mIsRated a == mIsRated b && mSidePreference a == mSidePreference b
+    && mTimeControl a == mTimeControl b
+    && mJoinCodeInput a == mJoinCodeInput b && mJoinNameInput a == mJoinNameInput b
+    && mGuestName a == mGuestName b
+    && mDeferredMpAction a == mDeferredMpAction b
+    && mPendingRatedJoin a == mPendingRatedJoin b
+    && mMatchInterested a == mMatchInterested b
+    -- mMatchInterestChannel skipped (Channel has no Eq)
+    && mMatchToast a == mMatchToast b && mMatchModal a == mMatchModal b
+    && mMatchReadyStep a == mMatchReadyStep b
+    && mMatchAny a == mMatchAny b
+    && mMatchWantRated a == mMatchWantRated b
+    && mMatchWantTimed a == mMatchWantTimed b
+    && mMatchWantSide a == mMatchWantSide b
+    && mViewMode a == mViewMode b && mIsFullscreen a == mIsFullscreen b
+    && mZenHint a == mZenHint b
+    && mConfigExpanded a == mConfigExpanded b
+    && mConfigModeChosen a == mConfigModeChosen b
+    && mToast a == mToast b
+    && mShowDepthInfo a == mShowDepthInfo b && mShowNodesInfo a == mShowNodesInfo b
+    && mLoungeOpen a == mLoungeOpen b && mLoungeLive a == mLoungeLive b
+    && mLoungeLoading a == mLoungeLoading b && mLoungeFilter a == mLoungeFilter b
 
 mAuth :: Lens Model AuthState
 mAuth = lens _mAuth $ \r f -> r { _mAuth = f }
@@ -196,13 +246,22 @@ initModel = Model
   , mShowQuoteRef     = False
   , mQuoteRefGen      = 0
   , mIsRated          = True
-  , mSidePreference   = "defender"
+  , mSidePreference   = "either"
   , mTimeControl      = NoTimeControl
   , mJoinCodeInput    = ""
   , mJoinNameInput    = ""
   , mGuestName        = Nothing
   , mDeferredMpAction = Nothing
   , mPendingRatedJoin = Nothing
+  , mMatchInterested      = False
+  , mMatchInterestChannel = Nothing
+  , mMatchToast           = Nothing
+  , mMatchModal           = Nothing
+  , mMatchReadyStep       = Nothing
+  , mMatchAny             = True
+  , mMatchWantRated       = "either"
+  , mMatchWantTimed       = "either"
+  , mMatchWantSide        = "either"
   , mViewMode         = NormalView
   , mIsFullscreen     = False
   , mZenHint          = False

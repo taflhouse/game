@@ -32,22 +32,101 @@ viewGame props gm
     -- Waiting screen
     H.div_ [HP.class_ "w-full flex flex-col items-center"]
       [ H.div_ [HP.class_ "card p-6 w-full max-w-md text-center", style_ [("margin-top", "4em")]]
-          [ H.h2_ [HP.class_ "text-xl font-bold mb-4"] [text "Waiting for opponent..."]
-          , H.div_ [HP.class_ "animate-pulse text-muted-foreground mb-4"]
-              [text "Share the invite link to start"]
-          , case gmInviteCode gm of
-              Just code -> H.div_ [HP.class_ "flex flex-col gap-4 items-center"]
-                (  [ case gmQrDataUrl gm of
-                       Just qr -> H.img_ [HP.src_ qr, HP.width_ "200", HP.height_ "200", HP.class_ "rounded"]
-                       Nothing -> text ""
-                   , H.button_
-                       [HP.class_ "btn btn-outline text-foreground"
-                       , style_ [("touch-action", "manipulation")]
-                       , SVG.onClick (GCopyInviteCode code)]
-                       [text "Copy Link"]
-                   ])
-              Nothing -> text ""
-          ]
+          (if gmIsMatchmaking gm
+           then
+             let ticks = gmMatchmakingTicks gm
+             in if ticks >= 6
+               then
+                 -- AI fallback prompt
+                 [ H.h2_ [HP.class_ "text-xl font-bold mb-4"] [text "No opponents found"]
+                 , H.div_ [HP.class_ "text-muted-foreground text-sm mb-6"]
+                     [text "Couldn't find an opponent for you."]
+                 , H.button_
+                     [ HP.class_ "btn bg-green-600 hover:bg-green-700 text-white border-green-500 w-full mb-3"
+                     , style_ [("touch-action", "manipulation")]
+                     , SVG.onClick GAcceptAiFallback
+                     ]
+                     [ text "Play vs AI" ]
+                 , H.button_
+                     [ HP.class_ "btn btn-outline text-foreground w-full mb-3"
+                     , style_ [("touch-action", "manipulation")]
+                     , SVG.onClick GKeepSearching
+                     ]
+                     [ text "Keep Searching" ]
+                 , H.button_
+                     [ HP.class_ "text-sm text-muted-foreground hover:text-foreground bg-transparent border-0 cursor-pointer"
+                     , style_ [("touch-action", "manipulation")]
+                     , SVG.onClick GCancelMatchmaking
+                     ]
+                     [ text "Cancel" ]
+                 ]
+               else if gmInterestShown gm
+               then
+                 -- Someone is viewing the game details
+                 [ H.h2_ [HP.class_ "text-xl font-bold mb-4"] [text "Someone is interested!"]
+                 , H.div_ [HP.class_ "flex justify-center mb-4"]
+                     [ H.div_
+                         [ HP.class_ "animate-spin rounded-full border-4 border-muted border-t-green-500"
+                         , style_ [("width", "3rem"), ("height", "3rem")]
+                         ] []
+                     ]
+                 , H.div_ [HP.class_ "text-muted-foreground text-sm mb-4"]
+                     [text "Waiting for them to accept..."]
+                 , H.button_
+                     [ HP.class_ "btn btn-outline text-foreground mb-4"
+                     , style_ [("touch-action", "manipulation")]
+                     , SVG.onClick GCancelMatchmaking
+                     ]
+                     [ text "Cancel" ]
+                 ]
+               else
+                 -- Matchmaking waiting UI
+                 [ H.h2_ [HP.class_ "text-xl font-bold mb-4"] [text "Waiting for opponent..."]
+                 , H.div_ [HP.class_ "flex justify-center mb-4"]
+                     [ H.div_
+                         [ HP.class_ "animate-spin rounded-full border-4 border-muted border-t-green-500"
+                         , style_ [("width", "3rem"), ("height", "3rem")]
+                         ] []
+                     ]
+                 , H.div_ [HP.class_ "text-muted-foreground text-sm mb-4"]
+                     [text "Looking for players..."]
+                 , H.button_
+                     [ HP.class_ "btn btn-outline text-foreground mb-4"
+                     , style_ [("touch-action", "manipulation")]
+                     , SVG.onClick GCancelMatchmaking
+                     ]
+                     [ text "Cancel" ]
+                 , H.div_ [HP.class_ "border-t border-border pt-4 mt-2"] []
+                 , H.div_ [HP.class_ "text-xs text-muted-foreground mb-2"]
+                     [text "Or share this code to invite a friend:"]
+                 ] ++ case gmInviteCode gm of
+                   Just code ->
+                     [ H.button_
+                         [HP.class_ "btn btn-outline btn-sm text-foreground"
+                         , style_ [("touch-action", "manipulation")]
+                         , SVG.onClick (GCopyInviteCode code)]
+                         [text "Copy Link"]
+                     ]
+                   Nothing -> []
+           else
+             -- Standard invite code waiting UI
+             [ H.h2_ [HP.class_ "text-xl font-bold mb-4"] [text "Waiting for opponent..."]
+             , H.div_ [HP.class_ "animate-pulse text-muted-foreground mb-4"]
+                 [text "Share the invite link to start"]
+             ] ++ case gmInviteCode gm of
+               Just code -> [ H.div_ [HP.class_ "flex flex-col gap-4 items-center"]
+                 (  [ case gmQrDataUrl gm of
+                        Just qr -> H.img_ [HP.src_ qr, HP.width_ "200", HP.height_ "200", HP.class_ "rounded"]
+                        Nothing -> text ""
+                    , H.button_
+                        [HP.class_ "btn btn-outline text-foreground"
+                        , style_ [("touch-action", "manipulation")]
+                        , SVG.onClick (GCopyInviteCode code)]
+                        [text "Copy Link"]
+                    ])
+                 ]
+               Nothing -> []
+          )
       ]
   | otherwise =
     let zen = gmViewMode gm == ZenView
@@ -212,7 +291,8 @@ renderClickTarget :: GameModel -> Int -> Int -> Int -> View GameModel GameAction
 renderClickTarget gm _n r c =
   let gs = gmGameState gm
       side = turnSide gs
-      aiBlocked = gmGameMode gm == AiMode && gmAiSide gm == side
+      aiBlocked = (gmGameMode gm == AiMode && gmAiSide gm == side)
+               || gmAiOpponent gm == Just side
       mpBlocked = gmGameMode gm == MultiplayerMode && gmPlayerSide gm /= Just side
       blocked = gmAiThinking gm || aiBlocked || mpBlocked || finished (gsResult gs)
       cur = if blocked then "default" else "pointer"

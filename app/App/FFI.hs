@@ -39,6 +39,9 @@ module App.FFI
   , js_clearPipDragTransform
     -- * Supabase RPC
   , js_runSupabaseRpc
+    -- * Timer
+  , js_setInterval
+  , js_clearInterval
     -- * Wrapped helpers
   , js_generateUUID
   , js_copyToClipboard
@@ -52,6 +55,8 @@ module App.FFI
   , generateInviteCode
   , guestNameFromId
   , saveLocalGameIO
+  , js_setLocalStorage
+  , js_getLocalStorage
   ) where
 
 import Control.Monad (void)
@@ -164,11 +169,20 @@ foreign import javascript unsafe "globalThis.clearPipDragTransform()"
 foreign import javascript unsafe "globalThis.runSupabaseRpc($1,$2,$3,$4)"
   js_runSupabaseRpc_ffi :: JSVal -> JSVal -> JSVal -> JSVal -> IO ()
 
+-- Timer
+foreign import javascript unsafe "setInterval($1,$2)"
+  js_setInterval_ffi :: JSVal -> Int -> IO Int
+foreign import javascript unsafe "clearInterval($1)"
+  js_clearInterval :: Int -> IO ()
+
 js_runSupabaseRpc :: MisoString -> Value -> Function -> Function -> IO ()
 js_runSupabaseRpc fnName params (Function okCb) (Function errCb) = do
   fnJsv <- toJSVal fnName
   paramsJsv <- toJSVal params
   js_runSupabaseRpc_ffi fnJsv paramsJsv okCb errCb
+
+js_setInterval :: Function -> Int -> IO Int
+js_setInterval (Function a) ms = js_setInterval_ffi a ms
 
 js_loadLocalGames :: Function -> Function -> IO ()
 js_loadLocalGames (Function a) (Function b) = js_loadLocalGames_ffi a b
@@ -217,6 +231,11 @@ js_voiceToggleMute = js_voiceToggleMute_raw
 
 js_voiceGetVideoMedia :: Function -> Function -> IO ()
 js_voiceGetVideoMedia (Function a) (Function b) = js_voiceGetVideoMedia_ffi2 a b
+
+foreign import javascript unsafe "localStorage.setItem($1,$2)"
+  js_setLocalStorage_raw :: JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "localStorage.getItem($1) || ''"
+  js_getLocalStorage_raw :: JSVal -> IO JSVal
 
 #else
 js_playMoveSound :: IO ()
@@ -309,6 +328,15 @@ js_clearPipDragTransform = pure ()
 -- Supabase RPC stub
 js_runSupabaseRpc :: MisoString -> Value -> Function -> Function -> IO ()
 js_runSupabaseRpc _ _ _ _ = pure ()
+-- Timer stubs
+js_setInterval :: Function -> Int -> IO Int
+js_setInterval _ _ = pure 0
+js_clearInterval :: Int -> IO ()
+js_clearInterval _ = pure ()
+js_setLocalStorage_raw :: JSVal -> JSVal -> IO ()
+js_setLocalStorage_raw _ _ = pure ()
+js_getLocalStorage_raw :: JSVal -> IO JSVal
+js_getLocalStorage_raw _ = toJSVal ("" :: MisoString)
 #endif
 
 -- ---------------------------------------------------------------------------
@@ -367,3 +395,16 @@ saveLocalGameIO :: Value -> IO ()
 saveLocalGameIO gameData = do
   val <- toJSVal gameData
   void $ jsg "globalThis" # "saveLocalGame" $ val
+
+-- | Set a key in localStorage.
+js_setLocalStorage :: MisoString -> MisoString -> IO ()
+js_setLocalStorage key value = do
+  kv <- toJSVal key
+  vv <- toJSVal value
+  js_setLocalStorage_raw kv vv
+
+-- | Get a key from localStorage. Returns "" if not found.
+js_getLocalStorage :: MisoString -> IO MisoString
+js_getLocalStorage key = do
+  kv <- toJSVal key
+  fromJSValUnchecked =<< js_getLocalStorage_raw kv

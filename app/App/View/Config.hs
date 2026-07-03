@@ -75,29 +75,45 @@ viewConfigure m =
         , H.div_
             [ HP.class_ "mt-6 flex flex-col items-center gap-2"
             ]
-            [ if mGameMode m == MultiplayerMode
+            (if mGameMode m == MultiplayerMode
                 then let nameNeeded = case mProfile m of
                            Just p | pUsername p /= "" -> False
                            _ -> mGuestName m == Nothing
-                     in H.button_
-                  ([ HP.class_ "btn w-full bg-green-600 hover:bg-green-700 text-white border-green-500 font-bold"
+                         disabled' = nameNeeded && mJoinNameInput m == ""
+                     in [ H.button_
+                            ([ HP.class_ "btn w-full bg-green-600 hover:bg-green-700 text-white border-green-500 font-bold"
+                             , style_ [("touch-action", "manipulation")]
+                             , SVG.onClick FindMatch
+                             ] ++ [ HP.disabled_ | disabled' ])
+                            [ text "Find Match" ]
+                        , H.div_
+                            [ HP.class_ "flex items-center gap-2 w-full mt-1" ]
+                            [ H.hr_ [ HP.class_ "flex-1 border-border" ]
+                            , H.span_ [ HP.class_ "text-xs text-muted-foreground" ] [ text "or create a private game" ]
+                            , H.hr_ [ HP.class_ "flex-1 border-border" ]
+                            ]
+                        , H.button_
+                            ([ HP.class_ "btn w-full btn-outline text-foreground font-bold"
+                             , style_ [("touch-action", "manipulation")]
+                             , SVG.onClick CreateMultiplayerGame
+                             ] ++ [ HP.disabled_ | disabled' ])
+                            [ text "Create" ]
+                        ]
+                else [ H.button_
+                         [ HP.class_ "btn w-full bg-green-600 hover:bg-green-700 text-white border-green-500 font-bold"
+                         , style_ [("touch-action", "manipulation")]
+                         , SVG.onClick StartGame
+                         ]
+                         [ text "Start" ]
+                     ]
+            ++ [ H.span_
+                   [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
                    , style_ [("touch-action", "manipulation")]
-                   , SVG.onClick CreateMultiplayerGame
-                   ] ++ [ HP.disabled_ | nameNeeded && mJoinNameInput m == "" ])
-                  [ text "Create" ]
-                else H.button_
-                  [ HP.class_ "btn w-full bg-green-600 hover:bg-green-700 text-white border-green-500 font-bold"
-                  , style_ [("touch-action", "manipulation")]
-                  , SVG.onClick StartGame
-                  ]
-                  [ text "Start" ]
-            , H.span_
-                [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
-                , style_ [("touch-action", "manipulation")]
-                , SVG.onClick GotoConfig
-                ]
-                [ text "Back" ]
-            ]
+                   , SVG.onClick GotoConfig
+                   ]
+                   [ text "Back" ]
+               ]
+            )
         ]
     ]
 
@@ -230,6 +246,7 @@ viewSetupMultiplayer m =
     ([ setupSection "Your Side"
         [ setupBtn (SetSidePreference "attacker") "Attackers" (mSidePreference m == "attacker")
         , setupBtn (SetSidePreference "defender") "Defenders" (mSidePreference m == "defender")
+        , setupBtn (SetSidePreference "either") "Either" (mSidePreference m == "either")
         ]
     , setupSection "Game Type"
         [ if isAnon
