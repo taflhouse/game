@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module App.View.Home (viewHome) where
+module App.View.Home (viewHome, viewYourGames, viewPlayerDetail) where
 
 import Miso
 import Miso.CSS (style_)
@@ -8,9 +8,10 @@ import qualified Miso.Html as H
 import qualified Miso.Html.Property as HP
 import qualified Miso.Svg as SVG
 
-import App.JSON (GameRecord(..))
+import App.JSON (GameRecord(..), GameRow(..), Profile(..))
 import App.Model
 import App.Action
+import App.Route (lookupVariant, variantName)
 import App.FFI (js_formatDate)
 
 -- ---------------------------------------------------------------------------
@@ -165,4 +166,111 @@ viewOrDivider =
     [ H.div_ [ HP.class_ "flex-1 border-t border-border" ] []
     , H.span_ [ HP.class_ "text-xs text-muted-foreground uppercase" ] [ text "or" ]
     , H.div_ [ HP.class_ "flex-1 border-t border-border" ] []
+    ]
+
+-- ---------------------------------------------------------------------------
+-- Your Games Screen
+-- ---------------------------------------------------------------------------
+
+viewYourGames :: Model -> View Model Action
+viewYourGames m =
+  H.div_
+    [ HP.class_ "w-full max-w-2xl"
+    , style_ [("margin-top", "4em")]
+    ]
+    [ H.h2_
+        [ HP.class_ "text-xl font-bold mb-4 text-foreground" ]
+        [ text "Your Games" ]
+    , if mGamesLoading m
+      then H.div_
+        [ HP.class_ "text-center text-muted-foreground animate-pulse" ]
+        [ text "Loading games..." ]
+      else if null (mPastGames m)
+        then H.p_
+          [ HP.class_ "text-center text-muted-foreground" ]
+          [ text "No games yet." ]
+        else viewPastGamesTable (mPastGames m)
+    ]
+
+-- ---------------------------------------------------------------------------
+-- Player Detail Screen
+-- ---------------------------------------------------------------------------
+
+viewPlayerDetail :: Model -> View Model Action
+viewPlayerDetail m =
+  H.div_
+    [ HP.class_ "w-full max-w-2xl"
+    , style_ [("margin-top", "4em")]
+    ]
+    ( case mPlayerDetail m of
+        Nothing ->
+          [ H.div_
+              [ HP.class_ "text-center text-muted-foreground animate-pulse" ]
+              [ text "Loading player..." ]
+          ]
+        Just p ->
+          [ H.h2_
+              [ HP.class_ "text-xl font-bold mb-1 text-foreground" ]
+              [ text (pUsername p) ]
+          , H.p_
+              [ HP.class_ "text-sm text-muted-foreground mb-4" ]
+              [ text ("Rating: " <> ms (show (round (pRating p) :: Int))
+                      <> " \xB7 " <> ms (show (pGamesRated p)) <> " rated games") ]
+          , if mPlayerGamesLoading m
+              then H.div_
+                [ HP.class_ "text-center text-muted-foreground animate-pulse" ]
+                [ text "Loading games..." ]
+              else if null (mPlayerGames m)
+                then H.p_
+                  [ HP.class_ "text-center text-muted-foreground" ]
+                  [ text "No rated games yet." ]
+                else viewPlayerGamesTable p (mPlayerGames m)
+          ]
+    )
+
+viewPlayerGamesTable :: Profile -> [GameRow] -> View Model Action
+viewPlayerGamesTable p games =
+  H.div_
+    [ HP.class_ "overflow-x-auto" ]
+    [ H.table_
+        [ HP.class_ "table w-full" ]
+        [ H.thead_
+            []
+            [ H.tr_
+                []
+                [ H.th_ [] [ text "Variant" ]
+                , H.th_ [] [ text "Opponent" ]
+                , H.th_ [] [ text "Result" ]
+                , H.th_ [] [ text "Moves" ]
+                ]
+            ]
+        , H.tbody_
+            []
+            (map (viewPlayerGameRow p) games)
+        ]
+    ]
+
+viewPlayerGameRow :: Profile -> GameRow -> View Model Action
+viewPlayerGameRow p gr =
+  let pid = pId p
+      isAttacker = grwAttackerId gr == Just pid
+      opponent = if isAttacker
+        then maybe "?" id (grwDefenderName gr)
+        else maybe "?" id (grwAttackerName gr)
+      resultText = case grwWinner gr of
+        Just "attacker" | isAttacker -> "Won"
+        Just "defender" | not isAttacker -> "Won"
+        Just _ -> "Lost"
+        Nothing -> "Draw"
+      varLabel = case lookupVariant (grwVariant gr) of
+        Just v  -> variantName v
+        Nothing -> grwVariant gr
+  in H.tr_
+    [ HP.class_ "cursor-pointer hover:bg-muted/50"
+    , SVG.onClick (GotoReplay (grwId gr))
+    ]
+    [ H.td_ [] [ text varLabel ]
+    , H.td_ [] [ text opponent ]
+    , H.td_ [] [ text resultText ]
+    , H.td_ [] [ text (ms (show (grwTotalMoves gr))) ]
     ]

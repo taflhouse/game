@@ -194,7 +194,7 @@ updateGame GameRefs{..} = \case
           GChatReceived GChatSubscribed GChatError
         subscribeVoiceBroadcast grVoiceChannelRef gid
         selectWithFilters "game_chat" "*" [eq "game_id" gid]
-          (FetchOptions Nothing Nothing) GChatHistoryLoaded GChatHistoryError
+          (FetchOptions Nothing Nothing Nothing Nothing) GChatHistoryLoaded GChatHistoryError
         io_ $ pushURI (playURI gid)
         case gpSession props of
           Just sess -> do
@@ -272,7 +272,7 @@ updateGame GameRefs{..} = \case
                 GChatReceived GChatSubscribed GChatError
               subscribeVoiceBroadcast grVoiceChannelRef gid
               selectWithFilters "game_chat" "*" [eq "game_id" gid]
-                (FetchOptions Nothing Nothing) GChatHistoryLoaded GChatHistoryError
+                (FetchOptions Nothing Nothing Nothing Nothing) GChatHistoryLoaded GChatHistoryError
             when (grwStatus gr == "active") $
               case parseTimeControl gr of
                 BlitzControl _ -> startBlitzClock grChannelRef grClockRef
@@ -308,7 +308,7 @@ updateGame GameRefs{..} = \case
                 GChatReceived GChatSubscribed GChatError
               subscribeVoiceBroadcast grVoiceChannelRef gid
               selectWithFilters "game_chat" "*" [eq "game_id" gid]
-                (FetchOptions Nothing Nothing) GChatHistoryLoaded GChatHistoryError
+                (FetchOptions Nothing Nothing Nothing Nothing) GChatHistoryLoaded GChatHistoryError
             when (grwStatus gr == "active") $
               case parseTimeControl gr of
                 BlitzControl _ -> startBlitzClock grChannelRef grClockRef

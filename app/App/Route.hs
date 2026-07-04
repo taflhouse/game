@@ -20,6 +20,8 @@ module App.Route
   , joinURI
   , joinBareURI
   , loungeURI
+  , yourGamesURI
+  , playerURI
   ) where
 
 import Data.List (isPrefixOf)
@@ -34,7 +36,9 @@ data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute | ConfigureRout
            | PlayRoute MisoString      -- /play/<uuid> active game
            | GameRoute MisoString      -- /games/<uuid> replay/permalink
            | JoinRoute (Maybe MisoString) -- /join or /join/<invite_code>
-           | LoungeRoute               -- /lounge game browser
+           | LoungeRoute               -- /lounge (redirects to home)
+           | YourGamesRoute            -- /your-games past games list
+           | PlayerRoute MisoString    -- /player/<username>
 
 variantSlugMs :: BoardVariant -> MisoString
 variantSlugMs v = ms (variantSlug v)
@@ -53,7 +57,8 @@ variantName = \case
 
 parseRoute :: URI -> Route
 parseRoute uri = case uriPath uri of
-  "lounge"   -> LoungeRoute
+  "lounge"   -> HomeRoute  -- lounge is now the home screen
+  "your-games" -> YourGamesRoute
   "sign-in"  -> SignInRoute
   "sign-up"  -> SignUpRoute
   "new-game" -> ConfigRoute
@@ -71,6 +76,8 @@ parseRoute uri = case uriPath uri of
     , isUUID uuid -> GameRoute uuid
     | Just code <- msStripPrefix "join/" path
     , not (null (fromMisoString code :: String)) -> JoinRoute (Just code)
+    | Just uname <- msStripPrefix "player/" path
+    , not (null (fromMisoString uname :: String)) -> PlayerRoute uname
     | otherwise   -> HomeRoute
 
 msStripPrefix :: String -> MisoString -> Maybe MisoString
@@ -139,3 +146,9 @@ joinBareURI = emptyURI { uriPath = "join" }
 
 loungeURI :: URI
 loungeURI = emptyURI { uriPath = "lounge" }
+
+yourGamesURI :: URI
+yourGamesURI = emptyURI { uriPath = "your-games" }
+
+playerURI :: MisoString -> URI
+playerURI uname = emptyURI { uriPath = "player/" <> uname }

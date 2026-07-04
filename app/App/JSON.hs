@@ -138,7 +138,8 @@ instance FromJSON GameRow where
 -- ---------------------------------------------------------------------------
 
 data Profile = Profile
-  { pUsername    :: !MisoString
+  { pId         :: !MisoString
+  , pUsername    :: !MisoString
   , pDisplayName :: Maybe MisoString
   , pRating     :: !Double
   , pRatingRd   :: !Double
@@ -148,7 +149,8 @@ data Profile = Profile
 instance FromJSON Profile where
   parseJSON = withObject "Profile" $ \v ->
     Profile
-      <$> v .: "username"
+      <$> v .: "id"
+      <*> v .: "username"
       <*> v .:? "display_name"
       <*> v .:? "rating"      .!= 1500.0
       <*> v .:? "rating_rd"   .!= 350.0

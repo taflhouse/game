@@ -13,7 +13,7 @@ import Supabase.Miso.Auth (Session(..), User(..))
 
 import Tafl.Rules (BoardVariant(..))
 
-import App.JSON (GameRow(..))
+import App.JSON (GameRow(..), Profile(..))
 import App.Model
 import App.Action
 import App.Route (variantSlugMs, variantName, lookupVariant)
@@ -28,19 +28,14 @@ viewLounge m =
     [ HP.class_ "w-full max-w-2xl"
     , style_ [("margin-top", "3em")]
     ]
-    ( [ -- Header
-        H.h1_
-          [ HP.class_ "text-2xl font-bold text-center mb-6 text-foreground" ]
-          [ text "The Lounge" ]
-      -- Play button
-      , H.div_
+    ( [ H.div_
           [ HP.class_ "flex flex-col items-center mb-6 w-full max-w-md mx-auto" ]
           [ H.button_
               [ HP.class_ "btn-lg w-full"
               , style_ [("touch-action", "manipulation")]
-              , SVG.onClick (SetGameMode MultiplayerMode)
+              , SVG.onClick GotoConfig
               ]
-              [ text "New Multiplayer Game" ]
+              [ text "New Game" ]
           , viewOrDivider
           , H.span_
               [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
@@ -61,8 +56,9 @@ viewLounge m =
             ++ [ viewGameSection "LIVE GAMES" filteredLive viewLiveCard | not (null filteredLive) ]
             ++ [ viewGameSection "OPEN GAMES" filteredOpen (viewOpenCard m) | not (null filteredOpen) ]
        )
+    ++ [ viewRankings (mRankings m) | not (null (mRankings m)) ]
     ++ [ H.div_
-           [ HP.class_ ("text-center" <> if null allGames && not (mLoungeLoading m) then " mt-4" else " mt-8") ]
+           [ HP.class_ ("text-center" <> if null allGames && null (mRankings m) && not (mLoungeLoading m) then " mt-4" else " mt-8") ]
            [ H.p_
                [ HP.class_ "text-muted-foreground text-sm italic" ]
                [ text "\x201CThey played tafl in the meadow and were merry\x201D" ]
@@ -236,6 +232,53 @@ formatTimeMs :: Int -> MisoString
 formatTimeMs totalMs =
   let mins = totalMs `div` 60000
   in ms (show mins) <> " min"
+
+-- ---------------------------------------------------------------------------
+-- Rankings
+-- ---------------------------------------------------------------------------
+
+viewRankings :: [Profile] -> View Model Action
+viewRankings profiles =
+  H.div_
+    [ HP.class_ "mb-6" ]
+    [ H.div_
+        [ HP.class_ "flex items-center gap-2 mb-3" ]
+        [ H.span_
+            [ HP.class_ "text-xs font-semibold text-muted-foreground uppercase tracking-wider" ]
+            [ text "RANKINGS" ]
+        ]
+    , H.div_
+        [ HP.class_ "overflow-x-auto" ]
+        [ H.table_
+            [ HP.class_ "table w-full" ]
+            [ H.thead_
+                []
+                [ H.tr_
+                    []
+                    [ H.th_ [] [ text "#" ]
+                    , H.th_ [] [ text "Player" ]
+                    , H.th_ [] [ text "Rating" ]
+                    , H.th_ [] [ text "Games" ]
+                    ]
+                ]
+            , H.tbody_
+                []
+                (zipWith viewRankingRow [1..] profiles)
+            ]
+        ]
+    ]
+
+viewRankingRow :: Int -> Profile -> View Model Action
+viewRankingRow rank p =
+  H.tr_
+    [ HP.class_ "cursor-pointer hover:bg-muted/50"
+    , SVG.onClick (GotoPlayer (pUsername p))
+    ]
+    [ H.td_ [] [ text (ms (show rank)) ]
+    , H.td_ [ HP.class_ "font-medium" ] [ text (pUsername p) ]
+    , H.td_ [] [ text (ms (show (round (pRating p) :: Int))) ]
+    , H.td_ [] [ text (ms (show (pGamesRated p))) ]
+    ]
 
 viewOrDivider :: View Model Action
 viewOrDivider =

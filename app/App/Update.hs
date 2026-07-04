@@ -21,7 +21,7 @@ import Supabase.Miso.Auth
   , defaultSignOutOptions, defaultSignInAnonymouslyOptions, defaultSignUpEmailOptions
   , AuthResponse(..), AuthData(..), Session(..), User(..), AppMetadata(..)
   )
-import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq, neq)
+import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq, neq, gt)
 import Supabase.Miso.Realtime (Channel, subscribeToTable, removeChannel)
 
 
@@ -98,13 +98,13 @@ updateModel loungeChannelRef = \case
   -- URI handling ---------------------------------------------------------
 
   GotoLounge ->
-    io_ $ pushURI loungeURI
+    io_ $ pushURI homeURI
 
   HandleURI uri -> do
     modify $ \x -> x { mToast = Nothing }
     m <- get
-    -- Clean up lounge channel when leaving LoungeScreen
-    when (mScreen m == LoungeScreen && not (isLoungeRoute (parseRoute uri))) $
+    -- Clean up lounge channel when leaving home screen (lounge)
+    when (mScreen m == HomeScreen && not (isHomeRoute (parseRoute uri))) $
       io_ $ do
         mCh <- readIORef loungeChannelRef
         case mCh of
@@ -120,7 +120,7 @@ updateModel loungeChannelRef = \case
             modify $ \x -> x { mScreen = LoadingScreen }
             selectWithFilters "games" "*"
               [eq "id" uuid]
-              (FetchOptions Nothing Nothing)
+              (FetchOptions Nothing Nothing Nothing Nothing)
               ResumeGameLoaded ResumeGameLoadError
       GameRoute uuid ->
         modify $ \x -> x
@@ -128,8 +128,34 @@ updateModel loungeChannelRef = \case
           , mReplayGameId = Just uuid
           }
       HomeRoute -> do
-        modify $ \x -> x { mScreen = HomeScreen, mGameInitData = Nothing }
-        loadPastGames
+        -- Clean up any existing lounge channel before re-subscribing
+        io_ $ do
+          mCh <- readIORef loungeChannelRef
+          case mCh of
+            Just ch -> removeChannel ch
+            Nothing -> pure ()
+          writeIORef loungeChannelRef Nothing
+        modify $ \x -> x
+          { mScreen = HomeScreen
+          , mGameInitData = Nothing
+          , mLoungeLoading = True
+          , mLoungeFilter = Nothing
+          }
+        loadLoungeGames
+        loadRankings
+        subscribeToTable "lounge" "games" ""
+          LoungeRealtimeChange LoungeRealtimeSubscribed LoungeRealtimeError
+      PlayerRoute uname -> do
+        modify $ \x -> x
+          { mScreen = PlayerScreen
+          , mPlayerDetail = Nothing
+          , mPlayerGames = []
+          , mPlayerGamesLoading = True
+          }
+        selectWithFilters "profiles" "*"
+          [eq "username" uname]
+          (FetchOptions Nothing Nothing Nothing Nothing)
+          PlayerProfileLoaded PlayerProfileLoadError
       SignInRoute -> do
         modify $ \x -> x { mScreen = SignInScreen }
         assign (mAuth . authError) Nothing
@@ -155,22 +181,11 @@ updateModel loungeChannelRef = \case
           , mEditUsername     = maybe "" pUsername (mProfile m')
           , mEditDisplayName = maybe "" (maybe "" id . pDisplayName) (mProfile m')
           }
-      LoungeRoute -> do
-        -- Clean up any existing lounge channel before re-subscribing
-        io_ $ do
-          mCh <- readIORef loungeChannelRef
-          case mCh of
-            Just ch -> removeChannel ch
-            Nothing -> pure ()
-          writeIORef loungeChannelRef Nothing
-        modify $ \x -> x
-          { mScreen = LoungeScreen
-          , mLoungeLoading = True
-          , mLoungeFilter = Nothing
-          }
-        loadLoungeGames
-        subscribeToTable "lounge" "games" ""
-          LoungeRealtimeChange LoungeRealtimeSubscribed LoungeRealtimeError
+      LoungeRoute ->
+        io_ $ pushURI homeURI  -- lounge is now the home screen
+      YourGamesRoute -> do
+        modify $ \x -> x { mScreen = YourGamesScreen, mGamesLoading = True }
+        loadPastGames
       JoinRoute mCode -> do
         modify $ \x -> x
           { mScreen        = JoinScreen
@@ -317,7 +332,7 @@ updateModel loungeChannelRef = \case
 
   DoSignOut -> do
     m <- get
-    when (mScreen m == LoungeScreen) $
+    when (mScreen m == HomeScreen) $
       io_ $ do
         mCh <- readIORef loungeChannelRef
         case mCh of
@@ -451,8 +466,9 @@ updateModel loungeChannelRef = \case
 
   ProfileCreated _ -> do
     m <- get
+    let uid = maybe "" (userId . sessionUser) (mSession m)
     modify $ \x -> x
-      { mProfile       = Just (Profile (mUsernameInput m) Nothing 1500.0 350.0 0)
+      { mProfile       = Just (Profile uid (mUsernameInput m) Nothing 1500.0 350.0 0)
       , mNeedsUsername  = False
       , mUsernameInput  = ""
       }
@@ -479,6 +495,10 @@ updateModel loungeChannelRef = \case
 
   ToggleProfileDropdown ->
     modify $ \m -> m { mProfileDropdown = not (mProfileDropdown m) }
+
+  GotoYourGames -> do
+    modify $ \m -> m { mProfileDropdown = False }
+    io_ $ pushURI yourGamesURI
 
   GotoProfile -> do
     modify $ \m -> m { mProfileDropdown = False }
@@ -517,11 +537,12 @@ updateModel loungeChannelRef = \case
   ProfileUpdated _ -> do
     m <- get
     let oldProfile = mProfile m
+        pid = maybe "" pId oldProfile
         r  = maybe 1500.0 pRating oldProfile
         rd = maybe 350.0 pRatingRd oldProfile
         gr = maybe 0 pGamesRated oldProfile
     modify $ \x -> x
-      { mProfile = Just (Profile (mEditUsername m) (Just (mEditDisplayName m)) r rd gr) }
+      { mProfile = Just (Profile pid (mEditUsername m) (Just (mEditDisplayName m)) r rd gr) }
     io_ $ pushURI profileURI
 
   ProfileUpdateError _ ->
@@ -575,7 +596,7 @@ updateModel loungeChannelRef = \case
                     (InsertOptions Nothing Nothing)
                     (\_ -> NoOp) (\_ -> NoOp)
                   modify $ \x -> x
-                    { mProfile = Just (Profile (mJoinNameInput x) Nothing 1500.0 350.0 0)
+                    { mProfile = Just (Profile uid (mJoinNameInput x) Nothing 1500.0 350.0 0)
                     , mNeedsUsername = False
                     }
             _ -> pure ()
@@ -591,7 +612,7 @@ updateModel loungeChannelRef = \case
             when (code /= "") $
               selectWithFilters "games" "*"
                 [eq "invite_code" code, eq "status" ("waiting" :: MisoString)]
-                (FetchOptions Nothing Nothing)
+                (FetchOptions Nothing Nothing Nothing Nothing)
                 GameFoundToJoin GameJoinError
 
   GameFoundToJoin val ->
@@ -614,7 +635,7 @@ updateModel loungeChannelRef = \case
           if code /= ""
             then selectWithFilters "games" "*"
                    [eq "invite_code" code]
-                   (FetchOptions Nothing Nothing)
+                   (FetchOptions Nothing Nothing Nothing Nothing)
                    InviteCodeLookup (\_ -> ShowToast "No game found with that code.")
             else modify $ \m' -> m' { mToast = Just "No waiting game found with that code." }
       Error _ ->
@@ -837,6 +858,52 @@ updateModel loungeChannelRef = \case
   DismissMatchToast ->
     modify $ \x -> x { mMatchToast = Nothing }
 
+  -- Rankings / Player detail -----------------------------------------------
+
+  RankingsLoaded val ->
+    case fromJSON val of
+      Success profiles -> modify $ \x -> x { mRankings = profiles }
+      Error _          -> modify $ \x -> x { mRankings = [] }
+
+  RankingsLoadError _ ->
+    modify $ \x -> x { mRankings = [] }
+
+  GotoPlayer uname ->
+    io_ $ pushURI (playerURI uname)
+
+  PlayerProfileLoaded val ->
+    case fromJSON val of
+      Success profiles -> case (profiles :: [Profile]) of
+        (p:_) -> do
+          modify $ \x -> x { mPlayerDetail = Just p }
+          let pid = pId p
+          -- Load games where this player was attacker
+          selectWithFilters "games" "*"
+            [eq "attacker_id" pid, eq "is_rated" True, neq "result_desc" ("in_progress" :: MisoString)]
+            (FetchOptions Nothing Nothing (Just ("created_at", False)) Nothing)
+            PlayerGamesLoaded PlayerGamesLoadError
+          -- Load games where this player was defender
+          selectWithFilters "games" "*"
+            [eq "defender_id" pid, eq "is_rated" True, neq "result_desc" ("in_progress" :: MisoString)]
+            (FetchOptions Nothing Nothing (Just ("created_at", False)) Nothing)
+            PlayerGamesLoaded PlayerGamesLoadError
+        [] -> modify $ \x -> x { mPlayerGamesLoading = False }
+      Error _ -> modify $ \x -> x { mPlayerGamesLoading = False }
+
+  PlayerProfileLoadError _ ->
+    modify $ \x -> x { mPlayerGamesLoading = False }
+
+  PlayerGamesLoaded val ->
+    case fromJSON val of
+      Success games -> modify $ \x -> x
+        { mPlayerGames = dedup (mPlayerGames x ++ (games :: [GameRow]))
+        , mPlayerGamesLoading = False
+        }
+      Error _ -> modify $ \x -> x { mPlayerGamesLoading = False }
+
+  PlayerGamesLoadError _ ->
+    modify $ \x -> x { mPlayerGamesLoading = False }
+
   -- Lounge ---------------------------------------------------------------
 
   LoungeOpenLoaded val ->
@@ -860,7 +927,7 @@ updateModel loungeChannelRef = \case
 
   LoungeRealtimeChange _ -> do
     m <- get
-    when (mScreen m == LoungeScreen) $
+    when (mScreen m == HomeScreen) $
       loadLoungeGames
 
   LoungeRealtimeSubscribed ch ->
@@ -964,7 +1031,7 @@ loadPastGames = do
       let uid = userId (sessionUser sess)
       selectWithFilters "games" "*"
         [eq "user_id" uid, neq "result_desc" ("in_progress" :: MisoString)]
-        (FetchOptions Nothing Nothing)
+        (FetchOptions Nothing Nothing Nothing Nothing)
         GamesLoaded GamesLoadError
 
 -- | Migrate local games to Supabase on auth success.
@@ -985,7 +1052,7 @@ loadProfile sess = do
   let uid = userId (sessionUser sess)
   selectWithFilters "profiles" "*"
     [eq "id" uid]
-    (FetchOptions Nothing Nothing)
+    (FetchOptions Nothing Nothing Nothing Nothing)
     ProfileLoaded ProfileLoadError
 
 -- | Does the user already have a display name (profile username or guest name)?
@@ -999,11 +1066,11 @@ loadLoungeGames :: Effect ROOT () Model Action
 loadLoungeGames = do
   selectWithFilters "games" "*"
     [eq "status" ("waiting" :: MisoString)]
-    (FetchOptions Nothing Nothing)
+    (FetchOptions Nothing Nothing Nothing Nothing)
     LoungeOpenLoaded LoungeLoadError
   selectWithFilters "games" "*"
     [eq "status" ("active" :: MisoString), eq "result_desc" ("in_progress" :: MisoString)]
-    (FetchOptions Nothing Nothing)
+    (FetchOptions Nothing Nothing Nothing Nothing)
     LoungeLiveLoaded LoungeLoadError
 
 -- | Filter active games to only those with activity in the last 30 minutes.
@@ -1020,10 +1087,10 @@ filterRecentGames = filterM isRecent
         pure (elapsed < windowMs (grwTotalMoves gr))
       Nothing -> pure False
 
--- | Check if a Route is the LoungeRoute.
-isLoungeRoute :: Route -> Bool
-isLoungeRoute LoungeRoute = True
-isLoungeRoute _           = False
+-- | Check if a Route is the HomeRoute.
+isHomeRoute :: Route -> Bool
+isHomeRoute HomeRoute = True
+isHomeRoute _         = False
 
 -- | Parse a GameRow from a Supabase Realtime payload (extracts @new@ field).
 parseRealtimePayload :: Value -> Maybe GameRow
@@ -1080,6 +1147,23 @@ bestMatch m grs =
        (best:_) -> Just best
        []       -> Nothing
 
+-- | Load ranked players for the leaderboard.
+loadRankings :: Effect ROOT () Model Action
+loadRankings =
+  selectWithFilters "profiles" "*"
+    [gt "games_rated" (0 :: Int)]
+    (FetchOptions Nothing Nothing (Just ("rating", False)) (Just 20))
+    RankingsLoaded RankingsLoadError
+
+-- | Deduplicate game rows by ID.
+dedup :: [GameRow] -> [GameRow]
+dedup = go []
+  where
+    go _    []     = []
+    go seen (g:gs)
+      | grwId g `elem` seen = go seen gs
+      | otherwise           = g : go (grwId g : seen) gs
+
 -- | Activate the match interest toggle: ensure auth, subscribe, and query.
 activateMatchInterest :: Effect ROOT () Model Action
 activateMatchInterest = do
@@ -1097,5 +1181,5 @@ activateMatchInterest = do
         [ eq "status" ("waiting" :: MisoString)
         , eq "is_matchmaking" True
         ]
-        (FetchOptions Nothing Nothing)
+        (FetchOptions Nothing Nothing Nothing Nothing)
         MatchInterestInitialLoad MatchInterestInitialError

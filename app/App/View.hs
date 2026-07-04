@@ -19,8 +19,8 @@ import App.Game.Model (GameProps(..), GameModel)
 import App.Game.Action (GameAction)
 import App.Replay.Model (ReplayProps(..), ReplayModel)
 import App.Replay.Action (ReplayAction)
-import App.View.Home (viewHome)
 import App.View.Auth (viewSignIn, viewSignUp, viewUsernameGate)
+import App.View.Home (viewYourGames, viewPlayerDetail)
 import App.View.Config (viewConfig, viewConfigure)
 import App.View.Profile (viewProfile, viewProfileEdit)
 import App.View.Join (viewJoin)
@@ -41,7 +41,7 @@ viewModel gameComp replayComp _ m =
     ]
     [ if zen then text "" else viewNavbar m
     , H.div_
-        [ HP.class_ (if mScreen m == HomeScreen then "flex-1" else "flex-1 overflow-y-auto overscroll-none")
+        [ HP.class_ "flex-1 overflow-y-auto overscroll-none"
         ]
         [ H.div_
             [ HP.class_ (if zen
@@ -51,7 +51,7 @@ viewModel gameComp replayComp _ m =
             [ if mNeedsUsername m && mGuestName m == Nothing && mScreen m /= SignInScreen && mScreen m /= SignUpScreen
                 then viewUsernameGate m
                 else case mScreen m of
-                  HomeScreen        -> viewHome m
+                  HomeScreen        -> viewLounge m
                   SignInScreen      -> viewSignIn m
                   SignUpScreen      -> viewSignUp m
                   ConfigScreen      -> viewConfig m
@@ -61,7 +61,9 @@ viewModel gameComp replayComp _ m =
                   ReplayScreen      -> viewReplayScreen replayComp m
                   ProfileScreen     -> viewProfile m
                   ProfileEditScreen -> viewProfileEdit m
-                  LoungeScreen      -> viewLounge m
+                  YourGamesScreen   -> viewYourGames m
+                  PlayerScreen      -> viewPlayerDetail m
+                  LoungeScreen      -> viewLounge m  -- legacy, redirects to home
                   LoadingScreen     -> text ""
             ]
         ]
@@ -141,18 +143,9 @@ viewNavbar m =
           H.div_
             [ HP.class_ "flex items-center gap-4"
             ]
-            (loungeLink : viewLfgToggle m : themeToggleBtn : navAuthButtons m)
+            (viewLfgToggle m : themeToggleBtn : navAuthButtons m)
         ]
     ]
-
-loungeLink :: View Model Action
-loungeLink =
-  H.span_
-    [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
-    , style_ [("touch-action", "manipulation")]
-    , SVG.onClick GotoLounge
-    ]
-    [ text "Lounge" ]
 
 -- | "Looking for game" toggle in the navbar — colored circle indicator.
 viewLfgToggle :: Model -> View Model Action
@@ -258,6 +251,12 @@ navAuthButtons m =
                            ]
                   ]
                   [ H.button_
+                      [ HP.class_ "text-sm text-left px-3 py-1.5 rounded hover:bg-muted cursor-pointer bg-transparent border-0 text-foreground w-full"
+                      , style_ [("touch-action", "manipulation")]
+                      , SVG.onClick GotoYourGames
+                      ]
+                      [ text "Your Games" ]
+                  , H.button_
                       [ HP.class_ "text-sm text-left px-3 py-1.5 rounded hover:bg-muted cursor-pointer bg-transparent border-0 text-foreground w-full"
                       , style_ [("touch-action", "manipulation")]
                       , SVG.onClick GotoProfile

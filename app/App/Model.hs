@@ -57,7 +57,7 @@ data TimeControl
   | DailyControl !Int    -- seconds per move
   deriving (Eq, Show)
 
-data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | ConfigureScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen | LoadingScreen | LoungeScreen
+data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | ConfigureScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen | LoadingScreen | LoungeScreen | YourGamesScreen | PlayerScreen
   deriving (Eq, Show)
 
 data DeferredMpAction = DeferCreate | DeferJoin | DeferFindMatch | DeferToggleInterest
@@ -172,6 +172,12 @@ data Model = Model
   , mLoungeLive       :: [GameRow]
   , mLoungeLoading    :: !Bool
   , mLoungeFilter     :: Maybe MisoString
+    -- Rankings
+  , mRankings         :: [Profile]
+    -- Player detail
+  , mPlayerDetail     :: Maybe Profile
+  , mPlayerGames      :: [GameRow]
+  , mPlayerGamesLoading :: !Bool
   }
 
 -- Manual Eq instance: skip mMatchInterestChannel (Channel wraps JSVal, no Eq)
@@ -213,6 +219,9 @@ instance Eq Model where
     && mShowDepthInfo a == mShowDepthInfo b && mShowNodesInfo a == mShowNodesInfo b
     && mLoungeOpen a == mLoungeOpen b && mLoungeLive a == mLoungeLive b
     && mLoungeLoading a == mLoungeLoading b && mLoungeFilter a == mLoungeFilter b
+    && mRankings a == mRankings b
+    && mPlayerDetail a == mPlayerDetail b && mPlayerGames a == mPlayerGames b
+    && mPlayerGamesLoading a == mPlayerGamesLoading b
 
 mAuth :: Lens Model AuthState
 mAuth = lens _mAuth $ \r f -> r { _mAuth = f }
@@ -274,4 +283,8 @@ initModel = Model
   , mLoungeLive       = []
   , mLoungeLoading    = False
   , mLoungeFilter     = Nothing
+  , mRankings         = []
+  , mPlayerDetail     = Nothing
+  , mPlayerGames      = []
+  , mPlayerGamesLoading = False
   }

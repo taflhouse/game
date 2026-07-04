@@ -189,6 +189,12 @@ globalThis.runSupabaseSelect = function (
   if (fetchOptions.head) {
     query = query.head();
   }
+  if (fetchOptions.order) {
+    query = query.order(fetchOptions.order.column, { ascending: fetchOptions.order.ascending });
+  }
+  if (fetchOptions.limit) {
+    query = query.limit(fetchOptions.limit);
+  }
 
   query.then((result) => {
     console.log("[runSupabaseSelect] result", table, result);

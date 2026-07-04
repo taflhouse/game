@@ -25,7 +25,7 @@ updateReplay = \case
     let gameId = rpGameId props
     selectWithFilters "games" "*"
       [eq "id" gameId]
-      (FetchOptions Nothing Nothing)
+      (FetchOptions Nothing Nothing Nothing Nothing)
       RReplayLoaded RReplayLoadError
 
   RReplayLoaded val ->

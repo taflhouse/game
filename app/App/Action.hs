@@ -70,6 +70,7 @@ data Action
   | ToggleProfileDropdown
   | GotoProfile
   | GotoProfileEdit
+  | GotoYourGames
   | SetEditUsername MisoString
   | SetEditDisplayName MisoString
   | SubmitProfileEdit
@@ -135,5 +136,13 @@ data Action
   | LoungeRealtimeError MisoString
   | SetLoungeFilter (Maybe MisoString)
   | JoinFromLounge MisoString
+  -- Rankings / Player detail
+  | RankingsLoaded Value
+  | RankingsLoadError MisoString
+  | GotoPlayer MisoString
+  | PlayerProfileLoaded Value
+  | PlayerProfileLoadError MisoString
+  | PlayerGamesLoaded Value
+  | PlayerGamesLoadError MisoString
   -- Game component mailbox
   | GameMailbox Value
