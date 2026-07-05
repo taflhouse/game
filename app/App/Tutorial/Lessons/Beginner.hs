@@ -247,7 +247,7 @@ lessonFirstEscape = TutorialLesson
       , TutorialStep
           { tsInstruction      = "Now get the king to a corner! Which one can it reach?"
           , tsDetail           = Just "The attackers are blocking some paths. Look for the open one."
-          , tsHint             = Just "The bottom-right is blocked. Try moving the king up to the top-right corner."
+          , tsHint             = Just "Try moving the king up to the top-right corner."
           , tsPlayerSide       = DefenderSide
           , tsKind             = ChallengeStep
               (\gs -> let b = gsBoard gs
