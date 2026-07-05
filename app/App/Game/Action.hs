@@ -18,6 +18,7 @@ data GameAction
   | GGotoMove Int
   | GUndo
   | GPoofsDone
+  | GClearArrows
   -- Multiplayer
   | GRealtimeChange Value
   | GPresenceSync Value

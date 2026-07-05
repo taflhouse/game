@@ -41,6 +41,9 @@ updateGame GameRefs{..} = \case
   GPoofsDone ->
     modify $ \gm -> gm { gmCapturePoofs = [] }
 
+  GClearArrows ->
+    modify $ \gm -> gm { gmArrowStart = Nothing, gmArrows = [] }
+
   GameMount -> do
     props <- getProps
     case gpInitData props of
@@ -371,8 +374,22 @@ updateGame GameRefs{..} = \case
         mpBlocked = gmGameMode gm == MultiplayerMode && gmPlayerSide gm /= Just side
         browsing = gmBrowseIndex gm /= Nothing
         mpBrowseBlocked = browsing && gmGameMode gm == MultiplayerMode
-    if finished (gsResult (gmGameState gm)) || gmAiThinking gm || aiBlocked || mpBlocked || mpBrowseBlocked
+    if finished (gsResult (gmGameState gm)) || gmAiThinking gm || aiBlocked || mpBrowseBlocked
       then pure ()
+      else if mpBlocked && gmPlayerSide gm == Nothing then
+        -- Spectator arrow drawing
+        case gmArrowStart gm of
+          Nothing ->
+            modify $ \x -> x { gmArrowStart = Just coords }
+          Just start
+            | start == coords ->
+                modify $ \x -> x { gmArrowStart = Nothing }
+            | otherwise ->
+                modify $ \x -> x
+                  { gmArrowStart = Nothing
+                  , gmArrows = gmArrows x ++ [(start, coords)]
+                  }
+      else if mpBlocked then pure ()
       else case gmSelected gm of
         Just sel | coords `elem` gmValidMoves gm -> do
           let move = MoveAction sel coords

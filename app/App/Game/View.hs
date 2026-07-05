@@ -19,6 +19,7 @@ import App.JSON (Profile(..), ChatMessage(..))
 import App.Model (GameMode(..), TimeControl(..), ViewMode(..))
 import App.Board (sqSize, coordStr, svgDefs, renderSquareBg, renderSpecialSquares,
                   renderPiece, renderLastMove, renderCapturePoofs,
+                  renderSpectatorArrows,
                   viewBoardContainer, viewEvalBar, viewClocks)
 import App.Game.Model
 import App.Game.Action
@@ -167,7 +168,7 @@ viewGame props gm
           , viewBoardPanel gm
           ]
       , if not zen && gmGameMode gm == MultiplayerMode && gmPlayerSide gm == Nothing
-        then viewSpectatorBadge n (gmSpectatorCount gm) else text ""
+        then viewSpectatorBadge n (gmSpectatorCount gm) (not (null (gmArrows gm))) else text ""
       , if zen then text "" else viewStatus gm
       , if zen then text "" else viewOpponentNotice gm
       , if zen then text "" else viewMoveHistory gm
@@ -223,6 +224,7 @@ viewSVGBoard gm =
        ]
     ++ renderLastMove gs n
     ++ renderCapturePoofs (gmCapturePoofs gm)
+    ++ renderSpectatorArrows (gmArrowStart gm) (gmArrows gm)
     ++ [ renderClickTarget gm n r c | r <- [0..n-1], c <- [0..n-1] ]
     )
 
@@ -296,8 +298,10 @@ renderClickTarget gm _n r c =
       aiBlocked = (gmGameMode gm == AiMode && gmAiSide gm == side)
                || gmAiOpponent gm == Just side
       mpBlocked = gmGameMode gm == MultiplayerMode && gmPlayerSide gm /= Just side
+      isSpectator = gmGameMode gm == MultiplayerMode && gmPlayerSide gm == Nothing
       blocked = gmAiThinking gm || aiBlocked || mpBlocked || finished (gsResult gs)
-      cur = if blocked then "default" else "pointer"
+      cur = if isSpectator then "crosshair"
+            else if blocked then "default" else "pointer"
   in SVG.rect_
     [ SP.x_ (ms (c * sqSize))
     , SP.y_ (ms (r * sqSize))
@@ -383,10 +387,10 @@ viewStatus gm =
     [ text (ms fullMsg) ]
 
 -- | Spectator badge shown when watching a game you're not a player in
-viewSpectatorBadge :: Int -> Int -> View GameModel GameAction
-viewSpectatorBadge n count =
+viewSpectatorBadge :: Int -> Int -> Bool -> View GameModel GameAction
+viewSpectatorBadge n count hasArrows =
   H.div_
-    [ HP.class_ "flex justify-center w-full mt-4"
+    [ HP.class_ "flex justify-center items-center gap-3 w-full mt-4"
     , style_ [("max-width", ms (sqSize * n) <> "px")]
     ]
     [ H.span_
@@ -394,6 +398,14 @@ viewSpectatorBadge n count =
         [ text ("Spectating" <> if count > 1
             then " \xb7 " <> ms (show count) <> " watching"
             else "") ]
+    , if hasArrows
+      then H.button_
+        [ HP.class_ "text-xs text-muted-foreground hover:text-foreground bg-transparent border border-border rounded px-2 py-0.5 cursor-pointer"
+        , style_ [("touch-action", "manipulation")]
+        , SVG.onClick GClearArrows
+        ]
+        [ text "Clear Arrows" ]
+      else text ""
     ]
 
 -- | Share link section (shown after game finishes)

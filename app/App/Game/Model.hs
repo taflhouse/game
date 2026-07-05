@@ -110,6 +110,9 @@ data GameModel = GameModel
   , gmViewMode     :: !ViewMode
   , gmIsFullscreen  :: !Bool
   , gmZenHint      :: !Bool
+    -- Spectator arrows
+  , gmArrowStart   :: Maybe Coords
+  , gmArrows       :: [(Coords, Coords)]
     -- Chat
   , gmChatMessages     :: [ChatMessage]
   , gmChatOpen         :: !Bool
@@ -176,6 +179,8 @@ initialGameModel = GameModel
   , gmViewMode     = NormalView
   , gmIsFullscreen = False
   , gmZenHint      = False
+  , gmArrowStart   = Nothing
+  , gmArrows       = []
   , gmChatMessages     = []
   , gmChatOpen         = False
   , gmChatInput        = ""

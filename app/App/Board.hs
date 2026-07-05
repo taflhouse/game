@@ -15,6 +15,8 @@ module App.Board
   , renderLastMove
     -- * Capture poofs
   , renderCapturePoofs
+    -- * Spectator arrows
+  , renderSpectatorArrows
     -- * Composite views
   , viewBasicSVGBoard
   , viewBoardContainer
@@ -94,6 +96,18 @@ svgDefs =
             , SP.stdDeviation_ "0.5"
             , SP.floodColor_ "#000000"
             , SP.floodOpacity_ "0.45"
+            ]
+        ]
+    , SVG.marker_
+        [ HP.id_ "arrowHead"
+        , SP.markerWidth_ "6", SP.markerHeight_ "6"
+        , SP.refX_ "3", SP.refY_ "3"
+        , SP.orient_ "auto"
+        , SP.markerUnits_ "strokeWidth"
+        ]
+        [ SVG.polygon_
+            [ SP.points_ "0,0 6,3 0,6"
+            , SP.fill_ "rgba(245,158,11,0.85)"
             ]
         ]
     ]
@@ -271,6 +285,67 @@ poofTint Attacker = "color-mix(in oklch, var(--piece-attacker) 30%, white)"
 poofTint Defender = "color-mix(in oklch, var(--piece-defender) 30%, white)"
 poofTint King     = "color-mix(in oklch, var(--piece-king) 30%, white)"
 poofTint _        = "white"
+
+-- ---------------------------------------------------------------------------
+-- Spectator arrows
+-- ---------------------------------------------------------------------------
+
+-- | Render spectator arrows: pending start highlight + completed arrows.
+renderSpectatorArrows :: Maybe Coords -> [(Coords, Coords)] -> [View model action]
+renderSpectatorArrows mStart arrows =
+  let startHighlight = case mStart of
+        Nothing -> []
+        Just (Coords r c) ->
+          [ SVG.rect_
+              [ SP.x_ (ms (c * sqSize + 2))
+              , SP.y_ (ms (r * sqSize + 2))
+              , HP.width_ (ms (sqSize - 4))
+              , HP.height_ (ms (sqSize - 4))
+              , SP.fill_ "none"
+              , SP.stroke_ "rgba(245,158,11,0.8)"
+              , SP.strokeWidth_ "2.5"
+              , SP.strokeDasharray_ "5,3"
+              , SP.rx_ "3"
+              , style_ [("pointer-events", "none")]
+              ]
+          ]
+      arrowLines = map renderArrow arrows
+  in startHighlight ++ arrowLines
+
+-- | Render a single arrow from source to target, inset from square edges.
+renderArrow :: (Coords, Coords) -> View model action
+renderArrow (Coords r1 c1, Coords r2 c2) =
+  let -- Center of each square
+      cx1 = fromIntegral c1 * sq + half
+      cy1 = fromIntegral r1 * sq + half
+      cx2 = fromIntegral c2 * sq + half
+      cy2 = fromIntegral r2 * sq + half
+      sq  = fromIntegral sqSize :: Double
+      half = sq / 2.0
+      -- Unit vector from source to target
+      dx  = cx2 - cx1
+      dy  = cy2 - cy1
+      len = sqrt (dx * dx + dy * dy)
+      ux  = dx / len
+      uy  = dy / len
+      -- Inset: start from edge of source square, end at edge of target
+      insetSrc = half - 4.0
+      insetTgt = half - 1.0
+      x1  = cx1 + ux * insetSrc
+      y1  = cy1 + uy * insetSrc
+      x2  = cx2 - ux * insetTgt
+      y2  = cy2 - uy * insetTgt
+      showD :: Double -> MisoString
+      showD d = let n = round d :: Int in ms n
+  in SVG.line_
+    [ SP.x1_ (showD x1), SP.y1_ (showD y1)
+    , SP.x2_ (showD x2), SP.y2_ (showD y2)
+    , SP.stroke_ "rgba(245,158,11,0.75)"
+    , SP.strokeWidth_ "3"
+    , SP.strokeLinecap_ "round"
+    , SP.markerEnd_ "url(#arrowHead)"
+    , style_ [("pointer-events", "none")]
+    ]
 
 -- ---------------------------------------------------------------------------
 -- Composite views
