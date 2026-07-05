@@ -276,8 +276,8 @@ lessonCapturing = TutorialLesson
       [ [e, e, e, e, e, e, e, e, e]
       , [e, e, e, e, e, e, e, e, e]
       , [e, e, e, e, e, e, e, e, e]
-      , [e, e, e, e, e, e, e, e, e]
       , [e, e, e, d, a, e, d, e, e]
+      , [e, e, e, e, e, e, e, e, e]
       , [e, e, e, e, d, e, e, e, e]
       , [e, e, e, e, a, e, e, e, e]
       , [e, e, e, e, e, e, e, e, e]
@@ -293,9 +293,9 @@ lessonCapturing = TutorialLesson
           , tsPlayerSide       = DefenderSide
           , tsKind             = InfoStep
           , tsHighlightSquares =
-              [ HighlightSquare (Coords 4 3) PulseHighlight
-              , HighlightSquare (Coords 4 4) PulseHighlight
-              , HighlightSquare (Coords 4 6) PulseHighlight
+              [ HighlightSquare (Coords 3 3) PulseHighlight
+              , HighlightSquare (Coords 3 4) PulseHighlight
+              , HighlightSquare (Coords 3 6) PulseHighlight
               ]
           }
       , TutorialStep
@@ -304,12 +304,12 @@ lessonCapturing = TutorialLesson
           , tsHint             = Just "Move the right defender left to sandwich the attacker between your two pieces."
           , tsPlayerSide       = DefenderSide
           , tsKind             = MoveStep
-              (Just [Coords 4 6])
-              (Just [Coords 4 5])
+              (Just [Coords 3 6])
+              (Just [Coords 3 5])
               Nothing
           , tsHighlightSquares =
-              [ HighlightSquare (Coords 4 6) PulseHighlight
-              , HighlightSquare (Coords 4 5) GlowHighlight
+              [ HighlightSquare (Coords 3 6) PulseHighlight
+              , HighlightSquare (Coords 3 5) GlowHighlight
               ]
           }
       , TutorialStep
