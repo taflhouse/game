@@ -393,7 +393,7 @@ updateGame GameRefs{..} = \case
             , gmAnimateMove = Just move
             , gmCapturePoofs = [(c, pieceAt (gsBoard activeGs) c) | c <- gsCaptures gs']
             }
-          io_ js_playMoveSound
+          io_ (if null (gsCaptures gs') then js_playMoveSound else js_playCaptureSound)
           when (not (null (gsCaptures gs'))) $
             withSink $ \sink -> do
               threadDelay 400000
@@ -440,7 +440,7 @@ updateGame GameRefs{..} = \case
           , gmAnimateMove = Just move
           , gmCapturePoofs = [(c, pieceAt (gsBoard gs) c) | c <- gsCaptures gs']
           }
-        io_ js_playMoveSound
+        io_ (if null (gsCaptures gs') then js_playMoveSound else js_playCaptureSound)
         when (not (null (gsCaptures gs'))) $
           withSink $ \sink -> do
             threadDelay 400000
@@ -555,7 +555,7 @@ updateGame GameRefs{..} = \case
             , gmAnimateMove = if not (null remoteMoves) then Just (last remoteMoves) else Nothing
             , gmCapturePoofs = poofs
             }
-          io_ js_playMoveSound
+          io_ (if null poofs then js_playMoveSound else js_playCaptureSound)
           when (not (null poofs)) $
             withSink $ \sink -> do
               threadDelay 400000

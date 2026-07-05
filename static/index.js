@@ -85,6 +85,13 @@ globalThis.playMoveSound = () => {
   }, 150);
 };
 
+globalThis.playCaptureSound = () => {
+  setTimeout(() => {
+    const audio = new Audio('/capture.wav');
+    audio.play().catch(() => {});
+  }, 150);
+};
+
 globalThis.animatePieceMove = (fromR, fromC, toR, toC, sqSize) => {
   requestAnimationFrame(() => {
     const el = document.getElementById('piece-' + toR + '-' + toC);

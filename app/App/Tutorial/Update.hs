@@ -13,7 +13,7 @@ import Tafl.Game.State (GameState(..), turnSide)
 import Tafl.Game.Move (getPossibleMovesFrom)
 import Tafl.AI (evaluate)
 
-import App.FFI (js_playMoveSound, js_getLocalStorage, js_setLocalStorage)
+import App.FFI (js_playMoveSound, js_playCaptureSound, js_getLocalStorage, js_setLocalStorage)
 import App.Model (Model)
 import App.Route (learnURI, learnLessonURI)
 import App.Tutorial.Model
@@ -162,7 +162,7 @@ updateTutorial = \case
     let gs = tmGameState m
         gs' = act gs autoMove
         poofs = [(c, pieceAt (gsBoard gs) c) | c <- gsCaptures gs']
-    io_ js_playMoveSound
+    io_ (if null poofs then js_playMoveSound else js_playCaptureSound)
     modify $ \x -> x
       { tmGameState   = gs'
       , tmAnimateMove  = Just autoMove
@@ -228,7 +228,7 @@ handleMoveStepClick coords gs step mAllowedPieces mAllowedTargets mAutoResp = do
             let moveAction = MoveAction sel coords
                 gs' = act gs moveAction
                 poofs = [(c, pieceAt (gsBoard gs) c) | c <- gsCaptures gs']
-            io_ js_playMoveSound
+            io_ (if null poofs then js_playMoveSound else js_playCaptureSound)
             modify $ \x -> x
               { tmGameState   = gs'
               , tmSelected    = Nothing
@@ -302,7 +302,7 @@ handleChallengeClick coords gs step predicate mAutoResp = do
             if predicate gs'
               then do
                 let poofs = [(c, pieceAt (gsBoard gs) c) | c <- gsCaptures gs']
-                io_ js_playMoveSound
+                io_ (if null poofs then js_playMoveSound else js_playCaptureSound)
                 modify $ \x -> x
                   { tmGameState   = gs'
                   , tmSelected    = Nothing

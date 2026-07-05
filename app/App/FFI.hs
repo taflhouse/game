@@ -2,6 +2,7 @@
 module App.FFI
   ( -- * Raw FFI
     js_playMoveSound
+  , js_playCaptureSound
   , js_toggleDarkMode
   , js_loadLocalGames
   , js_clearLocalGames
@@ -76,6 +77,8 @@ import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, jsg, (#), Function(..))
 #ifdef WASM
 foreign import javascript unsafe "globalThis.playMoveSound()"
   js_playMoveSound :: IO ()
+foreign import javascript unsafe "globalThis.playCaptureSound()"
+  js_playCaptureSound :: IO ()
 foreign import javascript unsafe "globalThis.toggleTheme()"
   js_toggleDarkMode :: IO ()
 foreign import javascript unsafe "globalThis.loadLocalGames($1,$2)"
@@ -240,6 +243,8 @@ foreign import javascript unsafe "localStorage.getItem($1) || ''"
 #else
 js_playMoveSound :: IO ()
 js_playMoveSound = pure ()
+js_playCaptureSound :: IO ()
+js_playCaptureSound = pure ()
 js_toggleDarkMode :: IO ()
 js_toggleDarkMode = pure ()
 js_loadLocalGames :: Function -> Function -> IO ()
