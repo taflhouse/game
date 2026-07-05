@@ -22,6 +22,8 @@ module App.Route
   , loungeURI
   , yourGamesURI
   , playerURI
+  , learnURI
+  , learnLessonURI
   ) where
 
 import Data.List (isPrefixOf)
@@ -32,6 +34,8 @@ import Tafl.Board (MoveAction)
 import Tafl.Rules (BoardVariant(..), variantSlug)
 import Tafl.Game (act, GameState)
 
+import App.Tutorial.Lessons (TutorialLesson(..), moduleSlug, lookupLesson)
+
 data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute | ConfigureRoute (Maybe MisoString) | ProfileRoute | ProfileEditRoute
            | PlayRoute MisoString      -- /play/<uuid> active game
            | GameRoute MisoString      -- /games/<uuid> replay/permalink
@@ -39,6 +43,8 @@ data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute | ConfigureRout
            | LoungeRoute               -- /lounge (redirects to home)
            | YourGamesRoute            -- /your-games past games list
            | PlayerRoute MisoString    -- /player/<username>
+           | LearnRoute                -- /learn lesson select
+           | LearnLessonRoute MisoString -- /learn/<lesson-id>
 
 variantSlugMs :: BoardVariant -> MisoString
 variantSlugMs v = ms (variantSlug v)
@@ -69,6 +75,7 @@ parseRoute uri = case uriPath uri of
   "profile/edit" -> ProfileEditRoute
   "profile"  -> ProfileRoute
   "join"     -> JoinRoute Nothing
+  "learn"    -> LearnRoute
   path
     | Just uuid <- msStripPrefix "play/" path
     , isUUID uuid -> PlayRoute uuid
@@ -78,6 +85,11 @@ parseRoute uri = case uriPath uri of
     , not (null (fromMisoString code :: String)) -> JoinRoute (Just code)
     | Just uname <- msStripPrefix "player/" path
     , not (null (fromMisoString uname :: String)) -> PlayerRoute uname
+    | Just rest <- msStripPrefix "learn/" path
+    , not (null (fromMisoString rest :: String))
+    -> case break' '/' (fromMisoString rest :: String) of
+        (_, lid) | not (null lid) -> LearnLessonRoute (ms lid)
+        (lid, _)                  -> LearnLessonRoute (ms lid)
     | otherwise   -> HomeRoute
 
 msStripPrefix :: String -> MisoString -> Maybe MisoString
@@ -86,6 +98,14 @@ msStripPrefix pfx s =
   in if pfx `isPrefixOf` str
      then Just (ms (drop (length pfx) str))
      else Nothing
+
+-- | Split a string on the first occurrence of a character.
+-- Returns (before, after) where 'after' does not include the delimiter.
+-- If the character is not found, returns (input, "").
+break' :: Char -> String -> (String, String)
+break' c s = case break (== c) s of
+  (a, [])    -> (a, [])
+  (a, _:b)   -> (a, b)
 
 isUUID :: MisoString -> Bool
 isUUID s =
@@ -152,3 +172,11 @@ yourGamesURI = emptyURI { uriPath = "your-games" }
 
 playerURI :: MisoString -> URI
 playerURI uname = emptyURI { uriPath = "player/" <> uname }
+
+learnURI :: URI
+learnURI = emptyURI { uriPath = "learn" }
+
+learnLessonURI :: MisoString -> URI
+learnLessonURI lid = case lookupLesson lid of
+  Just lesson -> emptyURI { uriPath = "learn/" <> moduleSlug (tlModule lesson) <> "/" <> lid }
+  Nothing     -> emptyURI { uriPath = "learn/" <> lid }

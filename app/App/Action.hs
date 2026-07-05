@@ -22,6 +22,7 @@ data Action
   | GotoSignUp
   | GotoConfig
   | GotoJoin
+  | GotoLearn
   | ToggleConfigExpand
   | HandleURI URI
   -- Game config

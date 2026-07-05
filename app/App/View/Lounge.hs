@@ -37,12 +37,24 @@ viewLounge m =
               ]
               [ text "New Game" ]
           , viewOrDivider
-          , H.span_
-              [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
-              , style_ [("touch-action", "manipulation")]
-              , SVG.onClick GotoJoin
+          , H.div_
+              [ HP.class_ "flex items-center justify-center gap-4" ]
+              [ H.span_
+                  [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+                  , style_ [("touch-action", "manipulation")]
+                  , SVG.onClick GotoJoin
+                  ]
+                  [ text "Join by Code" ]
+              , H.span_
+                  [ HP.class_ "text-xs text-muted-foreground" ]
+                  [ text "\xB7" ]
+              , H.span_
+                  [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+                  , style_ [("touch-action", "manipulation")]
+                  , SVG.onClick GotoLearn
+                  ]
+                  [ text "Learn to Play" ]
               ]
-              [ text "Join by Code" ]
           ]
       ]
     ++ (if mLoungeLoading m && null allGames

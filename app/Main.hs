@@ -21,6 +21,10 @@ import App.Replay.Model (ReplayModel, ReplayProps, initialReplayModel)
 import App.Replay.Action (ReplayAction(..))
 import App.Replay.Update (updateReplay)
 import App.Replay.View (viewReplay)
+import App.Tutorial.Model (TutorialModel, TutorialProps, initialTutorialModel)
+import App.Tutorial.Action (TutorialAction(..))
+import App.Tutorial.Update (updateTutorial)
+import App.Tutorial.View (viewTutorial)
 
 #ifdef WASM
 foreign export javascript "hs_start" main :: IO ()
@@ -42,6 +46,8 @@ main = do
         PlayRoute _ -> LoadingScreen
         GameRoute _ -> LoadingScreen
         LoungeRoute -> LoungeScreen
+        LearnRoute  -> LearnScreen
+        LearnLessonRoute _ -> LearnScreen
         _           -> HomeScreen
       gameComp = (component initialGameModel (updateGame refs) viewGame)
         { mount   = Just GameMount
@@ -51,13 +57,17 @@ main = do
         { mount   = Just ReplayMount
         , unmount = Just ReplayUnmount
         }
-  startApp defaultEvents (app loungeChannelRef screen0 gameComp replayComp)
+      tutorialComp = (component initialTutorialModel updateTutorial viewTutorial)
+        { mount   = Just TutorialMount
+        , unmount = Just TutorialUnmount
+        }
+  startApp defaultEvents (app loungeChannelRef screen0 gameComp replayComp tutorialComp)
   where
-    app lcRef s gc rc = Component
+    app lcRef s gc rc tc = Component
       { model            = initModel { mScreen = s }
       , hydrateModel     = Nothing
       , update           = updateModel lcRef
-      , view             = viewModel gc rc
+      , view             = viewModel gc rc tc
       , subs             = [ uriSub HandleURI
                            , \sink -> getURI >>= sink . HandleURI
                            , \sink -> sink CheckSession

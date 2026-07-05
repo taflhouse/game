@@ -69,6 +69,9 @@ updateModel loungeChannelRef = \case
   GotoJoin ->
     io_ $ pushURI joinBareURI
 
+  GotoLearn ->
+    io_ $ pushURI learnURI
+
   ToggleConfigExpand ->
     modify $ \m -> m { mConfigExpanded = not (mConfigExpanded m), mConfigModeChosen = False }
 
@@ -186,6 +189,10 @@ updateModel loungeChannelRef = \case
       YourGamesRoute -> do
         modify $ \x -> x { mScreen = YourGamesScreen, mGamesLoading = True }
         loadPastGames
+      LearnRoute ->
+        modify $ \x -> x { mScreen = LearnScreen, mTutorialLessonId = Nothing }
+      LearnLessonRoute lid ->
+        modify $ \x -> x { mScreen = LearnScreen, mTutorialLessonId = Just lid }
       JoinRoute mCode -> do
         modify $ \x -> x
           { mScreen        = JoinScreen

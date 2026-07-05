@@ -19,6 +19,8 @@ import App.Game.Model (GameProps(..), GameModel)
 import App.Game.Action (GameAction)
 import App.Replay.Model (ReplayProps(..), ReplayModel)
 import App.Replay.Action (ReplayAction)
+import App.Tutorial.Model (TutorialProps(..), TutorialModel)
+import App.Tutorial.Action (TutorialAction)
 import App.View.Auth (viewSignIn, viewSignUp, viewUsernameGate)
 import App.View.Home (viewYourGames, viewPlayerDetail)
 import App.View.Config (viewConfig, viewConfigure)
@@ -33,8 +35,9 @@ import App.View.Lounge (viewLounge)
 viewModel
   :: Component Model GameProps GameModel GameAction
   -> Component Model ReplayProps ReplayModel ReplayAction
+  -> Component Model TutorialProps TutorialModel TutorialAction
   -> () -> Model -> View Model Action
-viewModel gameComp replayComp _ m =
+viewModel gameComp replayComp tutorialComp _ m =
   let zen = mViewMode m == ZenView && mScreen m == ReplayScreen
   in H.div_
     [ HP.class_ "fixed inset-0 flex flex-col bg-background font-sans"
@@ -63,6 +66,7 @@ viewModel gameComp replayComp _ m =
                   ProfileEditScreen -> viewProfileEdit m
                   YourGamesScreen   -> viewYourGames m
                   PlayerScreen      -> viewPlayerDetail m
+                  LearnScreen       -> viewLearnScreen tutorialComp m
                   LoungeScreen      -> viewLounge m  -- legacy, redirects to home
                   LoadingScreen     -> text ""
             ]
@@ -100,6 +104,13 @@ viewReplayScreen replayComp m = case mReplayGameId m of
       , style_ [("margin-top", "4em")]
       ]
       [ text "Loading..." ]
+
+-- | Mount the tutorial component.
+viewLearnScreen :: Component Model TutorialProps TutorialModel TutorialAction -> Model -> View Model Action
+viewLearnScreen tutorialComp m =
+  mountWithProps_ "tutorial"
+    (TutorialProps (mTutorialLessonId m))
+    tutorialComp
 
 viewToast :: Model -> View Model Action
 viewToast m = case mToast m of
@@ -143,9 +154,19 @@ viewNavbar m =
           H.div_
             [ HP.class_ "flex items-center gap-4"
             ]
-            (viewLfgToggle m : themeToggleBtn : navAuthButtons m)
+            (viewLfgToggle m : themeToggleBtn : learnLink : navAuthButtons m)
         ]
     ]
+
+-- | "Learn" link in the navbar.
+learnLink :: View Model Action
+learnLink =
+  H.span_
+    [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+    , style_ [("touch-action", "manipulation")]
+    , SVG.onClick GotoLearn
+    ]
+    [ text "Learn" ]
 
 -- | "Looking for game" toggle in the navbar — colored circle indicator.
 viewLfgToggle :: Model -> View Model Action

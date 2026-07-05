@@ -6541,3 +6541,22 @@ code.hljs {
     margin-top: 2em;
   }
 }
+
+/* Tutorial highlight animations */
+@keyframes tutorial-pulse-anim {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.65; }
+}
+
+@keyframes tutorial-glow-anim {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+
+.tutorial-pulse {
+  animation: tutorial-pulse-anim 1.5s ease-in-out infinite;
+}
+
+.tutorial-glow {
+  animation: tutorial-glow-anim 2s ease-in-out infinite;
+}
