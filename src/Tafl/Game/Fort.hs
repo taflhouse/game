@@ -20,19 +20,24 @@ dir8 = [(dr, dc) | dr <- [-1, 0, 1], dc <- [-1, 0, 1], (dr, dc) /= (0, 0)]
 oppositeNeighborPairs :: [((Int, Int), (Int, Int))]
 oppositeNeighborPairs = [((-1, 0), (1, 0)), ((0, -1), (0, 1))]
 
--- | Check if the king escaped through an exit fort after the last move.
--- Returns True when the last move placed the king on a non-corner edge
--- square inside a valid fort structure.
+-- | Check if the king is inside a valid exit fort.
+-- Returns True when the king is on a non-corner edge square inside
+-- a valid fort structure, regardless of which piece moved last.
 kingEscapedThroughFort :: GameState -> Bool
 kingEscapedThroughFort gs =
-  case gsLastAction gs of
+  case findKing (gsBoard gs) of
     Nothing -> False
-    Just move ->
-      let landing = to move
-          board = gsBoard gs
-      in isKing board landing
-         && isEdge gs landing
-         && insideFort board landing
+    Just kingPos ->
+      isEdge gs kingPos && insideFort (gsBoard gs) kingPos
+
+-- | Find the king's position on the board.
+findKing :: Board -> Maybe Coords
+findKing board =
+  let n = boardSize board
+      kings = [Coords r c | r <- [0..n-1], c <- [0..n-1], isKing board (Coords r c)]
+  in case kings of
+    (k:_) -> Just k
+    []    -> Nothing
 
 -- | Check if the king at the given position is inside a valid exit fort.
 -- Requires: king on an edge row or column, at least 2 defenders on the
