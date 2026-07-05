@@ -38,6 +38,9 @@ updateGame :: GameRefs -> GameAction -> Effect Model GameProps GameModel GameAct
 updateGame GameRefs{..} = \case
   GNoOp -> pure ()
 
+  GPoofsDone ->
+    modify $ \gm -> gm { gmCapturePoofs = [] }
+
   GameMount -> do
     props <- getProps
     case gpInitData props of
@@ -388,8 +391,13 @@ updateGame GameRefs{..} = \case
             , gmBrowseIndex = Nothing
             , gmEvalScore = evaluate gs'
             , gmAnimateMove = Just move
+            , gmCapturePoofs = [(c, pieceAt (gsBoard activeGs) c) | c <- gsCaptures gs']
             }
           io_ js_playMoveSound
+          when (not (null (gsCaptures gs'))) $
+            withSink $ \sink -> do
+              threadDelay 400000
+              sink GPoofsDone
           when (gmGameMode gm == MultiplayerMode) $ do
             case gmTimeControl gm of
               BlitzControl _ ->
@@ -430,8 +438,13 @@ updateGame GameRefs{..} = \case
           , gmFullMoveList = Nothing
           , gmEvalScore = evaluate gs'
           , gmAnimateMove = Just move
+          , gmCapturePoofs = [(c, pieceAt (gsBoard gs) c) | c <- gsCaptures gs']
           }
         io_ js_playMoveSound
+        when (not (null (gsCaptures gs'))) $
+          withSink $ \sink -> do
+            threadDelay 400000
+            sink GPoofsDone
         -- In multiplayer-AI games, write the AI move to DB
         case gmAiOpponent gm of
           Just _ -> case gmTimeControl gm of
@@ -455,7 +468,7 @@ updateGame GameRefs{..} = \case
     let allStates = gmHistory gm ++ [gmGameState gm]
         lastIdx = length allStates - 1
         idx = if i >= lastIdx then Nothing else Just (max 0 i)
-    modify $ \x -> x { gmBrowseIndex = idx, gmAnimateMove = Nothing }
+    modify $ \x -> x { gmBrowseIndex = idx, gmAnimateMove = Nothing, gmCapturePoofs = [] }
 
   GUndo -> do
     gm <- get
@@ -487,6 +500,7 @@ updateGame GameRefs{..} = \case
           , gmAiThinking = False
           , gmEvalScore = evaluate prev
           , gmAnimateMove = Nothing
+          , gmCapturePoofs = []
           }
 
   GRealtimeChange val -> do
@@ -529,6 +543,8 @@ updateGame GameRefs{..} = \case
         when (length remoteMoves > length localMoves) $ do
           let gs0 = initialState variant
               (hist, gs) = replayMoves gs0 remoteMoves
+              oldBoard = if null hist then gsBoard gs else gsBoard (last hist)
+              poofs = [(c, pieceAt oldBoard c) | c <- gsCaptures gs]
           modify $ \x -> applyClockFromRow gr $ x
             { gmGameState = gs
             , gmHistory = hist
@@ -537,8 +553,13 @@ updateGame GameRefs{..} = \case
             , gmValidMoves = []
             , gmBrowseIndex = Nothing
             , gmAnimateMove = if not (null remoteMoves) then Just (last remoteMoves) else Nothing
+            , gmCapturePoofs = poofs
             }
           io_ js_playMoveSound
+          when (not (null poofs)) $
+            withSink $ \sink -> do
+              threadDelay 400000
+              sink GPoofsDone
           case parseTimeControl gr of
             BlitzControl _ -> startBlitzClock grChannelRef grClockRef
             DailyControl _ -> startDailyClock grClockRef

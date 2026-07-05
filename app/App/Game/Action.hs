@@ -17,6 +17,7 @@ data GameAction
   | GAiMoveComplete MoveAction
   | GGotoMove Int
   | GUndo
+  | GPoofsDone
   -- Multiplayer
   | GRealtimeChange Value
   | GPresenceSync Value

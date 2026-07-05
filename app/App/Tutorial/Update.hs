@@ -55,6 +55,7 @@ updateTutorial = \case
           , tmSelected      = Nothing
           , tmValidMoves    = []
           , tmAnimateMove   = Nothing
+          , tmCapturePoofs  = []
           , tmEvalScore     = evaluate gs0
           , tmShowCongrats  = False
           , tmStepComplete  = False
@@ -105,11 +106,12 @@ updateTutorial = \case
               , tmGameState    = gs
               , tmSelected     = Nothing
               , tmValidMoves   = []
-              , tmStepComplete = False
-              , tmFailureCount = 0
-              , tmShowHint     = False
-              , tmEvalScore    = evaluate gs
-              , tmStateHistory = history
+              , tmStepComplete  = False
+              , tmFailureCount  = 0
+              , tmShowHint      = False
+              , tmEvalScore     = evaluate gs
+              , tmStateHistory  = history
+              , tmCapturePoofs  = []
               }
 
   TBackStep -> do
@@ -128,8 +130,9 @@ updateTutorial = \case
           , tmValidMoves   = []
           , tmStepComplete = False
           , tmFailureCount = 0
-          , tmShowHint     = False
-          , tmEvalScore    = evaluate gs0
+          , tmShowHint      = False
+          , tmEvalScore     = evaluate gs0
+          , tmCapturePoofs  = []
           }
 
   TCellClicked coords -> do
@@ -158,17 +161,26 @@ updateTutorial = \case
     m <- get
     let gs = tmGameState m
         gs' = act gs autoMove
+        poofs = [(c, pieceAt (gsBoard gs) c) | c <- gsCaptures gs']
     io_ js_playMoveSound
     modify $ \x -> x
-      { tmGameState  = gs'
-      , tmAnimateMove = Just autoMove
-      , tmEvalScore   = evaluate gs'
+      { tmGameState   = gs'
+      , tmAnimateMove  = Just autoMove
+      , tmEvalScore    = evaluate gs'
+      , tmCapturePoofs = poofs
       }
+    when (not (null poofs)) $
+      withSink $ \sink -> do
+        threadDelay 400000
+        sink TPoofsDone
     withSink $ \sink -> do
       threadDelay 400000
       sink TAdvanceAfterDelay
 
   TAutoResponseDone -> pure ()
+
+  TPoofsDone ->
+    modify $ \m -> m { tmCapturePoofs = [] }
 
   TDismissCongrats ->
     modify $ \m -> m { tmShowCongrats = False }
@@ -215,6 +227,7 @@ handleMoveStepClick coords gs step mAllowedPieces mAllowedTargets mAutoResp = do
           then do
             let moveAction = MoveAction sel coords
                 gs' = act gs moveAction
+                poofs = [(c, pieceAt (gsBoard gs) c) | c <- gsCaptures gs']
             io_ js_playMoveSound
             modify $ \x -> x
               { tmGameState   = gs'
@@ -225,7 +238,12 @@ handleMoveStepClick coords gs step mAllowedPieces mAllowedTargets mAutoResp = do
               , tmStepComplete = True
               , tmFailureCount = 0
               , tmShowHint     = False
+              , tmCapturePoofs = poofs
               }
+            when (not (null poofs)) $
+              withSink $ \sink -> do
+                threadDelay 400000
+                sink TPoofsDone
             case mAutoResp of
               Just autoMove -> withSink $ \sink -> do
                 threadDelay 600000
@@ -283,6 +301,7 @@ handleChallengeClick coords gs step predicate mAutoResp = do
                 gs' = act gs moveAction
             if predicate gs'
               then do
+                let poofs = [(c, pieceAt (gsBoard gs) c) | c <- gsCaptures gs']
                 io_ js_playMoveSound
                 modify $ \x -> x
                   { tmGameState   = gs'
@@ -293,7 +312,12 @@ handleChallengeClick coords gs step predicate mAutoResp = do
                   , tmStepComplete = True
                   , tmFailureCount = 0
                   , tmShowHint     = False
+                  , tmCapturePoofs = poofs
                   }
+                when (not (null poofs)) $
+                  withSink $ \sink -> do
+                    threadDelay 400000
+                    sink TPoofsDone
                 case mAutoResp of
                   Just autoMove -> withSink $ \sink -> do
                     threadDelay 600000

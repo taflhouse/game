@@ -18,7 +18,8 @@ import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
 import App.JSON (Profile(..), ChatMessage(..))
 import App.Model (GameMode(..), TimeControl(..), ViewMode(..))
 import App.Board (sqSize, coordStr, svgDefs, renderSquareBg, renderSpecialSquares,
-                  renderPiece, renderLastMove, viewBoardContainer, viewEvalBar, viewClocks)
+                  renderPiece, renderLastMove, renderCapturePoofs,
+                  viewBoardContainer, viewEvalBar, viewClocks)
 import App.Game.Model
 import App.Game.Action
 
@@ -221,6 +222,7 @@ viewSVGBoard gm =
          ]
        ]
     ++ renderLastMove gs n
+    ++ renderCapturePoofs (gmCapturePoofs gm)
     ++ [ renderClickTarget gm n r c | r <- [0..n-1], c <- [0..n-1] ]
     )
 

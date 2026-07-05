@@ -13,6 +13,8 @@ module App.Board
   , renderSpecialSquares
   , renderPiece
   , renderLastMove
+    -- * Capture poofs
+  , renderCapturePoofs
     -- * Composite views
   , viewBasicSVGBoard
   , viewBoardContainer
@@ -196,6 +198,79 @@ renderLastMove gs _n = case gsLastAction gs of
         ]
     | sq <- [f, t]
     ]
+
+-- ---------------------------------------------------------------------------
+-- Capture poofs (Wind Waker style)
+-- ---------------------------------------------------------------------------
+
+-- | Render animated capture poof effects at the given coordinates.
+-- Each poof is a cel-shaded smoke cloud with sparkle accents,
+-- tinted to match the captured piece's color.
+renderCapturePoofs :: [(Coords, Piece)] -> [View model action]
+renderCapturePoofs = map renderPoof
+
+renderPoof :: (Coords, Piece) -> View model action
+renderPoof (Coords r c, piece) =
+  let cx = c * sqSize + sqSize `div` 2
+      cy = r * sqSize + sqSize `div` 2
+      tint = poofTint piece
+  in SVG.g_ [ style_ [("pointer-events", "none")] ]
+    [ -- Center flash
+      SVG.circle_
+        [ SP.cx_ (ms cx), SP.cy_ (ms cy), SP.r_ "10"
+        , SP.fill_ tint, SP.stroke_ "none"
+        , style_ [ ("animation", "poof-flash 250ms ease-out both")
+                 , ("transform-box", "fill-box"), ("transform-origin", "center") ]
+        ]
+    -- Cloud puffs (4 diagonal directions)
+    , poofCloud cx cy 12 tint "poof-cloud-tl 400ms ease-out both"
+    , poofCloud cx cy 14 tint "poof-cloud-tr 400ms ease-out 30ms both"
+    , poofCloud cx cy 11 tint "poof-cloud-bl 400ms ease-out 60ms both"
+    , poofCloud cx cy 13 tint "poof-cloud-br 400ms ease-out 40ms both"
+    -- Star sparkles (4 cardinal directions)
+    , poofSparkle cx cy 6 2 "poof-sparkle-t 300ms ease-out both"
+    , poofSparkle cx cy 6 2 "poof-sparkle-r 300ms ease-out 50ms both"
+    , poofSparkle cx cy 6 2 "poof-sparkle-b 300ms ease-out 80ms both"
+    , poofSparkle cx cy 6 2 "poof-sparkle-l 300ms ease-out 30ms both"
+    ]
+
+poofCloud :: Int -> Int -> Int -> MisoString -> MisoString -> View model action
+poofCloud cx cy radius fill anim =
+  SVG.circle_
+    [ SP.cx_ (ms cx), SP.cy_ (ms cy), SP.r_ (ms radius)
+    , SP.fill_ fill
+    , SP.stroke_ "var(--border)", SP.strokeWidth_ "2.5"
+    , style_ [ ("animation", anim)
+             , ("transform-box", "fill-box"), ("transform-origin", "center") ]
+    ]
+
+poofSparkle :: Int -> Int -> Int -> Int -> MisoString -> View model action
+poofSparkle cx cy outer inner anim =
+  SVG.path_
+    [ SP.d_ (starPath cx cy outer inner)
+    , SP.fill_ "white"
+    , SP.stroke_ "var(--border)", SP.strokeWidth_ "1"
+    , style_ [ ("animation", anim)
+             , ("transform-box", "fill-box"), ("transform-origin", "center") ]
+    ]
+
+starPath :: Int -> Int -> Int -> Int -> MisoString
+starPath cx cy outer inner =
+  "M " <> ms cx <> " " <> ms (cy - outer) <>
+  " L " <> ms (cx + inner) <> " " <> ms (cy - inner) <>
+  " L " <> ms (cx + outer) <> " " <> ms cy <>
+  " L " <> ms (cx + inner) <> " " <> ms (cy + inner) <>
+  " L " <> ms cx <> " " <> ms (cy + outer) <>
+  " L " <> ms (cx - inner) <> " " <> ms (cy + inner) <>
+  " L " <> ms (cx - outer) <> " " <> ms cy <>
+  " L " <> ms (cx - inner) <> " " <> ms (cy - inner) <>
+  " Z"
+
+poofTint :: Piece -> MisoString
+poofTint Attacker = "color-mix(in oklch, var(--piece-attacker) 30%, white)"
+poofTint Defender = "color-mix(in oklch, var(--piece-defender) 30%, white)"
+poofTint King     = "color-mix(in oklch, var(--piece-king) 30%, white)"
+poofTint _        = "white"
 
 -- ---------------------------------------------------------------------------
 -- Composite views

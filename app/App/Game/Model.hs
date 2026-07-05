@@ -13,7 +13,7 @@ import Miso.DSL (JSVal)
 import Supabase.Miso.Auth (Session)
 import Supabase.Miso.Realtime (Channel)
 
-import Tafl.Board (Coords, Side(..), MoveAction)
+import Tafl.Board (Coords, Side(..), MoveAction, Piece(..))
 import Tafl.Rules (BoardVariant(..))
 import Tafl.Game (initialState)
 import Tafl.Game.State (GameState)
@@ -67,6 +67,7 @@ data GameModel = GameModel
   , gmFullHistory  :: Maybe [GameState]
   , gmFullMoveList :: Maybe [MoveAction]
   , gmAnimateMove  :: Maybe MoveAction
+  , gmCapturePoofs :: [(Coords, Piece)]
   , gmGameId       :: Maybe MisoString
   , gmVariant      :: !BoardVariant
   , gmGameMode     :: !GameMode
@@ -137,6 +138,7 @@ initialGameModel = GameModel
   , gmFullHistory  = Nothing
   , gmFullMoveList = Nothing
   , gmAnimateMove  = Nothing
+  , gmCapturePoofs = []
   , gmGameId       = Nothing
   , gmVariant      = Tablut
   , gmGameMode     = AiMode

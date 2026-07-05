@@ -12,7 +12,7 @@ import qualified Miso.Svg.Property as SP
 import Tafl.Board
 import Tafl.Game.State (GameState(..))
 
-import App.Board (sqSize, viewBasicSVGBoard, viewBoardContainer, viewEvalBar, renderPiece, svgDefs, renderSquareBg, renderSpecialSquares)
+import App.Board (sqSize, viewBasicSVGBoard, viewBoardContainer, viewEvalBar, renderPiece, renderCapturePoofs, svgDefs, renderSquareBg, renderSpecialSquares)
 import App.Tutorial.Model
 import App.Tutorial.Action
 import App.Tutorial.Lessons
@@ -310,6 +310,8 @@ viewTutorialBoard gs step m =
        ]
     -- Valid move dots
     ++ map renderValidDot validDots
+    -- Capture poofs
+    ++ renderCapturePoofs (tmCapturePoofs m)
     -- Click targets (invisible rects for the whole board)
     ++ [ SVG.rect_
           [ SP.x_ (ms (c * sqSize))

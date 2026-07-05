@@ -6560,3 +6560,58 @@ code.hljs {
 .tutorial-glow {
   animation: tutorial-glow-anim 2s ease-in-out infinite;
 }
+
+/* Capture poof animations (Wind Waker cel-shaded style) */
+@keyframes poof-flash {
+  0% { transform: scale(0); opacity: 0.9; }
+  40% { transform: scale(1.8); opacity: 0.4; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+@keyframes poof-cloud-tl {
+  0% { transform: translate(0, 0) scale(0); opacity: 1; }
+  60% { transform: translate(-10px, -10px) scale(1.1); opacity: 0.6; }
+  100% { transform: translate(-16px, -16px) scale(1.3); opacity: 0; }
+}
+
+@keyframes poof-cloud-tr {
+  0% { transform: translate(0, 0) scale(0); opacity: 1; }
+  60% { transform: translate(10px, -10px) scale(1.1); opacity: 0.6; }
+  100% { transform: translate(16px, -16px) scale(1.3); opacity: 0; }
+}
+
+@keyframes poof-cloud-bl {
+  0% { transform: translate(0, 0) scale(0); opacity: 1; }
+  60% { transform: translate(-10px, 10px) scale(1.1); opacity: 0.6; }
+  100% { transform: translate(-16px, 16px) scale(1.3); opacity: 0; }
+}
+
+@keyframes poof-cloud-br {
+  0% { transform: translate(0, 0) scale(0); opacity: 1; }
+  60% { transform: translate(10px, 10px) scale(1.1); opacity: 0.6; }
+  100% { transform: translate(16px, 16px) scale(1.3); opacity: 0; }
+}
+
+@keyframes poof-sparkle-t {
+  0% { transform: translate(0, 0) scale(0); opacity: 1; }
+  50% { transform: translate(0, -20px) scale(1); opacity: 0.9; }
+  100% { transform: translate(0, -25px) scale(0); opacity: 0; }
+}
+
+@keyframes poof-sparkle-r {
+  0% { transform: translate(0, 0) scale(0); opacity: 1; }
+  50% { transform: translate(20px, 0) scale(1); opacity: 0.9; }
+  100% { transform: translate(25px, 0) scale(0); opacity: 0; }
+}
+
+@keyframes poof-sparkle-b {
+  0% { transform: translate(0, 0) scale(0); opacity: 1; }
+  50% { transform: translate(0, 20px) scale(1); opacity: 0.9; }
+  100% { transform: translate(0, 25px) scale(0); opacity: 0; }
+}
+
+@keyframes poof-sparkle-l {
+  0% { transform: translate(0, 0) scale(0); opacity: 1; }
+  50% { transform: translate(-20px, 0) scale(1); opacity: 0.9; }
+  100% { transform: translate(-25px, 0) scale(0); opacity: 0; }
+}

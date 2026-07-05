@@ -16,4 +16,5 @@ data TutorialAction
   | TSelectLesson MisoString
   | TBackToLessons
   | TDismissCongrats
+  | TPoofsDone
   | TLoadProgress [MisoString]

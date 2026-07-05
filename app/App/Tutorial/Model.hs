@@ -7,7 +7,7 @@ module App.Tutorial.Model
 
 import Miso.String (MisoString)
 
-import Tafl.Board (Coords, MoveAction)
+import Tafl.Board (Coords, MoveAction, Piece(..))
 import Tafl.Rules (BoardVariant(..))
 import Tafl.Game (initialState)
 import Tafl.Game.State (GameState)
@@ -25,6 +25,7 @@ data TutorialModel = TutorialModel
   , tmSelected         :: Maybe Coords
   , tmValidMoves       :: [Coords]
   , tmAnimateMove      :: Maybe MoveAction
+  , tmCapturePoofs     :: [(Coords, Piece)]
   , tmEvalScore        :: Int
   , tmShowCongrats     :: Bool
   , tmStepComplete     :: Bool
@@ -44,6 +45,7 @@ instance Eq TutorialModel where
     && tmSelected a == tmSelected b
     && tmValidMoves a == tmValidMoves b
     && tmAnimateMove a == tmAnimateMove b
+    && tmCapturePoofs a == tmCapturePoofs b
     && tmEvalScore a == tmEvalScore b
     && tmShowCongrats a == tmShowCongrats b
     && tmStepComplete a == tmStepComplete b
@@ -61,6 +63,7 @@ initialTutorialModel = TutorialModel
   , tmSelected         = Nothing
   , tmValidMoves       = []
   , tmAnimateMove      = Nothing
+  , tmCapturePoofs     = []
   , tmEvalScore        = 0
   , tmShowCongrats     = False
   , tmStepComplete     = False
