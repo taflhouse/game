@@ -56,11 +56,6 @@ viewLounge m =
                     [ text "Learn to Play" ]
                 ]
             ]
-          ++ [ H.p_
-                 [ HP.class_ "text-muted-foreground text-sm italic mt-4" ]
-                 [ text "\x201CThey played tafl in the meadow and were merry\x201D" ]
-             | not (mLoungeLoading m) && not hasContent
-             ]
           )
       ]
     ++ (if mLoungeLoading m then []
