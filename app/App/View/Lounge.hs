@@ -30,52 +30,57 @@ viewLounge m =
     ]
     ( [ H.div_
           [ HP.class_ "flex flex-col items-center mb-6 w-full max-w-md mx-auto" ]
-          [ H.button_
-              [ HP.class_ "btn-lg w-full"
-              , style_ [("touch-action", "manipulation")]
-              , SVG.onClick GotoConfig
-              ]
-              [ text "New Game" ]
-          , viewOrDivider
-          , H.div_
-              [ HP.class_ "flex items-center justify-center gap-4" ]
-              [ H.span_
-                  [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
-                  , style_ [("touch-action", "manipulation")]
-                  , SVG.onClick GotoJoin
-                  ]
-                  [ text "Join by Code" ]
-              , H.span_
-                  [ HP.class_ "text-xs text-muted-foreground" ]
-                  [ text "\xB7" ]
-              , H.span_
-                  [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
-                  , style_ [("touch-action", "manipulation")]
-                  , SVG.onClick GotoLearn
-                  ]
-                  [ text "Learn to Play" ]
-              ]
-          ]
-      ]
-    ++ (if mLoungeLoading m && null allGames
-        then [ H.div_
-                 [ HP.class_ "text-sm text-muted-foreground animate-pulse text-center py-8" ]
-                 [ text "Loading..." ]
+          ( [ H.button_
+                [ HP.class_ "btn-lg w-full"
+                , style_ [("touch-action", "manipulation")]
+                , SVG.onClick GotoConfig
+                ]
+                [ text "New Game" ]
+            , viewOrDivider
+            , H.div_
+                [ HP.class_ "flex items-center justify-center gap-4" ]
+                [ H.span_
+                    [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+                    , style_ [("touch-action", "manipulation")]
+                    , SVG.onClick GotoJoin
+                    ]
+                    [ text "Join by Code" ]
+                , H.span_
+                    [ HP.class_ "text-xs text-muted-foreground" ]
+                    [ text "\xB7" ]
+                , H.span_
+                    [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+                    , style_ [("touch-action", "manipulation")]
+                    , SVG.onClick GotoLearn
+                    ]
+                    [ text "Learn to Play" ]
+                ]
+            ]
+          ++ [ H.p_
+                 [ HP.class_ "text-muted-foreground text-sm italic mt-4" ]
+                 [ text "\x201CThey played tafl in the meadow and were merry\x201D" ]
+             | not (mLoungeLoading m) && not hasContent
              ]
-        else if null allGames
-          then []
-          else [ viewFilterPills (mLoungeFilter m) allGames ]
-            ++ [ viewGameSection "LIVE GAMES" filteredLive viewLiveCard | not (null filteredLive) ]
-            ++ [ viewGameSection "OPEN GAMES" filteredOpen (viewOpenCard m) | not (null filteredOpen) ]
-       )
-    ++ [ viewRankings (mRankings m) | not (null (mRankings m)) ]
-    ++ [ H.div_
-           [ HP.class_ ("text-center" <> if null allGames && null (mRankings m) && not (mLoungeLoading m) then " mt-4" else " mt-8") ]
-           [ H.p_
-               [ HP.class_ "text-muted-foreground text-sm italic" ]
-               [ text "\x201CThey played tafl in the meadow and were merry\x201D" ]
+          )
+      ]
+    ++ (if mLoungeLoading m then []
+        else
+          (if null allGames
+             then []
+             else [ viewFilterPills (mLoungeFilter m) allGames ]
+               ++ [ viewGameSection "LIVE GAMES" filteredLive viewLiveCard | not (null filteredLive) ]
+               ++ [ viewGameSection "OPEN GAMES" filteredOpen (viewOpenCard m) | not (null filteredOpen) ]
+          )
+        ++ [ viewRankings (mRankings m) | not (null (mRankings m)) ]
+        ++ [ H.div_
+               [ HP.class_ "text-center mt-8" ]
+               [ H.p_
+                   [ HP.class_ "text-muted-foreground text-sm italic" ]
+                   [ text "\x201CThey played tafl in the meadow and were merry\x201D" ]
+               ]
+           | hasContent
            ]
-       ]
+       )
     )
   where
     mUid = fmap (userId . sessionUser) (mSession m)
@@ -89,6 +94,7 @@ viewLounge m =
       Just v  -> grwVariant gr == v
     filteredOpen = filter variantMatch openGames
     filteredLive = filter variantMatch liveGames
+    hasContent   = not (null allGames) || not (null (mRankings m))
 
 -- | Check if a game row belongs to the current user.
 isOwnGame :: Maybe MisoString -> GameRow -> Bool

@@ -143,6 +143,9 @@ updateModel loungeChannelRef = \case
           , mGameInitData = Nothing
           , mLoungeLoading = True
           , mLoungeFilter = Nothing
+          , mLoungeOpen = []
+          , mLoungeLive = []
+          , mRankings = []
           }
         loadLoungeGames
         loadRankings
