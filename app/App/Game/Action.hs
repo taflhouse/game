@@ -47,6 +47,7 @@ data GameAction
   | GDismissZenHint
   | GToggleFullscreen
   -- Persistence
+  | GInsertGame Value
   | GGameSaved Value
   | GGameSaveError MisoString
   | GGameCreated Value

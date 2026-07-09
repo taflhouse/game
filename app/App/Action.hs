@@ -9,7 +9,7 @@ import Supabase.Miso.Realtime (Channel)
 import Tafl.Board (Side)
 import Tafl.Rules (BoardVariant)
 
-import App.Model (GameMode, TimeControl)
+import App.Model (GameMode, TimeControl, InviteExpiry)
 import App.JSON (GameRecord, GameRow)
 
 data Action
@@ -91,6 +91,7 @@ data Action
   | SetSidePreference MisoString
   | SetTimeControl TimeControl
   | SetRated Bool
+  | SetInviteExpiry InviteExpiry
   | JoinRatedAsGuest
   | JoinRatedWithSignIn
   -- Matchmaking

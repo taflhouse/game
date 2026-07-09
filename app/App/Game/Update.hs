@@ -27,7 +27,7 @@ import Tafl.Game.Move (getPossibleMovesFrom)
 import Tafl.AI (AiConfig(..), bestMove, evaluate)
 
 import App.JSON (GameRow(..), Profile(..), ChatMessage(..), parseChatMessage)
-import App.Model (Model, GameMode(..), TimeControl(..), ViewMode(..), GameInitData(..))
+import App.Model (Model, GameMode(..), TimeControl(..), ViewMode(..), GameInitData(..), InviteExpiry(..), expirySeconds)
 import App.Game.Model
 import App.Game.Action
 import App.Route (replayMoves, lookupVariant, playURI, configureURI)
@@ -88,7 +88,7 @@ updateGame GameRefs{..} = \case
           Nothing -> pure ()
         triggerAi grChannelRef grClockRef
 
-      NewMultiplayerGame variant tc sidePref invCode uuid qrUrl isRated isMatchmaking creatorRating creatorRd -> do
+      NewMultiplayerGame variant tc sidePref invCode uuid qrUrl isRated isMatchmaking creatorRating creatorRd inviteExpiry -> do
         let gs = initialState variant
             mySide = case sidePref of
               "attacker" -> AttackerSide
@@ -123,7 +123,7 @@ updateGame GameRefs{..} = \case
                        , "creator_rd"      .= creatorRd
                        ]
                   else []
-                gameData = object $
+                mkGameData expiresAtStr = object $
                   [ "id"            .= uuid
                   , "user_id"       .= uid
                   , "variant"       .= variantSlug variant
@@ -139,6 +139,7 @@ updateGame GameRefs{..} = \case
                   , "defender_id"   .= defId
                   , "defender_name" .= defName
                   , "is_rated"      .= isRated
+                  , "expires_at"    .= expiresAtStr
                   ] ++ tcFields ++ matchmakingFields
             put $ initialGameModel
               { gmGameId = Just uuid
@@ -156,7 +157,10 @@ updateGame GameRefs{..} = \case
               , gmAttackerName = if mySide == AttackerSide then Just displayName else Nothing
               , gmDefenderName = if mySide == DefenderSide then Just displayName else Nothing
               }
-            insert "games" gameData (InsertOptions Nothing Nothing) GGameCreated GGameCreateError
+            withSink $ \sink -> do
+              nowStr <- js_nowISO
+              expiresAtStr <- js_addSecondsISO nowStr (expirySeconds inviteExpiry)
+              sink (GInsertGame (mkGameData expiresAtStr))
             subscribeToTableWithPresence ("game:" <> uuid) "games" ("id=eq." <> uuid)
               GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
             subscribeToTable ("chat:" <> uuid) "game_chat" ("game_id=eq." <> uuid)
@@ -1461,6 +1465,9 @@ updateGame GameRefs{..} = \case
     startMatchmakingTimer grChannelRef
 
   -- Persistence ------------------------------------------------------------
+
+  GInsertGame gameData ->
+    insert "games" gameData (InsertOptions Nothing Nothing) GGameCreated GGameCreateError
 
   GGameSaved _ ->
     mailParent $ object ["type" .= ("game_finished" :: MisoString)]

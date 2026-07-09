@@ -15,7 +15,7 @@ import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
 
 import App.JSON (Profile(..))
 import App.Model
-import App.Action
+import App.Action (Action(..))
 
 -- ---------------------------------------------------------------------------
 -- Config Screen
@@ -278,6 +278,12 @@ viewSetupMultiplayer m =
             , setupBtn (SetTimeControl (DailyControl 259200)) "3 days" (mTimeControl m == DailyControl 259200)
             ]
         NoTimeControl -> text ""
+    , setupSection "Invite Expiry"
+        [ setupBtn (SetInviteExpiry Expiry10Min) "10 min" (mInviteExpiry m == Expiry10Min)
+        , setupBtn (SetInviteExpiry Expiry1Hour) "1 hour" (mInviteExpiry m == Expiry1Hour)
+        , setupBtn (SetInviteExpiry Expiry1Day) "1 day" (mInviteExpiry m == Expiry1Day)
+        , setupBtn (SetInviteExpiry Expiry1Week) "1 week" (mInviteExpiry m == Expiry1Week)
+        ]
     ] ++ [ H.form_
              [ H.onSubmit FindMatch ]
              [ setupSection "Your Name"

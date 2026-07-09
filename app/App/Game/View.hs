@@ -125,6 +125,12 @@ viewGame props gm
                         , style_ [("touch-action", "manipulation")]
                         , SVG.onClick (GCopyInviteCode code)]
                         [text "Copy Link"]
+                    , H.button_
+                        [ HP.class_ "text-sm text-muted-foreground hover:text-foreground bg-transparent border-0 cursor-pointer"
+                        , style_ [("touch-action", "manipulation")]
+                        , SVG.onClick GCancelMatchmaking
+                        ]
+                        [ text "Cancel" ]
                     ])
                  ]
                Nothing -> []

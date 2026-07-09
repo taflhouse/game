@@ -585,7 +585,7 @@ updateModel loungeChannelRef = \case
     modify $ \x -> x
       { mGameInitData = Just (NewMultiplayerGame (mVariant m) (mTimeControl m)
                                (mSidePreference m) invCode uuid qrUrl rated
-                               False Nothing Nothing)
+                               False Nothing Nothing (mInviteExpiry m))
       , mScreen = GameScreen
       }
 
@@ -699,6 +699,9 @@ updateModel loungeChannelRef = \case
   SetRated b ->
     modify $ \m -> m { mIsRated = b }
 
+  SetInviteExpiry e ->
+    modify $ \m -> m { mInviteExpiry = e }
+
   JoinRatedWithSignIn -> do
     modify $ \x -> x { mDeferredMpAction = Just DeferJoin }
     io_ $ pushURI signInURI
@@ -747,7 +750,7 @@ updateModel loungeChannelRef = \case
     modify $ \x -> x
       { mGameInitData = Just (NewMultiplayerGame (mVariant m) (mTimeControl m)
                                resolvedPref invCode uuid qrUrl rated
-                               True creatorR creatorRd')
+                               True creatorR creatorRd' Expiry10Min)
       , mScreen = GameScreen
       }
 
@@ -1019,7 +1022,7 @@ isParticipant (Just sess) gr =
 -- | Extract the UUID from any GameInitData variant.
 gameInitUuid :: GameInitData -> MisoString
 gameInitUuid (NewLocalGame uuid _ _ _ _ _)                  = uuid
-gameInitUuid (NewMultiplayerGame _ _ _ _ uuid _ _ _ _ _)    = uuid
+gameInitUuid (NewMultiplayerGame _ _ _ _ uuid _ _ _ _ _ _)  = uuid
 gameInitUuid (JoinGame gr)                                  = grwId gr
 gameInitUuid (ResumeGame gr)                                = grwId gr
 

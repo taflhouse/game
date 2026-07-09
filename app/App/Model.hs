@@ -4,6 +4,8 @@ module App.Model
   , gameModeSlug
   , slugToGameMode
   , TimeControl(..)
+  , InviteExpiry(..)
+  , expirySeconds
   , Screen(..)
   , ViewMode(..)
   , DeferredMpAction(..)
@@ -57,6 +59,19 @@ data TimeControl
   | DailyControl !Int    -- seconds per move
   deriving (Eq, Show)
 
+data InviteExpiry
+  = Expiry10Min
+  | Expiry1Hour
+  | Expiry1Day
+  | Expiry1Week
+  deriving (Eq, Show)
+
+expirySeconds :: InviteExpiry -> Int
+expirySeconds Expiry10Min = 600
+expirySeconds Expiry1Hour = 3600
+expirySeconds Expiry1Day  = 86400
+expirySeconds Expiry1Week = 604800
+
 data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | ConfigureScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen | LoadingScreen | LoungeScreen | YourGamesScreen | PlayerScreen | LearnScreen
   deriving (Eq, Show)
 
@@ -99,8 +114,8 @@ authLoading = lens _authLoading $ \r f -> r { _authLoading = f }
 data GameInitData
   = NewLocalGame !MisoString !BoardVariant !GameMode !Side !Int !Int
     -- ^ uuid variant mode aiSide aiDepth aiNodeLimit
-  | NewMultiplayerGame !BoardVariant !TimeControl !MisoString !MisoString !MisoString !MisoString !Bool !Bool !(Maybe Double) !(Maybe Double)
-    -- ^ variant timeControl sidePreference invCode uuid qrDataUrl isRated isMatchmaking creatorRating creatorRd
+  | NewMultiplayerGame !BoardVariant !TimeControl !MisoString !MisoString !MisoString !MisoString !Bool !Bool !(Maybe Double) !(Maybe Double) !InviteExpiry
+    -- ^ variant timeControl sidePreference invCode uuid qrDataUrl isRated isMatchmaking creatorRating creatorRd inviteExpiry
   | JoinGame !GameRow
     -- ^ joining via invite code (player not yet in the row)
   | ResumeGame !GameRow
@@ -143,6 +158,7 @@ data Model = Model
   , mIsRated          :: !Bool
   , mSidePreference   :: !MisoString
   , mTimeControl      :: !TimeControl
+  , mInviteExpiry     :: !InviteExpiry
   , mJoinCodeInput    :: !MisoString
   , mJoinNameInput    :: !MisoString
   , mGuestName        :: Maybe MisoString
@@ -200,7 +216,7 @@ instance Eq Model where
     && mLocalGames a == mLocalGames b
     && mShowQuoteRef a == mShowQuoteRef b && mQuoteRefGen a == mQuoteRefGen b
     && mIsRated a == mIsRated b && mSidePreference a == mSidePreference b
-    && mTimeControl a == mTimeControl b
+    && mTimeControl a == mTimeControl b && mInviteExpiry a == mInviteExpiry b
     && mJoinCodeInput a == mJoinCodeInput b && mJoinNameInput a == mJoinNameInput b
     && mGuestName a == mGuestName b
     && mDeferredMpAction a == mDeferredMpAction b
@@ -260,6 +276,7 @@ initModel = Model
   , mIsRated          = True
   , mSidePreference   = "either"
   , mTimeControl      = NoTimeControl
+  , mInviteExpiry     = Expiry10Min
   , mJoinCodeInput    = ""
   , mJoinNameInput    = ""
   , mGuestName        = Nothing
