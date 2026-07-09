@@ -268,6 +268,8 @@ updateGame GameRefs{..} = \case
               , gmEvalScore = evaluate gs
               , gmInviteCode = grwInviteCode gr
               }
+            when (grwStatus gr == "cancelled") $
+              io_ $ pushURI (configureURI "multiplayer")
             case grwInviteCode gr of
               Just code | grwStatus gr == "waiting" ->
                 withSink $ \sink -> do
@@ -304,6 +306,8 @@ updateGame GameRefs{..} = \case
               , gmEvalScore = evaluate gs
               , gmInviteCode = grwInviteCode gr
               }
+            when (grwStatus gr == "cancelled") $
+              io_ $ pushURI (configureURI "multiplayer")
             case grwInviteCode gr of
               Just code | grwStatus gr == "waiting" ->
                 withSink $ \sink -> do
@@ -560,6 +564,14 @@ updateGame GameRefs{..} = \case
             BlitzControl _ -> startBlitzClock grChannelRef grClockRef
             DailyControl _ -> startDailyClock grClockRef
             _ -> pure ()
+
+        -- Auto-cancelled by cron or externally
+        when (grwStatus gr == "cancelled" && isNothing (gmOpponentName gm)) $ do
+          case gmMatchmakingTimerId gm of
+            Just tid -> io_ $ js_clearInterval tid
+            Nothing  -> pure ()
+          modify $ \x -> x { gmMatchmakingTimerId = Nothing, gmIsMatchmaking = False }
+          io_ $ pushURI (configureURI "multiplayer")
 
         when (length remoteMoves > length localMoves) $ do
           let gs0 = initialState variant
@@ -1476,7 +1488,8 @@ updateGame GameRefs{..} = \case
 
   GGameCreated _ -> pure ()
 
-  GGameCreateError _ -> pure ()
+  GGameCreateError msg ->
+    mailParent $ object ["type" .= ("toast" :: MisoString), "msg" .= ("Game creation failed: " <> msg)]
 
   -- Rating
   GRatingUpdated _ ->

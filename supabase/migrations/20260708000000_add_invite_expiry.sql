@@ -25,4 +25,4 @@ END $$;
 DELETE FROM games
 WHERE total_moves = 0
   AND status IN ('waiting', 'cancelled')
-  AND created_at <= '2026-07-09T23:59:59Z';
+  AND played_at <= '2026-07-09T23:59:59Z';

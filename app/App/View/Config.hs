@@ -78,7 +78,7 @@ viewConfigure m =
             (if mGameMode m == MultiplayerMode
                 then let nameNeeded = case mProfile m of
                            Just p | pUsername p /= "" -> False
-                           _ -> mGuestName m == Nothing
+                           _ -> True
                          disabled' = nameNeeded && mJoinNameInput m == ""
                      in [ H.button_
                             ([ HP.class_ "btn w-full bg-green-600 hover:bg-green-700 text-white border-green-500 font-bold"
@@ -235,9 +235,7 @@ viewSetupMultiplayer :: Model -> View Model Action
 viewSetupMultiplayer m =
   let needsName = case mProfile m of
         Just p | pUsername p /= "" -> False
-        _ -> case mSession m of
-          Nothing -> True                       -- no session yet
-          Just _  -> mGuestName m /= Nothing    -- anonymous user
+        _ -> True
       isAnon = case mSession m of
         Just sess -> amProvider (userAppMetadata (sessionUser sess)) == "anonymous"
         Nothing   -> True
