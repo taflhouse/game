@@ -11,6 +11,7 @@ import Data.IORef (IORef, readIORef, writeIORef)
 import Data.List (sortOn)
 import Data.Maybe (fromMaybe)
 import Miso hiding ((!!))
+import Miso.DSL (fromJSValUnchecked, asyncCallback, asyncCallback1, Function(..))
 import Miso.String (MisoString, ms, fromMisoString)
 import Miso.JSON (Value, FromJSON(..), ToJSON(..), fromJSON, Result(..), object, (.=), (.:), parseMaybe, withObject)
 import Miso.Lens (assign, use)
@@ -325,7 +326,9 @@ updateModel loungeChannelRef = \case
             gName = guestNameFromId uid
         modify $ \m -> m { mSession = Just sess
                          , mGuestName = Just (if mJoinNameInput m /= ""
-                                              then mJoinNameInput m else gName) }
+                                              then mJoinNameInput m else gName)
+                         , mJoinNameInput = if mJoinNameInput m /= ""
+                                              then mJoinNameInput m else gName }
         m <- get
         case mDeferredMpAction m of
           Just DeferCreate         -> withSink $ \sink -> sink CreateMultiplayerGame
@@ -403,7 +406,10 @@ updateModel loungeChannelRef = \case
       Just sess
         | amProvider (userAppMetadata (sessionUser sess)) == "anonymous" -> do
             let uid = userId (sessionUser sess)
-            modify $ \m' -> m' { mGuestName = Just (guestNameFromId uid) }
+                gName = guestNameFromId uid
+            modify $ \m' -> m' { mGuestName = Just gName
+                               , mJoinNameInput = if mJoinNameInput m' == ""
+                                                    then gName else mJoinNameInput m' }
             m' <- get
             when (mScreen m' == JoinScreen && mJoinCodeInput m' /= "") $
               withSink $ \sink -> sink JoinMultiplayerGame
@@ -425,6 +431,15 @@ updateModel loungeChannelRef = \case
           when (timedVal /= "") $ sink (SetMatchWantTimed timedVal)
           when (sideVal  /= "") $ sink (SetMatchWantSide sideVal)
           sink ConfirmMatchFilters
+    -- Check push notification status
+    withSink $ \sink -> do
+      permState <- js_getNotificationPermissionState
+      brave     <- js_isBraveBrowser
+      firefox   <- js_isFirefoxBrowser
+      safari    <- js_isSafariBrowser
+      edge      <- js_isEdgeBrowser
+      macOS     <- js_isMacOS
+      sink (InitPushStatus permState brave firefox safari edge macOS)
 
   -- Games / migration ----------------------------------------------------
 
@@ -983,6 +998,71 @@ updateModel loungeChannelRef = \case
     modify $ \m -> m { mIsFullscreen = not (mIsFullscreen m) }
 
   Undo -> pure ()  -- game component handles undo internally
+
+  -- Push notifications (app-level) ----------------------------------------
+
+  InitPushStatus permState brave firefox safari edge macOS ->
+    modify $ \m -> m { mPushStatus = permState, mIsBrave = brave, mIsFirefox = firefox, mIsSafari = safari, mIsEdge = edge, mIsMacOS = macOS }
+
+  ShowPushBraveHelp ->
+    modify $ \m -> m { mPushBraveHelp = True }
+
+  BackFromPushBraveHelp ->
+    modify $ \m -> m { mPushBraveHelp = False }
+
+  TogglePushPopover ->
+    modify $ \m -> m { mPushPopover = not (mPushPopover m) }
+
+  DismissPushPopover ->
+    modify $ \m -> m { mPushPopover = False, mPushBraveHelp = False }
+
+  EnablePushNotifications -> do
+    modify $ \m -> m { mPushPopover = False }
+    withSink $ \sink -> do
+      permOk  <- Function <$> asyncCallback1 (\_ -> sink (PushPermissionResult "granted"))
+      permErr <- Function <$> asyncCallback1 (\errVal -> do
+        errStr <- fromJSValUnchecked errVal
+        sink (PushPermissionResult errStr))
+      js_requestNotificationPermission permOk permErr
+
+  PushPermissionResult result
+    | result == "granted" -> do
+        modify $ \m -> m { mPushStatus = "granted" }
+        -- Now subscribe and save the push subscription
+        withSink $ \sink -> do
+          subOk  <- Function <$> asyncCallback1 (\subVal -> do
+            subStr <- fromJSValUnchecked subVal
+            sink (PushSubscriptionReady subStr))
+          subErr <- Function <$> asyncCallback1 (\errVal -> do
+            errStr <- fromJSValUnchecked errVal
+            sink (PushSubscriptionError errStr))
+          js_subscribeToPush subOk subErr
+    | result == "denied" -> do
+        modify $ \m -> m { mPushStatus = "denied" }
+        updateModel loungeChannelRef (ShowToast "Notifications blocked by browser")
+    | otherwise ->
+        modify $ \m -> m { mPushStatus = "denied" }
+
+  PushSubscriptionReady subJson -> do
+    m <- get
+    case mSession m of
+      Just sess -> do
+        let uid = userId (sessionUser sess)
+        withSink $ \sink -> do
+          saveOk  <- Function <$> asyncCallback (sink PushSubscriptionSaved)
+          saveErr <- Function <$> asyncCallback1 (\errVal -> do
+            errStr <- fromJSValUnchecked errVal
+            sink (PushSubscriptionError errStr))
+          js_savePushSubscription subJson uid saveOk saveErr
+      Nothing -> pure ()
+
+  PushSubscriptionSaved ->
+    updateModel loungeChannelRef (ShowToast "Notifications enabled")
+
+  PushSubscriptionError errMsg
+    | errMsg == "brave_push_blocked" ->
+        modify $ \m -> m { mPushPopover = True, mPushBraveHelp = True }
+    | otherwise -> pure ()
 
   -- Game component mailbox -----------------------------------------------
 

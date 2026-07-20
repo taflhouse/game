@@ -111,5 +111,12 @@ data GameAction
   | GMatchmakingCancelError MisoString
   | GAcceptAiFallback
   | GKeepSearching
+  -- Push notifications
+  | GPushPermissionGranted
+  | GPushPermissionDenied MisoString
+  | GPushSubscribed MisoString
+  | GPushSubscribeError MisoString
+  | GPushSaved
+  | GPushSaveError MisoString
   -- Internal
   | GNoOp

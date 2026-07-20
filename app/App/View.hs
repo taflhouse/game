@@ -75,6 +75,7 @@ viewModel gameComp replayComp tutorialComp _ m =
     , viewMatchToast m
     , viewMatchModal m
     , viewReadyPopover m
+    , viewPushPopover m
     ]
 
 -- | Mount the game component when init data is available.
@@ -154,7 +155,7 @@ viewNavbar m =
           H.div_
             [ HP.class_ "flex items-center gap-4"
             ]
-            (viewLfgToggle m : themeToggleBtn : learnLink : navAuthButtons m)
+            (viewLfgToggle m : viewPushBell m : themeToggleBtn : learnLink : navAuthButtons m)
         ]
     ]
 
@@ -167,6 +168,269 @@ learnLink =
     , SVG.onClick GotoLearn
     ]
     [ text "Learn" ]
+
+-- | Bell icon for push notifications — shows current permission state.
+viewPushBell :: Model -> View Model Action
+viewPushBell m =
+  let status = mPushStatus m
+      -- Color: green if granted, muted if default, red-ish if denied/unsupported
+      bellColor = case () of
+        _ | status == "granted"     -> "#22c55e"
+          | status == "denied"      -> "#ef4444"
+          | status == "unsupported" -> "#6b7280"
+          | otherwise               -> "currentColor"  -- "default"
+      titleText = case () of
+        _ | status == "granted"     -> "Notifications enabled"
+          | status == "denied"      -> "Notifications blocked"
+          | status == "unsupported" -> "Notifications not supported"
+          | otherwise               -> "Enable notifications"
+  in if status == "unsupported"
+     then text ""  -- hide bell entirely on unsupported browsers
+     else H.button_
+       [ HP.class_ "p-2 rounded-md cursor-pointer hover:bg-muted"
+       , style_ [ ("touch-action", "manipulation"), ("background", "none"), ("border", "none")
+                , ("display", "inline-flex"), ("align-items", "center"), ("position", "relative") ]
+       , SVG.onClick TogglePushPopover
+       , HP.title_ titleText
+       ]
+       [ SVG.svg_
+           [ SP.viewBox_ "0 0 24 24"
+           , HP.width_ "18"
+           , HP.height_ "18"
+           , SP.fill_ "none"
+           , SP.stroke_ bellColor
+           , SP.strokeWidth_ "2"
+           , SP.strokeLinecap_ "round"
+           , SP.strokeLinejoin_ "round"
+           ]
+           [ SVG.path_ [ SP.d_ "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" ]
+           , SVG.path_ [ SP.d_ "M13.73 21a2 2 0 0 1-3.46 0" ]
+           ]
+       ]
+
+-- | Push notification popover — soft-ask before triggering browser permission.
+viewPushPopover :: Model -> View Model Action
+viewPushPopover m
+  | not (mPushPopover m) = text ""
+  | mPushBraveHelp m     = viewPushPopoverBraveHelp
+  | mPushStatus m == "granted" = viewPushPopoverGranted (mIsBrave m) (mIsFirefox m) (mIsSafari m) (mIsEdge m)
+  | mPushStatus m == "denied"  = viewPushPopoverDenied (mIsBrave m)
+  | otherwise                  = viewPushPopoverAsk (mIsBrave m) (mIsMacOS m)
+
+viewPushPopoverGranted :: Bool -> Bool -> Bool -> Bool -> View Model Action
+viewPushPopoverGranted isBrave isFirefox isSafari isEdge =
+  H.div_ []
+    [ pushPopoverBackdrop
+    , pushPopoverCard
+        [ H.div_ [ HP.class_ "text-sm font-bold mb-2" ]
+            [ text "Notifications are active" ]
+        , H.div_ [ HP.class_ "text-xs text-muted-foreground mb-3" ]
+            [ text (if isSafari
+                then "To turn them off, go to Safari \x2192 Settings \x2192 Websites \x2192 Notifications and set this site to Deny."
+                else let iconName
+                           | isBrave   = "settings icon"
+                           | isFirefox = "settings icon"
+                           | isEdge    = "lock icon"
+                           | otherwise = "info icon"
+                     in "To turn them off, click the " <> iconName <> " in your address bar and set Notifications to Block.") ]
+        , if isBrave
+          then H.div_ [ HP.class_ "text-xs text-muted-foreground mb-3 p-2 rounded bg-muted" ]
+            [ text "Or paste "
+            , H.span_ [ HP.class_ "font-mono select-all" ]
+                [ text "brave://settings/content/notifications" ]
+            , text " in your address bar to manage notification settings."
+            ]
+          else text ""
+        , pushPopoverButtons
+            [ ("Done", DismissPushPopover, True) ]
+        ]
+    ]
+
+viewPushPopoverDenied :: Bool -> View Model Action
+viewPushPopoverDenied isBrave =
+  H.div_ []
+    [ pushPopoverBackdrop
+    , pushPopoverCard
+        [ H.div_ [ HP.class_ "text-sm font-bold mb-2" ]
+            [ text "Notifications blocked" ]
+        , H.div_ [ HP.class_ "text-xs text-muted-foreground mb-3" ]
+            [ if isBrave
+              then H.div_ []
+                [ text "Brave blocks push notifications by default. "
+                , H.span_
+                    [ HP.class_ "underline cursor-pointer hover:text-foreground"
+                    , style_ [("touch-action", "manipulation")]
+                    , SVG.onClick ShowPushBraveHelp
+                    ]
+                    [ text "See how to enable them" ]
+                , text "."
+                ]
+              else text "Your browser has blocked notifications for this site. Click the lock icon in the address bar and allow notifications, then reload the page."
+            ]
+        , pushPopoverButtons
+            [ ("Dismiss", DismissPushPopover, False) ]
+        ]
+    ]
+
+viewPushPopoverAsk :: Bool -> Bool -> View Model Action
+viewPushPopoverAsk isBrave isMacOS =
+  H.div_ []
+    [ pushPopoverBackdrop
+    , pushPopoverCard
+        [ H.div_ [ HP.class_ "text-sm font-bold mb-2" ]
+            [ text "Get move notifications" ]
+        , H.div_ [ HP.class_ "text-xs text-muted-foreground mb-3" ]
+            [ text "Get notified when your opponent moves in a multiplayer game. Works in the background and when the tab is closed." ]
+        , if isBrave
+          then H.div_ [ HP.class_ "text-xs text-muted-foreground mb-3 p-2 rounded bg-muted" ]
+            [ text "Brave users: you likely need to enable push messaging first. "
+            , H.span_
+                [ HP.class_ "underline cursor-pointer hover:text-foreground"
+                , style_ [("touch-action", "manipulation")]
+                , SVG.onClick ShowPushBraveHelp
+                ]
+                [ text "See instructions" ]
+            , text "."
+            ]
+          else text ""
+        , if isMacOS
+          then H.div_ [ HP.class_ "text-xs text-muted-foreground mb-3 p-2 rounded bg-muted" ]
+            [ text "If no prompt appears, check that notifications are allowed for your browser in System Settings \x2192 Notifications." ]
+          else text ""
+        , pushPopoverButtons
+            [ ("Not now", DismissPushPopover, False)
+            , ("Enable", EnablePushNotifications, True)
+            ]
+        ]
+    ]
+
+pushPopoverBackdrop :: View Model Action
+pushPopoverBackdrop =
+  H.div_
+    [ style_ [ ("position", "fixed"), ("inset", "0"), ("z-index", "9998") ]
+    , SVG.onClick DismissPushPopover
+    ] []
+
+pushPopoverCard :: [View Model Action] -> View Model Action
+pushPopoverCard children =
+  H.div_
+    [ HP.class_ "card p-4 shadow-lg"
+    , style_ [ ("position", "fixed"), ("top", "3.5rem"), ("right", "4rem")
+             , ("z-index", "9999"), ("max-width", "20rem")
+             ]
+    ]
+    children
+
+pushPopoverButtons :: [(MisoString, Action, Bool)] -> View Model Action
+pushPopoverButtons btns =
+  H.div_ [ HP.class_ "flex gap-2 justify-end" ]
+    [ btn | (label, action, isPrimary) <- btns
+    , let cls = if isPrimary
+                then "btn btn-sm bg-green-600 hover:bg-green-700 text-white border-green-500"
+                else "btn btn-outline btn-sm text-foreground"
+          btn = H.button_
+                  [ HP.class_ cls
+                  , style_ [("touch-action", "manipulation")]
+                  , SVG.onClick action
+                  ]
+                  [ text label ]
+    ]
+
+-- | Popover content: Brave step-by-step instructions (replaces normal popover).
+viewPushPopoverBraveHelp :: View Model Action
+viewPushPopoverBraveHelp =
+  H.div_ []
+    [ pushPopoverBackdrop
+    , H.div_
+        [ HP.class_ "card p-4 shadow-lg"
+        , style_ [ ("position", "fixed"), ("top", "3.5rem"), ("right", "1rem")
+                 , ("z-index", "9999"), ("max-width", "22rem")
+                 , ("max-height", "calc(100vh - 5rem)"), ("overflow-y", "auto")
+                 ]
+        ]
+        [ H.div_ [ HP.class_ "mb-1" ]
+            [ H.span_
+                [ HP.class_ "text-xs text-muted-foreground hover:text-foreground cursor-pointer"
+                , style_ [("touch-action", "manipulation")]
+                , SVG.onClick BackFromPushBraveHelp
+                ]
+                [ text "\x2190 Back" ]
+            ]
+        , H.div_ [ HP.class_ "text-sm font-bold text-center mb-3" ]
+            [ text "Enable Notifications on Brave" ]
+        , H.p_ [ HP.class_ "text-xs text-muted-foreground mb-4" ]
+            [ text "Brave disables push messaging by default. These steps will get it working." ]
+        , notifHelpStep "1" "Open Brave privacy settings"
+            [ H.p_ [ HP.class_ "mb-2" ] [ text "Paste the following into your address bar:" ]
+            , H.div_ [ HP.class_ "p-2 rounded bg-muted font-mono text-xs select-all" ]
+                [ text "brave://settings/privacy" ]
+            , H.p_ [ HP.class_ "mt-2 text-xs text-muted-foreground" ]
+                [ text "This must be pasted manually. Browsers block links to settings pages." ]
+            ]
+        , notifHelpStep "2" "Enable Google push messaging"
+            [ H.p_ [ HP.class_ "mb-2" ] [ text "Find the toggle labeled:" ]
+            , H.div_ [ HP.class_ "p-2 rounded bg-muted text-xs font-bold" ]
+                [ text "Use Google services for push messaging" ]
+            , H.p_ [ HP.class_ "mt-2 text-xs text-muted-foreground" ]
+                [ text "Turn this on. Brave will restart the push service." ]
+            ]
+        , notifHelpStep "3" "Allow notifications for this site"
+            [ text "Return to this tab and click the "
+            , bellInlineIcon
+            , text " bell icon, then click "
+            , H.span_ [ HP.class_ "font-bold" ] [ text "Enable" ]
+            , text ". Your browser will ask for permission. Click "
+            , H.span_ [ HP.class_ "font-bold" ] [ text "Allow" ]
+            , text "."
+            ]
+        , notifHelpStep "4" "Done"
+            [ text "A green bell icon confirms notifications are active." ]
+        , H.div_ [ HP.class_ "flex justify-end mt-3" ]
+            [ H.button_
+                [ HP.class_ "btn btn-sm bg-green-600 hover:bg-green-700 text-white border-green-500"
+                , style_ [("touch-action", "manipulation")]
+                , SVG.onClick DismissPushPopover
+                ]
+                [ text "Got it" ]
+            ]
+        ]
+    ]
+
+notifHelpStep :: MisoString -> MisoString -> [View Model Action] -> View Model Action
+notifHelpStep num title children =
+  H.div_ [ HP.class_ "mb-4" ]
+    [ H.div_ [ HP.class_ "flex items-start gap-3" ]
+        [ H.div_
+            [ HP.class_ "shrink-0 rounded-full text-xs font-bold"
+            , style_ [ ("width", "22px"), ("height", "22px"), ("line-height", "22px")
+                     , ("text-align", "center"), ("margin-top", "1px")
+                     , ("background-color", "var(--foreground)")
+                     , ("color", "var(--background)") ]
+            ]
+            [ text num ]
+        , H.div_ []
+            [ H.h3_ [ HP.class_ "text-sm font-bold mb-1" ] [ text title ]
+            , H.div_ [ HP.class_ "text-xs text-muted-foreground" ] children
+            ]
+        ]
+    ]
+
+bellInlineIcon :: View Model Action
+bellInlineIcon =
+  SVG.svg_
+    [ SP.viewBox_ "0 0 24 24"
+    , HP.width_ "14"
+    , HP.height_ "14"
+    , SP.fill_ "none"
+    , SP.stroke_ "currentcolor"
+    , SP.strokeWidth_ "2"
+    , SP.strokeLinecap_ "round"
+    , SP.strokeLinejoin_ "round"
+    , style_ [("display", "inline-block"), ("vertical-align", "middle")]
+    ]
+    [ SVG.path_ [ SP.d_ "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" ]
+    , SVG.path_ [ SP.d_ "M13.73 21a2 2 0 0 1-3.46 0" ]
+    ]
 
 -- | "Looking for game" toggle in the navbar — colored circle indicator.
 viewLfgToggle :: Model -> View Model Action

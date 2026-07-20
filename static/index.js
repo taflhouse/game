@@ -2,6 +2,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import qrcode from 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/+esm';
 
 const SUPABASE_KEY = '__SUPABASE_KEY__';
+const VAPID_PUBLIC_KEY = '__VAPID_PUBLIC_KEY__';
 
 const supabase = createClient('__SUPABASE_URL__', SUPABASE_KEY, {
   global: {
@@ -113,9 +114,7 @@ globalThis["runSupabase"] = function (
   successful,
   errorful
 ) {
-  console.log("[runSupabase]", namespace, fnName, args);
   globalThis["supabase"][namespace][fnName](...args).then(({ data, error }) => {
-    console.log("[runSupabase] result", namespace, fnName, { data, error });
     if (error) errorful(error);
     else successful(data);
   }).catch((err) => {
@@ -181,11 +180,8 @@ globalThis.runSupabaseSelect = function (
   const filters = args[0] || [];
   const fetchOptions = args[1] || {};
 
-  console.log("[runSupabaseSelect]", table, columns, "filters:", JSON.stringify(filters), "fetchOptions:", fetchOptions);
-
   // Apply filters
   filters.forEach((filter) => {
-    console.log("[runSupabaseSelect] applying filter:", filter.operator, filter.column, JSON.stringify(filter.value));
     query = query[filter.operator](filter.column, filter.value);
   });
 
@@ -204,7 +200,6 @@ globalThis.runSupabaseSelect = function (
   }
 
   query.then((result) => {
-    console.log("[runSupabaseSelect] result", table, result);
     if (result.error) {
       errorCallback(result.error.message);
     } else {
@@ -254,12 +249,10 @@ globalThis["runSupabaseQuery"] = function (
   successful,
   errorful
 ) {
-  console.log("[runSupabaseQuery]", from, fnName, JSON.stringify(args));
   globalThis["supabase"]
     ["from"](from)
     [fnName](...args)
     .then(({ data, error }) => {
-      console.log("[runSupabaseQuery] result", from, fnName, "data:", data, "error:", error ? JSON.stringify(error) : null);
       if (error) errorful(error.message);
       else successful(data || []);
     }).catch((err) => {
@@ -271,9 +264,7 @@ globalThis["runSupabaseQuery"] = function (
 // -- Supabase RPC --
 
 globalThis.runSupabaseRpc = function(fnName, params, successCallback, errorCallback) {
-  console.log("[runSupabaseRpc]", fnName, params);
   globalThis.supabase.rpc(fnName, params).then(({ data, error }) => {
-    console.log("[runSupabaseRpc] result", fnName, { data, error });
     if (error) errorCallback(error.message || String(error));
     else successCallback(data);
   }).catch((err) => {
@@ -582,6 +573,114 @@ globalThis.voiceToggleMute = function(stream) {
   if (!track) return true;
   track.enabled = !track.enabled;
   return !track.enabled;
+};
+
+// -- Web Push notifications --
+
+// Register Service Worker at load time
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js')
+    .then(function() {})
+    .catch(function(err) { console.error('[push] SW registration failed:', err); });
+}
+
+function urlBase64ToUint8Array(base64String) {
+  var padding = '='.repeat((4 - base64String.length % 4) % 4);
+  var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  var rawData = atob(base64);
+  var outputArray = new Uint8Array(rawData.length);
+  for (var i = 0; i < rawData.length; i++) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+globalThis.subscribeToPush = function(successCb, errorCb) {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    errorCb('Push not supported');
+    return;
+  }
+  navigator.serviceWorker.ready.then(function(reg) {
+    return reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+    });
+  }).then(function(sub) {
+    successCb(JSON.stringify(sub.toJSON()));
+  }).catch(async function(err) {
+    console.error('[push] subscribeToPush error:', err);
+    var isBrave = navigator.brave && await navigator.brave.isBrave();
+    if (isBrave && /push service/i.test(err.message)) {
+      errorCb('brave_push_blocked');
+    } else {
+      errorCb(err.message || String(err));
+    }
+  });
+};
+
+globalThis.savePushSubscription = function(subJson, userId, successCb, errorCb) {
+  var sub = JSON.parse(subJson);
+  var row = {
+    user_id: userId,
+    endpoint: sub.endpoint,
+    p256dh: sub.keys.p256dh,
+    auth: sub.keys.auth,
+    subscription_json: sub
+  };
+  globalThis.supabase.from('push_subscriptions')
+    .upsert(row, { onConflict: 'user_id,endpoint' })
+    .then(function(result) {
+      if (result.error) errorCb(result.error.message);
+      else successCb();
+    }).catch(function(err) {
+      errorCb(err.message || String(err));
+    });
+};
+
+globalThis.requestNotificationPermission = function(successCb, errorCb) {
+  if (!('Notification' in window)) {
+    errorCb('not_supported');
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    successCb('granted');
+    return;
+  }
+  if (Notification.permission === 'denied') {
+    errorCb('denied');
+    return;
+  }
+  Notification.requestPermission().then(function(result) {
+    if (result === 'granted') successCb('granted');
+    else errorCb(result);
+  }).catch(function(err) {
+    errorCb(err.message || String(err));
+  });
+};
+
+globalThis.getNotificationPermissionState = function() {
+  if (!('Notification' in window)) return 'unsupported';
+  return Notification.permission; // "default", "granted", or "denied"
+};
+
+globalThis.isBraveBrowser = function() {
+  return !!(navigator.brave && navigator.brave.isBrave);
+};
+
+globalThis.isFirefoxBrowser = function() {
+  return /Firefox\//.test(navigator.userAgent);
+};
+
+globalThis.isSafariBrowser = function() {
+  return /^(?!.*Chrome).*Safari\//.test(navigator.userAgent);
+};
+
+globalThis.isEdgeBrowser = function() {
+  return /Edg\//.test(navigator.userAgent);
+};
+
+globalThis.isMacOS = function() {
+  return /Macintosh|Mac OS X/.test(navigator.userAgent);
 };
 
 // -- WASI / WASM loading --

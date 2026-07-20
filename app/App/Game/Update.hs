@@ -1599,6 +1599,45 @@ updateGame GameRefs{..} = \case
   GRematchInsertError msg ->
     mailParent $ object ["type" .= ("toast" :: MisoString), "msg" .= ("Rematch failed: " <> msg)]
 
+  -- Push notifications -------------------------------------------------------
+
+  GPushPermissionGranted ->
+    withSink $ \sink -> do
+      subOk  <- Function <$> asyncCallback1 (\subVal -> do
+        subStr <- fromJSValUnchecked subVal
+        sink (GPushSubscribed subStr))
+      subErr <- Function <$> asyncCallback1 (\errVal -> do
+        errStr <- fromJSValUnchecked errVal
+        sink (GPushSubscribeError errStr))
+      js_subscribeToPush subOk subErr
+
+  GPushPermissionDenied _ -> pure ()
+
+  GPushSubscribed subJson -> do
+    props <- getProps
+    case gpSession props of
+      Just sess -> do
+        let uid = userId (sessionUser sess)
+        withSink $ \sink -> do
+          saveOk  <- Function <$> asyncCallback (sink GPushSaved)
+          saveErr <- Function <$> asyncCallback1 (\errVal -> do
+            errStr <- fromJSValUnchecked errVal
+            sink (GPushSaveError errStr))
+          js_savePushSubscription subJson uid saveOk saveErr
+      Nothing -> pure ()
+
+  GPushSubscribeError errMsg
+    | errMsg == "brave_push_blocked" ->
+        mailParent $ object
+          [ "type" .= ("toast" :: MisoString)
+          , "msg" .= ("Brave blocks push notifications by default. Enable \"Use Google services for push messaging\" in brave://settings/privacy to receive move alerts." :: MisoString)
+          ]
+    | otherwise -> pure ()
+
+  GPushSaved -> pure ()
+
+  GPushSaveError _ -> pure ()
+
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------

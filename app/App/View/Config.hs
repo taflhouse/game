@@ -289,8 +289,7 @@ viewSetupMultiplayer m =
                      [ HP.class_ "input w-full text-center"
                      , HP.type_ "text"
                      , HP.placeholder_ "Enter your name"
-                     , HP.value_ (if mJoinNameInput m /= "" then mJoinNameInput m
-                                  else maybe "" id (mGuestName m))
+                     , HP.value_ (mJoinNameInput m)
                      , H.onInput SetJoinNameInput
                      ]
                  ]

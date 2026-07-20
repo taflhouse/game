@@ -146,5 +146,16 @@ data Action
   | PlayerProfileLoadError MisoString
   | PlayerGamesLoaded Value
   | PlayerGamesLoadError MisoString
+  -- Push notifications (app-level)
+  | TogglePushPopover
+  | DismissPushPopover
+  | EnablePushNotifications
+  | PushPermissionResult MisoString   -- "granted" / "denied" / error
+  | PushSubscriptionReady MisoString  -- subscription JSON
+  | PushSubscriptionSaved
+  | PushSubscriptionError MisoString
+  | InitPushStatus MisoString Bool Bool Bool Bool Bool  -- permissionState, isBrave, isFirefox, isSafari, isEdge, isMacOS
+  | ShowPushBraveHelp
+  | BackFromPushBraveHelp
   -- Game component mailbox
   | GameMailbox Value

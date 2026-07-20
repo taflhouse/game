@@ -38,6 +38,16 @@ module App.FFI
     -- * PiP drag
   , js_makePipDraggable
   , js_clearPipDragTransform
+    -- * Push notifications
+  , js_subscribeToPush
+  , js_savePushSubscription
+  , js_requestNotificationPermission
+  , js_getNotificationPermissionState
+  , js_isBraveBrowser
+  , js_isFirefoxBrowser
+  , js_isSafariBrowser
+  , js_isEdgeBrowser
+  , js_isMacOS
     -- * Supabase RPC
   , js_runSupabaseRpc
     -- * Timer
@@ -168,6 +178,26 @@ foreign import javascript unsafe "globalThis.makePipDraggable()"
 foreign import javascript unsafe "globalThis.clearPipDragTransform()"
   js_clearPipDragTransform :: IO ()
 
+-- Push notifications
+foreign import javascript unsafe "globalThis.subscribeToPush($1,$2)"
+  js_subscribeToPush_ffi :: JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.savePushSubscription($1,$2,$3,$4)"
+  js_savePushSubscription_ffi :: JSVal -> JSVal -> JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.requestNotificationPermission($1,$2)"
+  js_requestNotificationPermission_ffi :: JSVal -> JSVal -> IO ()
+foreign import javascript unsafe "globalThis.getNotificationPermissionState()"
+  js_getNotificationPermissionState_raw :: IO JSVal
+foreign import javascript unsafe "globalThis.isBraveBrowser()"
+  js_isBraveBrowser_raw :: IO Bool
+foreign import javascript unsafe "globalThis.isFirefoxBrowser()"
+  js_isFirefoxBrowser_raw :: IO Bool
+foreign import javascript unsafe "globalThis.isSafariBrowser()"
+  js_isSafariBrowser_raw :: IO Bool
+foreign import javascript unsafe "globalThis.isEdgeBrowser()"
+  js_isEdgeBrowser_raw :: IO Bool
+foreign import javascript unsafe "globalThis.isMacOS()"
+  js_isMacOS_raw :: IO Bool
+
 -- Supabase RPC
 foreign import javascript unsafe "globalThis.runSupabaseRpc($1,$2,$3,$4)"
   js_runSupabaseRpc_ffi :: JSVal -> JSVal -> JSVal -> JSVal -> IO ()
@@ -177,6 +207,36 @@ foreign import javascript unsafe "setInterval($1,$2)"
   js_setInterval_ffi :: JSVal -> Int -> IO Int
 foreign import javascript unsafe "clearInterval($1)"
   js_clearInterval :: Int -> IO ()
+
+js_subscribeToPush :: Function -> Function -> IO ()
+js_subscribeToPush (Function a) (Function b) = js_subscribeToPush_ffi a b
+
+js_savePushSubscription :: MisoString -> MisoString -> Function -> Function -> IO ()
+js_savePushSubscription subJson userId (Function okCb) (Function errCb) = do
+  sjv <- toJSVal subJson
+  ujv <- toJSVal userId
+  js_savePushSubscription_ffi sjv ujv okCb errCb
+
+js_requestNotificationPermission :: Function -> Function -> IO ()
+js_requestNotificationPermission (Function a) (Function b) = js_requestNotificationPermission_ffi a b
+
+js_getNotificationPermissionState :: IO MisoString
+js_getNotificationPermissionState = fromJSValUnchecked =<< js_getNotificationPermissionState_raw
+
+js_isBraveBrowser :: IO Bool
+js_isBraveBrowser = js_isBraveBrowser_raw
+
+js_isFirefoxBrowser :: IO Bool
+js_isFirefoxBrowser = js_isFirefoxBrowser_raw
+
+js_isSafariBrowser :: IO Bool
+js_isSafariBrowser = js_isSafariBrowser_raw
+
+js_isEdgeBrowser :: IO Bool
+js_isEdgeBrowser = js_isEdgeBrowser_raw
+
+js_isMacOS :: IO Bool
+js_isMacOS = js_isMacOS_raw
 
 js_runSupabaseRpc :: MisoString -> Value -> Function -> Function -> IO ()
 js_runSupabaseRpc fnName params (Function okCb) (Function errCb) = do
@@ -330,6 +390,25 @@ js_makePipDraggable :: IO ()
 js_makePipDraggable = pure ()
 js_clearPipDragTransform :: IO ()
 js_clearPipDragTransform = pure ()
+-- Push notification stubs
+js_subscribeToPush :: Function -> Function -> IO ()
+js_subscribeToPush _ _ = pure ()
+js_savePushSubscription :: MisoString -> MisoString -> Function -> Function -> IO ()
+js_savePushSubscription _ _ _ _ = pure ()
+js_requestNotificationPermission :: Function -> Function -> IO ()
+js_requestNotificationPermission _ _ = pure ()
+js_getNotificationPermissionState :: IO MisoString
+js_getNotificationPermissionState = pure "default"
+js_isBraveBrowser :: IO Bool
+js_isBraveBrowser = pure False
+js_isFirefoxBrowser :: IO Bool
+js_isFirefoxBrowser = pure False
+js_isSafariBrowser :: IO Bool
+js_isSafariBrowser = pure False
+js_isEdgeBrowser :: IO Bool
+js_isEdgeBrowser = pure False
+js_isMacOS :: IO Bool
+js_isMacOS = pure False
 -- Supabase RPC stub
 js_runSupabaseRpc :: MisoString -> Value -> Function -> Function -> IO ()
 js_runSupabaseRpc _ _ _ _ = pure ()

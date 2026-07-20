@@ -196,6 +196,15 @@ data Model = Model
   , mPlayerGamesLoading :: !Bool
     -- Tutorial
   , mTutorialLessonId :: Maybe MisoString
+    -- Push notifications (app-level)
+  , mPushStatus       :: !MisoString     -- "default" / "granted" / "denied" / "unsupported"
+  , mPushPopover      :: !Bool
+  , mPushBraveHelp    :: !Bool           -- popover shows Brave step-by-step
+  , mIsBrave          :: !Bool
+  , mIsFirefox        :: !Bool
+  , mIsSafari         :: !Bool
+  , mIsEdge           :: !Bool
+  , mIsMacOS          :: !Bool
   }
 
 -- Manual Eq instance: skip mMatchInterestChannel (Channel wraps JSVal, no Eq)
@@ -241,6 +250,14 @@ instance Eq Model where
     && mPlayerDetail a == mPlayerDetail b && mPlayerGames a == mPlayerGames b
     && mPlayerGamesLoading a == mPlayerGamesLoading b
     && mTutorialLessonId a == mTutorialLessonId b
+    && mPushStatus a == mPushStatus b
+    && mPushPopover a == mPushPopover b
+    && mPushBraveHelp a == mPushBraveHelp b
+    && mIsBrave a == mIsBrave b
+    && mIsFirefox a == mIsFirefox b
+    && mIsSafari a == mIsSafari b
+    && mIsEdge a == mIsEdge b
+    && mIsMacOS a == mIsMacOS b
 
 mAuth :: Lens Model AuthState
 mAuth = lens _mAuth $ \r f -> r { _mAuth = f }
@@ -308,4 +325,12 @@ initModel = Model
   , mPlayerGames      = []
   , mPlayerGamesLoading = False
   , mTutorialLessonId = Nothing
+  , mPushStatus       = "default"
+  , mPushPopover      = False
+  , mPushBraveHelp    = False
+  , mIsBrave          = False
+  , mIsFirefox        = False
+  , mIsSafari         = False
+  , mIsEdge           = False
+  , mIsMacOS          = False
   }
