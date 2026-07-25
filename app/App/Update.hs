@@ -18,8 +18,10 @@ import Miso.Lens (assign, use)
 import Supabase.Miso.Core (successCallback, errorCallback)
 import Supabase.Miso.Auth
   ( signUpEmail, signInWithPassword, signOut, signInAnonymously, getSession, getUser
+  , resetPasswordForEmail
   , SignUpEmail(..), SignUpEmailOptions(..), SignInCredentials(..), Email(..), Password(..)
   , defaultSignOutOptions, defaultSignInAnonymouslyOptions, defaultSignUpEmailOptions
+  , defaultResetPasswordOptions
   , AuthResponse(..), AuthData(..), Session(..), User(..), AppMetadata(..)
   )
 import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq, neq, gt)
@@ -312,6 +314,24 @@ updateModel loungeChannelRef = \case
           , sicPassword = Password pwd
           }
     signInWithPassword creds AuthSuccess AuthError
+
+  ForgotPassword -> do
+    email <- use (mAuth . authEmail)
+    if email == ""
+      then assign (mAuth . authError) (Just "Please enter your email address.")
+      else do
+        assign (mAuth . authLoading) True
+        assign (mAuth . authError) Nothing
+        resetPasswordForEmail (Email email) defaultResetPasswordOptions
+          ForgotPasswordSent ForgotPasswordError
+
+  ForgotPasswordSent _ -> do
+    assign (mAuth . authLoading) False
+    assign (mAuth . authMessage) (Just "Password reset email sent. Check your inbox.")
+
+  ForgotPasswordError msg -> do
+    assign (mAuth . authLoading) False
+    assign (mAuth . authError) (Just msg)
 
   DoSignUp -> do
     email <- use (mAuth . authEmail)

@@ -37,6 +37,9 @@ data Action
   | DoSignUp
   | DoSignUpWith SignUpEmail
   | DoSignIn
+  | ForgotPassword
+  | ForgotPasswordSent Value
+  | ForgotPasswordError MisoString
   | DoSignOut
   | AuthSuccess AuthResponse
   | AuthError MisoString

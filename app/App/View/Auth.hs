@@ -72,6 +72,14 @@ viewSignIn m =
                   , style_ [("touch-action", "manipulation")]
                   ]
                   [ text "Sign In" ]
+            , H.div_
+                [ HP.class_ "text-right" ]
+                [ H.span_
+                    [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+                    , SVG.onClick ForgotPassword
+                    ]
+                    [ text "Forgot password?" ]
+                ]
             ]
         , H.div_
             [ HP.class_ "text-center mt-4 text-sm text-muted-foreground"
