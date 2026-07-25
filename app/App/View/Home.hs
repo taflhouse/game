@@ -134,10 +134,13 @@ viewPastGamesTable games =
 
 viewGameRow :: GameRecord -> View Model Action
 viewGameRow gr =
-  let winText = case grWinner gr of
-        Just "attacker" -> "Attackers won"
-        Just "defender" -> "Defenders won"
-        _               -> "Draw"
+  let inProgress = grResultDesc gr == "in_progress"
+      resultText
+        | inProgress = "In Progress"
+        | otherwise  = case grWinner gr of
+            Just "attacker" -> "Attackers won"
+            Just "defender" -> "Defenders won"
+            _               -> "Draw"
       modeText = case grGameMode gr of
         "ai"          -> "vs AI"
         "local"       -> "Practice"
@@ -146,14 +149,14 @@ viewGameRow gr =
       cells =
         [ H.td_ [] [ text (grVariant gr) ]
         , H.td_ [] [ text modeText ]
-        , H.td_ [] [ text winText ]
+        , H.td_ [] [ text resultText ]
         , H.td_ [] [ text (ms (show (grTotalMoves gr))) ]
         , H.td_ [ HP.class_ "text-muted-foreground" ] [ text (js_formatDate (grPlayedAt gr)) ]
         ]
   in case grId gr of
     Just gid -> H.tr_
       [ HP.class_ "cursor-pointer hover:bg-muted/50"
-      , SVG.onClick (GotoReplay gid)
+      , SVG.onClick (if inProgress then GotoPlay gid else GotoReplay gid)
       ] cells
     Nothing -> H.tr_ [] cells
 

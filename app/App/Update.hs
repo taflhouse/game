@@ -974,6 +974,9 @@ updateModel loungeChannelRef = \case
   GotoReplay gid ->
     io_ $ pushURI (emptyURI { uriPath = "games/" <> gid })
 
+  GotoPlay gid ->
+    io_ $ pushURI (playURI gid)
+
   -- View mode (replay only; game component manages its own) --------------
 
   ToggleZenMode -> do
@@ -1119,12 +1122,11 @@ loadPastGames = do
         errCb <- errorCallback sink
           (\_ -> LocalGamesLoaded [])
         js_loadLocalGames okCb errCb
-    Just sess -> do
+    Just _ -> do
       modify $ \x -> x { mGamesLoading = True }
-      let uid = userId (sessionUser sess)
       selectWithFilters "games" "*"
-        [eq "user_id" uid, neq "result_desc" ("in_progress" :: MisoString)]
-        (FetchOptions Nothing Nothing Nothing Nothing)
+        [neq "status" ("cancelled" :: MisoString)]
+        (FetchOptions Nothing Nothing (Just ("played_at", False)) Nothing)
         GamesLoaded GamesLoadError
 
 -- | Migrate local games to Supabase on auth success.

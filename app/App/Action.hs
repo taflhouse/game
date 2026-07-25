@@ -119,8 +119,9 @@ data Action
   | SetMatchWantRated MisoString
   | SetMatchWantTimed MisoString
   | SetMatchWantSide MisoString
-  -- Replay
+  -- Replay / Resume
   | GotoReplay MisoString
+  | GotoPlay MisoString
   -- View mode (replay only; game component handles its own)
   | DocumentDblClick
   | ToggleZenMode
