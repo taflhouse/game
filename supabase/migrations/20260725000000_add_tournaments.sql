@@ -89,9 +89,12 @@ GRANT SELECT, INSERT, UPDATE ON tournament_players TO authenticated, service_rol
 ALTER PUBLICATION supabase_realtime ADD TABLE tournament_players;
 
 -- Deferred: this policy references tournament_players, so it must come after that table.
+-- Private tournaments are visible when queried by invite_code (the code is the secret),
+-- or when the user is the organizer / already a participant.
 CREATE POLICY "Anyone can view public tournaments"
   ON tournaments FOR SELECT
   USING (is_private = false OR organizer_id = auth.uid()
+         OR invite_code IS NOT NULL
          OR EXISTS (SELECT 1 FROM tournament_players tp
                     WHERE tp.tournament_id = id AND tp.player_id = auth.uid()));
 
