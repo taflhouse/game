@@ -45,15 +45,6 @@ viewLounge m =
                     , SVG.onClick GotoJoin
                     ]
                     [ text "Join by Code" ]
-                , H.span_
-                    [ HP.class_ "text-xs text-muted-foreground" ]
-                    [ text "\xB7" ]
-                , H.span_
-                    [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
-                    , style_ [("touch-action", "manipulation")]
-                    , SVG.onClick GotoLearn
-                    ]
-                    [ text "Learn to Play" ]
                 ]
             ]
           )
