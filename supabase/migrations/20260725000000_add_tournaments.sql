@@ -38,12 +38,6 @@ CREATE TABLE tournaments (
 
 ALTER TABLE tournaments ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Anyone can view public tournaments"
-  ON tournaments FOR SELECT
-  USING (is_private = false OR organizer_id = auth.uid()
-         OR EXISTS (SELECT 1 FROM tournament_players tp
-                    WHERE tp.tournament_id = id AND tp.player_id = auth.uid()));
-
 CREATE POLICY "Authenticated users can create tournaments"
   ON tournaments FOR INSERT TO authenticated
   WITH CHECK (organizer_id = auth.uid());
@@ -93,6 +87,13 @@ CREATE POLICY "Authenticated users can join"
 
 GRANT SELECT, INSERT, UPDATE ON tournament_players TO authenticated, service_role;
 ALTER PUBLICATION supabase_realtime ADD TABLE tournament_players;
+
+-- Deferred: this policy references tournament_players, so it must come after that table.
+CREATE POLICY "Anyone can view public tournaments"
+  ON tournaments FOR SELECT
+  USING (is_private = false OR organizer_id = auth.uid()
+         OR EXISTS (SELECT 1 FROM tournament_players tp
+                    WHERE tp.tournament_id = id AND tp.player_id = auth.uid()));
 
 -- ---------------------------------------------------------------------------
 -- tournament_pairings
