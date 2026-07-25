@@ -70,7 +70,7 @@ jobs:
           PROJECT_REF: ${{ github.ref_name == 'main' && secrets.PROD_PROJECT_REF || secrets.STAGING_PROJECT_REF }}
 
       - name: Deploy to Cloudflare Workers
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
