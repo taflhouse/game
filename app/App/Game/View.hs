@@ -162,6 +162,7 @@ viewGame props gm
             , DefenderSide, fromMaybe "Defender" (gmDefenderName gm), gmDefenderTimeMs gm, turn == DefenderSide )
     in H.div_ [HP.class_ "w-full flex flex-col items-center"]
       [ if zen then viewZenBackdrop else text ""
+      , viewTournamentBadge gm n
       , if showClocks then viewClocks n leftSide leftName leftMs leftActive rightSide rightName rightMs rightActive (gmTimeControl gm) (gmMoveDeadline gm)
         else if showBanner then viewOpponentBanner n (fromMaybe "Opponent" (gmOpponentName gm))
         else text ""
@@ -339,6 +340,21 @@ viewOpponentBanner n oppName =
              ]
     ]
     [ text ("vs " <> oppName) ]
+
+-- | Small badge linking back to the tournament, shown above the board
+-- when this game belongs to a tournament.
+viewTournamentBadge :: GameModel -> Int -> View GameModel GameAction
+viewTournamentBadge gm n = case gmTournamentId gm of
+  Nothing -> text ""
+  Just tid ->
+    H.a_
+      [ HP.class_ "flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground w-full justify-center"
+      , HP.href_ ("/tournaments/" <> tid)
+      , style_ [ ("max-width", ms (sqSize * n) <> "px")
+               , ("padding", "0.25em 0"), ("text-decoration", "none")
+               ]
+      ]
+      [ text "Tournament Game" ]
 
 -- ---------------------------------------------------------------------------
 -- Status & Controls

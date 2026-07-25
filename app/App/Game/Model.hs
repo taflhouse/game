@@ -127,6 +127,9 @@ data GameModel = GameModel
   , gmCameraOn      :: !Bool
   , gmRemoteVideoOn :: !Bool
   , gmVideoViewMode :: !VideoViewMode
+    -- Tournament
+  , gmTournamentId   :: Maybe MisoString
+  , gmTournamentName :: Maybe MisoString
   } deriving (Eq)
 
 initialGameModel :: GameModel
@@ -192,4 +195,6 @@ initialGameModel = GameModel
   , gmCameraOn      = False
   , gmRemoteVideoOn = False
   , gmVideoViewMode = VideoPiP
+  , gmTournamentId   = Nothing
+  , gmTournamentName = Nothing
   }

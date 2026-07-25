@@ -197,6 +197,7 @@ updateGame GameRefs{..} = \case
           , gmAttackerId = grwAttackerId gr
           , gmDefenderId = grwDefenderId gr
           , gmEvalScore = evaluate gs
+          , gmTournamentId = grwTournamentId gr
           }
         subscribeToTableWithPresence ("game:" <> gid) "games" ("id=eq." <> gid)
           GRealtimeChange GPresenceSync GRealtimeSubscribed GRealtimeError
@@ -267,6 +268,7 @@ updateGame GameRefs{..} = \case
               , gmDefenderId = grwDefenderId gr
               , gmEvalScore = evaluate gs
               , gmInviteCode = grwInviteCode gr
+              , gmTournamentId = grwTournamentId gr
               }
             when (grwStatus gr == "cancelled") $
               io_ $ pushURI (configureURI "multiplayer")
@@ -305,6 +307,7 @@ updateGame GameRefs{..} = \case
               , gmDefenderId = grwDefenderId gr
               , gmEvalScore = evaluate gs
               , gmInviteCode = grwInviteCode gr
+              , gmTournamentId = grwTournamentId gr
               }
             when (grwStatus gr == "cancelled") $
               io_ $ pushURI (configureURI "multiplayer")

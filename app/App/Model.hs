@@ -33,7 +33,7 @@ import Supabase.Miso.Realtime (Channel)
 import Tafl.Board (Side(..))
 import Tafl.Rules (BoardVariant(..))
 
-import App.JSON (Profile, GameRow, GameRecord)
+import App.JSON (Profile, GameRow, GameRecord, TournamentRow, TournamentPlayerRow, TournamentPairingRow)
 
 -- ---------------------------------------------------------------------------
 -- Enums
@@ -72,7 +72,7 @@ expirySeconds Expiry1Hour = 3600
 expirySeconds Expiry1Day  = 86400
 expirySeconds Expiry1Week = 604800
 
-data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | ConfigureScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen | LoadingScreen | LoungeScreen | YourGamesScreen | PlayerScreen | LearnScreen
+data Screen = HomeScreen | SignInScreen | SignUpScreen | ConfigScreen | ConfigureScreen | JoinScreen | GameScreen | ReplayScreen | ProfileScreen | ProfileEditScreen | LoadingScreen | LoungeScreen | YourGamesScreen | PlayerScreen | LearnScreen | TournamentsScreen | TournamentScreen | CreateTournamentScreen
   deriving (Eq, Show)
 
 data DeferredMpAction = DeferCreate | DeferJoin | DeferFindMatch | DeferToggleInterest
@@ -205,6 +205,25 @@ data Model = Model
   , mIsSafari         :: !Bool
   , mIsEdge           :: !Bool
   , mIsMacOS          :: !Bool
+    -- Tournaments
+  , mTournaments        :: [TournamentRow]
+  , mTournamentsLoading :: !Bool
+  , mTournament         :: Maybe TournamentRow
+  , mTournamentPlayers  :: [TournamentPlayerRow]
+  , mTournamentPairings :: [TournamentPairingRow]
+  , mTournamentLoading  :: !Bool
+  , mTournamentRound    :: !Int
+  , mTFormName          :: !MisoString
+  , mTFormDescription   :: !MisoString
+  , mTFormFormat        :: !MisoString
+  , mTFormVariant       :: !BoardVariant
+  , mTFormTimeControl   :: !TimeControl
+  , mTFormIsRated       :: !Bool
+  , mTFormMaxPlayers    :: !MisoString
+  , mTFormIsPrivate     :: !Bool
+  , mTFormRoundInterval :: !Int
+  , mTFormForfeitTimeout :: !Int
+  , mTournamentCodeInput :: !MisoString
   }
 
 -- Manual Eq instance: skip mMatchInterestChannel (Channel wraps JSVal, no Eq)
@@ -258,6 +277,24 @@ instance Eq Model where
     && mIsSafari a == mIsSafari b
     && mIsEdge a == mIsEdge b
     && mIsMacOS a == mIsMacOS b
+    && mTournaments a == mTournaments b
+    && mTournamentsLoading a == mTournamentsLoading b
+    && mTournament a == mTournament b
+    && mTournamentPlayers a == mTournamentPlayers b
+    && mTournamentPairings a == mTournamentPairings b
+    && mTournamentLoading a == mTournamentLoading b
+    && mTournamentRound a == mTournamentRound b
+    && mTFormName a == mTFormName b
+    && mTFormDescription a == mTFormDescription b
+    && mTFormFormat a == mTFormFormat b
+    && mTFormVariant a == mTFormVariant b
+    && mTFormTimeControl a == mTFormTimeControl b
+    && mTFormIsRated a == mTFormIsRated b
+    && mTFormMaxPlayers a == mTFormMaxPlayers b
+    && mTFormIsPrivate a == mTFormIsPrivate b
+    && mTFormRoundInterval a == mTFormRoundInterval b
+    && mTFormForfeitTimeout a == mTFormForfeitTimeout b
+    && mTournamentCodeInput a == mTournamentCodeInput b
 
 mAuth :: Lens Model AuthState
 mAuth = lens _mAuth $ \r f -> r { _mAuth = f }
@@ -333,4 +370,22 @@ initModel = Model
   , mIsSafari         = False
   , mIsEdge           = False
   , mIsMacOS          = False
+  , mTournaments        = []
+  , mTournamentsLoading = False
+  , mTournament         = Nothing
+  , mTournamentPlayers  = []
+  , mTournamentPairings = []
+  , mTournamentLoading  = False
+  , mTournamentRound    = 1
+  , mTFormName          = ""
+  , mTFormDescription   = ""
+  , mTFormFormat        = "swiss"
+  , mTFormVariant       = Tablut
+  , mTFormTimeControl   = NoTimeControl
+  , mTFormIsRated       = True
+  , mTFormMaxPlayers    = ""
+  , mTFormIsPrivate     = False
+  , mTFormRoundInterval = 0
+  , mTFormForfeitTimeout = 1440
+  , mTournamentCodeInput = ""
   }

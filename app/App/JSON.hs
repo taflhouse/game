@@ -12,6 +12,10 @@ module App.JSON
   , GameRecord(..)
   , ChatMessage(..)
   , parseChatMessage
+    -- * Tournament types
+  , TournamentRow(..)
+  , TournamentPlayerRow(..)
+  , TournamentPairingRow(..)
   ) where
 
 import Miso.String (MisoString, ms)
@@ -98,6 +102,8 @@ data GameRow = GameRow
   , grwCreatorRating     :: Maybe Double
   , grwCreatorRd         :: Maybe Double
   , grwInterestStatus    :: Maybe MisoString
+  , grwTournamentId      :: Maybe MisoString
+  , grwTournamentPairingId :: Maybe MisoString
   } deriving (Eq, Show)
 
 instance FromJSON GameRow where
@@ -132,6 +138,8 @@ instance FromJSON GameRow where
       <*> v .:? "creator_rating"
       <*> v .:? "creator_rd"
       <*> v .:? "interest_status"
+      <*> v .:? "tournament_id"
+      <*> v .:? "tournament_pairing_id"
 
 -- ---------------------------------------------------------------------------
 -- Profile
@@ -213,3 +221,138 @@ parseChatMessage val =
   parseMaybe (withObject "RealtimePayload" $ \o -> do
     newVal <- o .: "new"
     parseJSON newVal) val
+
+-- ---------------------------------------------------------------------------
+-- TournamentRow
+-- ---------------------------------------------------------------------------
+
+data TournamentRow = TournamentRow
+  { trId                :: !MisoString
+  , trName              :: !MisoString
+  , trDescription       :: Maybe MisoString
+  , trOrganizerId       :: !MisoString
+  , trOrganizerName     :: !MisoString
+  , trFormat            :: !MisoString
+  , trVariant           :: !MisoString
+  , trTimeControl       :: Maybe MisoString
+  , trTimePerPlayerMs   :: Maybe Int
+  , trTimePerMoveSec    :: Maybe Int
+  , trIsRated           :: !Bool
+  , trMaxPlayers        :: Maybe Int
+  , trIsPrivate         :: !Bool
+  , trInviteCode        :: Maybe MisoString
+  , trRoundIntervalMin  :: !Int
+  , trForfeitTimeoutMin :: !Int
+  , trStatus            :: !MisoString
+  , trCurrentRound      :: !Int
+  , trTotalRounds       :: Maybe Int
+  , trStartedAt         :: Maybe MisoString
+  , trFinishedAt        :: Maybe MisoString
+  , trNextRoundAt       :: Maybe MisoString
+  , trCreatedAt         :: !MisoString
+  } deriving (Eq, Show)
+
+instance FromJSON TournamentRow where
+  parseJSON = withObject "TournamentRow" $ \v ->
+    TournamentRow
+      <$> v .: "id"
+      <*> v .: "name"
+      <*> v .:? "description"
+      <*> v .: "organizer_id"
+      <*> v .: "organizer_name"
+      <*> v .: "format"
+      <*> v .: "variant"
+      <*> v .:? "time_control"
+      <*> v .:? "time_per_player_ms"
+      <*> v .:? "time_per_move_seconds"
+      <*> v .:? "is_rated" .!= True
+      <*> v .:? "max_players"
+      <*> v .:? "is_private" .!= False
+      <*> v .:? "invite_code"
+      <*> v .:? "round_interval_minutes" .!= 0
+      <*> v .:? "forfeit_timeout_minutes" .!= 1440
+      <*> v .:? "status" .!= "registration"
+      <*> v .:? "current_round" .!= 0
+      <*> v .:? "total_rounds"
+      <*> v .:? "started_at"
+      <*> v .:? "finished_at"
+      <*> v .:? "next_round_at"
+      <*> v .:? "created_at" .!= ""
+
+-- ---------------------------------------------------------------------------
+-- TournamentPlayerRow
+-- ---------------------------------------------------------------------------
+
+data TournamentPlayerRow = TournamentPlayerRow
+  { tpId              :: !MisoString
+  , tpTournamentId    :: !MisoString
+  , tpPlayerId        :: !MisoString
+  , tpPlayerName      :: !MisoString
+  , tpScore           :: !Double
+  , tpWins            :: !Int
+  , tpLosses          :: !Int
+  , tpDraws           :: !Int
+  , tpBuchholz        :: !Double
+  , tpGamesPlayed     :: !Int
+  , tpAttackerWins    :: !Int
+  , tpAttackerLosses  :: !Int
+  , tpAttackerDraws   :: !Int
+  , tpDefenderWins    :: !Int
+  , tpDefenderLosses  :: !Int
+  , tpDefenderDraws   :: !Int
+  , tpIsActive        :: !Bool
+  , tpSeed            :: Maybe Int
+  } deriving (Eq, Show)
+
+instance FromJSON TournamentPlayerRow where
+  parseJSON = withObject "TournamentPlayerRow" $ \v ->
+    TournamentPlayerRow
+      <$> v .: "id"
+      <*> v .: "tournament_id"
+      <*> v .: "player_id"
+      <*> v .: "player_name"
+      <*> v .:? "score" .!= 0
+      <*> v .:? "wins" .!= 0
+      <*> v .:? "losses" .!= 0
+      <*> v .:? "draws" .!= 0
+      <*> v .:? "buchholz" .!= 0
+      <*> v .:? "games_played" .!= 0
+      <*> v .:? "attacker_wins" .!= 0
+      <*> v .:? "attacker_losses" .!= 0
+      <*> v .:? "attacker_draws" .!= 0
+      <*> v .:? "defender_wins" .!= 0
+      <*> v .:? "defender_losses" .!= 0
+      <*> v .:? "defender_draws" .!= 0
+      <*> v .:? "is_active" .!= True
+      <*> v .:? "seed"
+
+-- ---------------------------------------------------------------------------
+-- TournamentPairingRow
+-- ---------------------------------------------------------------------------
+
+data TournamentPairingRow = TournamentPairingRow
+  { tprId             :: !MisoString
+  , tprTournamentId   :: !MisoString
+  , tprRoundNumber    :: !Int
+  , tprPairingOrder   :: !Int
+  , tprPlayer1Id      :: !MisoString
+  , tprPlayer2Id      :: Maybe MisoString
+  , tprPlayer1Side    :: !MisoString
+  , tprGameId         :: Maybe MisoString
+  , tprWinnerId       :: Maybe MisoString
+  , tprResult         :: Maybe MisoString
+  } deriving (Eq, Show)
+
+instance FromJSON TournamentPairingRow where
+  parseJSON = withObject "TournamentPairingRow" $ \v ->
+    TournamentPairingRow
+      <$> v .: "id"
+      <*> v .: "tournament_id"
+      <*> v .: "round_number"
+      <*> v .:? "pairing_order" .!= 0
+      <*> v .: "player_1_id"
+      <*> v .:? "player_2_id"
+      <*> v .:? "player_1_side" .!= "attacker"
+      <*> v .:? "game_id"
+      <*> v .:? "winner_id"
+      <*> v .:? "result"

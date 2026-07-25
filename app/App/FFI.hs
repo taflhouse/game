@@ -50,6 +50,7 @@ module App.FFI
   , js_isMacOS
     -- * Supabase RPC
   , js_runSupabaseRpc
+  , js_invokeEdgeFunction
     -- * Timer
   , js_setInterval
   , js_clearInterval
@@ -202,6 +203,10 @@ foreign import javascript unsafe "globalThis.isMacOS()"
 foreign import javascript unsafe "globalThis.runSupabaseRpc($1,$2,$3,$4)"
   js_runSupabaseRpc_ffi :: JSVal -> JSVal -> JSVal -> JSVal -> IO ()
 
+-- Supabase Edge Functions
+foreign import javascript unsafe "globalThis.invokeEdgeFunction($1,$2,$3,$4)"
+  js_invokeEdgeFunction_ffi :: JSVal -> JSVal -> JSVal -> JSVal -> IO ()
+
 -- Timer
 foreign import javascript unsafe "setInterval($1,$2)"
   js_setInterval_ffi :: JSVal -> Int -> IO Int
@@ -243,6 +248,12 @@ js_runSupabaseRpc fnName params (Function okCb) (Function errCb) = do
   fnJsv <- toJSVal fnName
   paramsJsv <- toJSVal params
   js_runSupabaseRpc_ffi fnJsv paramsJsv okCb errCb
+
+js_invokeEdgeFunction :: MisoString -> Value -> Function -> Function -> IO ()
+js_invokeEdgeFunction fnName body (Function okCb) (Function errCb) = do
+  fnJsv <- toJSVal fnName
+  bodyJsv <- toJSVal body
+  js_invokeEdgeFunction_ffi fnJsv bodyJsv okCb errCb
 
 js_setInterval :: Function -> Int -> IO Int
 js_setInterval (Function a) ms = js_setInterval_ffi a ms
@@ -412,6 +423,8 @@ js_isMacOS = pure False
 -- Supabase RPC stub
 js_runSupabaseRpc :: MisoString -> Value -> Function -> Function -> IO ()
 js_runSupabaseRpc _ _ _ _ = pure ()
+js_invokeEdgeFunction :: MisoString -> Value -> Function -> Function -> IO ()
+js_invokeEdgeFunction _ _ _ _ = pure ()
 -- Timer stubs
 js_setInterval :: Function -> Int -> IO Int
 js_setInterval _ _ = pure 0

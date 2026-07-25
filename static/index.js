@@ -273,6 +273,18 @@ globalThis.runSupabaseRpc = function(fnName, params, successCallback, errorCallb
   });
 };
 
+// -- Supabase Edge Functions --
+
+globalThis.invokeEdgeFunction = function(fnName, body, successCallback, errorCallback) {
+  globalThis.supabase.functions.invoke(fnName, { body }).then(({ data, error }) => {
+    if (error) errorCallback(error.message || String(error));
+    else successCallback(data);
+  }).catch((err) => {
+    console.error("[invokeEdgeFunction] catch", fnName, err);
+    errorCallback(err.message || String(err));
+  });
+};
+
 // -- Local game persistence (localStorage) --
 
 globalThis.loadLocalGames = function(successCb, errorCb) {

@@ -10,7 +10,7 @@ import Tafl.Board (Side)
 import Tafl.Rules (BoardVariant)
 
 import App.Model (GameMode, TimeControl, InviteExpiry)
-import App.JSON (GameRecord, GameRow)
+import App.JSON (GameRecord, GameRow, TournamentRow)
 
 data Action
   = NoOp
@@ -158,5 +158,47 @@ data Action
   | InitPushStatus MisoString Bool Bool Bool Bool Bool  -- permissionState, isBrave, isFirefox, isSafari, isEdge, isMacOS
   | ShowPushBraveHelp
   | BackFromPushBraveHelp
+  -- Tournament list
+  | GotoTournaments
+  | TournamentsLoaded Value
+  | TournamentsLoadError MisoString
+  -- Tournament detail
+  | GotoTournament MisoString
+  | TournamentLoaded Value
+  | TournamentPlayersLoaded Value
+  | TournamentPairingsLoaded Value
+  | TournamentLoadError MisoString
+  | TournamentRealtimeChange Value
+  | TournamentRealtimeSubscribed Channel
+  | TournamentRealtimeError MisoString
+  | SetTournamentRound Int
+  -- Tournament creation
+  | GotoCreateTournament
+  | SetTFormName MisoString
+  | SetTFormDescription MisoString
+  | SetTFormFormat MisoString
+  | SetTFormVariant BoardVariant
+  | SetTFormTimeControl TimeControl
+  | SetTFormIsRated Bool
+  | SetTFormMaxPlayers MisoString
+  | SetTFormIsPrivate Bool
+  | SetTFormRoundInterval Int
+  | SetTFormForfeitTimeout Int
+  | CreateTournament
+  | TournamentCreated Value
+  | TournamentCreateError MisoString
+  -- Participation
+  | JoinTournament MisoString
+  | TournamentJoined Value
+  | TournamentJoinError MisoString
+  -- Organizer
+  | StartTournament MisoString
+  | TournamentStarted Value
+  | TournamentStartError MisoString
+  -- Private join
+  | SetTournamentCodeInput MisoString
+  | LookupTournamentByCode
+  | TournamentFoundByCode Value
+  | TournamentCodeError MisoString
   -- Game component mailbox
   | GameMailbox Value

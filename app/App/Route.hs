@@ -24,6 +24,9 @@ module App.Route
   , playerURI
   , learnURI
   , learnLessonURI
+  , tournamentsURI
+  , tournamentURI
+  , createTournamentURI
   ) where
 
 import Data.List (isPrefixOf)
@@ -45,6 +48,9 @@ data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute | ConfigureRout
            | PlayerRoute MisoString    -- /player/<username>
            | LearnRoute                -- /learn lesson select
            | LearnLessonRoute MisoString -- /learn/<lesson-id>
+           | TournamentsRoute          -- /tournaments list
+           | TournamentRoute MisoString -- /tournaments/<uuid> detail
+           | CreateTournamentRoute     -- /tournaments/new
 
 variantSlugMs :: BoardVariant -> MisoString
 variantSlugMs v = ms (variantSlug v)
@@ -76,7 +82,11 @@ parseRoute uri = case uriPath uri of
   "profile"  -> ProfileRoute
   "join"     -> JoinRoute Nothing
   "learn"    -> LearnRoute
+  "tournaments"     -> TournamentsRoute
+  "tournaments/new" -> CreateTournamentRoute
   path
+    | Just tid <- msStripPrefix "tournaments/" path
+    , isUUID tid -> TournamentRoute tid
     | Just uuid <- msStripPrefix "play/" path
     , isUUID uuid -> PlayRoute uuid
     | Just uuid <- msStripPrefix "games/" path
@@ -180,3 +190,12 @@ learnLessonURI :: MisoString -> URI
 learnLessonURI lid = case lookupLesson lid of
   Just lesson -> emptyURI { uriPath = "learn/" <> moduleSlug (tlModule lesson) <> "/" <> lid }
   Nothing     -> emptyURI { uriPath = "learn/" <> lid }
+
+tournamentsURI :: URI
+tournamentsURI = emptyURI { uriPath = "tournaments" }
+
+tournamentURI :: MisoString -> URI
+tournamentURI tid = emptyURI { uriPath = "tournaments/" <> tid }
+
+createTournamentURI :: URI
+createTournamentURI = emptyURI { uriPath = "tournaments/new" }

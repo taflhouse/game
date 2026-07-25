@@ -27,6 +27,7 @@ import App.View.Config (viewConfig, viewConfigure)
 import App.View.Profile (viewProfile, viewProfileEdit)
 import App.View.Join (viewJoin)
 import App.View.Lounge (viewLounge)
+import App.View.Tournament (viewTournaments, viewTournamentDetail, viewCreateTournament)
 
 -- ---------------------------------------------------------------------------
 -- View: Top-level layout
@@ -68,6 +69,9 @@ viewModel gameComp replayComp tutorialComp _ m =
                   PlayerScreen      -> viewPlayerDetail m
                   LearnScreen       -> viewLearnScreen tutorialComp m
                   LoungeScreen      -> viewLounge m  -- legacy, redirects to home
+                  TournamentsScreen      -> viewTournaments m
+                  TournamentScreen       -> viewTournamentDetail m
+                  CreateTournamentScreen -> viewCreateTournament m
                   LoadingScreen     -> text ""
             ]
         ]
@@ -155,9 +159,19 @@ viewNavbar m =
           H.div_
             [ HP.class_ "flex items-center gap-4"
             ]
-            (viewLfgToggle m : viewPushBell m : themeToggleBtn : learnLink : navAuthButtons m)
+            (viewLfgToggle m : viewPushBell m : themeToggleBtn : tournamentsLink : learnLink : navAuthButtons m)
         ]
     ]
+
+-- | "Tournaments" link in the navbar.
+tournamentsLink :: View Model Action
+tournamentsLink =
+  H.span_
+    [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+    , style_ [("touch-action", "manipulation")]
+    , SVG.onClick GotoTournaments
+    ]
+    [ text "Tournaments" ]
 
 -- | "Learn" link in the navbar.
 learnLink :: View Model Action

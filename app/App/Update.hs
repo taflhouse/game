@@ -26,9 +26,9 @@ import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOpt
 import Supabase.Miso.Realtime (Channel, subscribeToTable, removeChannel)
 
 
-import Tafl.Rules (variantSlug)
+import Tafl.Rules (BoardVariant(..), variantSlug)
 
-import App.JSON (GameRow(..), Profile(..), GameRecord(..))
+import App.JSON (GameRow(..), Profile(..), GameRecord(..), TournamentRow(..), TournamentPlayerRow(..), TournamentPairingRow(..))
 import App.Model
 import App.Action
 import App.Route
@@ -197,6 +197,48 @@ updateModel loungeChannelRef = \case
         modify $ \x -> x { mScreen = LearnScreen, mTutorialLessonId = Nothing }
       LearnLessonRoute lid ->
         modify $ \x -> x { mScreen = LearnScreen, mTutorialLessonId = Just lid }
+      TournamentsRoute -> do
+        modify $ \x -> x
+          { mScreen = TournamentsScreen
+          , mTournamentsLoading = True
+          , mTournaments = []
+          }
+        loadTournaments
+      TournamentRoute tid -> do
+        modify $ \x -> x
+          { mScreen = TournamentScreen
+          , mTournamentLoading = True
+          , mTournament = Nothing
+          , mTournamentPlayers = []
+          , mTournamentPairings = []
+          , mTournamentRound = 1
+          }
+        selectWithFilters "tournaments" "*"
+          [eq "id" tid]
+          (FetchOptions Nothing Nothing Nothing Nothing)
+          TournamentLoaded TournamentLoadError
+        selectWithFilters "tournament_players" "*"
+          [eq "tournament_id" tid]
+          (FetchOptions Nothing Nothing (Just ("score", False)) Nothing)
+          TournamentPlayersLoaded TournamentLoadError
+        selectWithFilters "tournament_pairings" "*"
+          [eq "tournament_id" tid]
+          (FetchOptions Nothing Nothing (Just ("round_number", True)) Nothing)
+          TournamentPairingsLoaded TournamentLoadError
+      CreateTournamentRoute ->
+        modify $ \x -> x
+          { mScreen = CreateTournamentScreen
+          , mTFormName = ""
+          , mTFormDescription = ""
+          , mTFormFormat = "swiss"
+          , mTFormVariant = Tablut
+          , mTFormTimeControl = NoTimeControl
+          , mTFormIsRated = True
+          , mTFormMaxPlayers = ""
+          , mTFormIsPrivate = False
+          , mTFormRoundInterval = 0
+          , mTFormForfeitTimeout = 1440
+          }
       JoinRoute mCode -> do
         modify $ \x -> x
           { mScreen        = JoinScreen
@@ -1002,6 +1044,214 @@ updateModel loungeChannelRef = \case
 
   Undo -> pure ()  -- game component handles undo internally
 
+  -- Tournaments -----------------------------------------------------------
+
+  GotoTournaments ->
+    io_ $ pushURI tournamentsURI
+
+  TournamentsLoaded val ->
+    case fromJSON val of
+      Success ts -> modify $ \x -> x { mTournaments = ts, mTournamentsLoading = False }
+      Error _    -> modify $ \x -> x { mTournaments = [], mTournamentsLoading = False }
+
+  TournamentsLoadError _ ->
+    modify $ \x -> x { mTournamentsLoading = False }
+
+  GotoTournament tid ->
+    io_ $ pushURI (tournamentURI tid)
+
+  TournamentLoaded val ->
+    case fromJSON val of
+      Success ts -> case (ts :: [TournamentRow]) of
+        (t:_) -> modify $ \x -> x { mTournament = Just t, mTournamentLoading = False
+                                   , mTournamentRound = trCurrentRound t }
+        []    -> modify $ \x -> x { mTournamentLoading = False }
+      Error _ -> modify $ \x -> x { mTournamentLoading = False }
+
+  TournamentPlayersLoaded val ->
+    case fromJSON val of
+      Success ps -> modify $ \x -> x { mTournamentPlayers = ps }
+      Error _    -> pure ()
+
+  TournamentPairingsLoaded val ->
+    case fromJSON val of
+      Success ps -> modify $ \x -> x { mTournamentPairings = ps }
+      Error _    -> pure ()
+
+  TournamentLoadError _ ->
+    modify $ \x -> x { mTournamentLoading = False }
+
+  TournamentRealtimeChange val -> do
+    m <- get
+    when (mScreen m == TournamentScreen) $
+      case mTournament m of
+        Just t -> do
+          selectWithFilters "tournaments" "*"
+            [eq "id" (trId t)]
+            (FetchOptions Nothing Nothing Nothing Nothing)
+            TournamentLoaded TournamentLoadError
+          selectWithFilters "tournament_players" "*"
+            [eq "tournament_id" (trId t)]
+            (FetchOptions Nothing Nothing (Just ("score", False)) Nothing)
+            TournamentPlayersLoaded TournamentLoadError
+          selectWithFilters "tournament_pairings" "*"
+            [eq "tournament_id" (trId t)]
+            (FetchOptions Nothing Nothing (Just ("round_number", True)) Nothing)
+            TournamentPairingsLoaded TournamentLoadError
+        Nothing -> pure ()
+
+  TournamentRealtimeSubscribed _ -> pure ()
+
+  TournamentRealtimeError _ -> pure ()
+
+  SetTournamentRound r ->
+    modify $ \x -> x { mTournamentRound = r }
+
+  GotoCreateTournament ->
+    io_ $ pushURI createTournamentURI
+
+  SetTFormName s       -> modify $ \x -> x { mTFormName = s }
+  SetTFormDescription s -> modify $ \x -> x { mTFormDescription = s }
+  SetTFormFormat s     -> modify $ \x -> x { mTFormFormat = s }
+  SetTFormVariant v    -> modify $ \x -> x { mTFormVariant = v }
+  SetTFormTimeControl tc -> modify $ \x -> x { mTFormTimeControl = tc }
+  SetTFormIsRated b    -> modify $ \x -> x { mTFormIsRated = b }
+  SetTFormMaxPlayers s -> modify $ \x -> x { mTFormMaxPlayers = s }
+  SetTFormIsPrivate b  -> modify $ \x -> x { mTFormIsPrivate = b }
+  SetTFormRoundInterval n -> modify $ \x -> x { mTFormRoundInterval = n }
+  SetTFormForfeitTimeout n -> modify $ \x -> x { mTFormForfeitTimeout = n }
+
+  CreateTournament -> do
+    m <- get
+    case mSession m of
+      Nothing -> pure ()
+      Just _ ->
+        if mTFormIsPrivate m
+          then io $ do
+            tid <- js_generateUUID
+            code <- generateInviteCode
+            pure (TournamentCreated (object ["tid" .= tid, "invite_code" .= code]))
+          else io $ do
+            tid <- js_generateUUID
+            pure (TournamentCreated (object ["tid" .= tid]))
+
+  TournamentCreated val -> do
+    m <- get
+    case mSession m of
+      Nothing -> pure ()
+      Just sess -> do
+        let tid = case parseMaybe (withObject "tc" (.: "tid")) val of
+              Just t  -> (t :: MisoString)
+              Nothing -> ""
+            mCode = parseMaybe (withObject "tc" (.: "invite_code")) val :: Maybe MisoString
+            uid = userId (sessionUser sess)
+            name = maybe "" pUsername (mProfile m)
+            varSlug = ms (variantSlug (mTFormVariant m))
+            maxP = case reads (fromMisoString (mTFormMaxPlayers m) :: String) of
+                     ((n, _):_) -> Just (n :: Int)
+                     _          -> Nothing
+            (tcType, tcPlayerMs, tcMoveSec) = case mTFormTimeControl m of
+              NoTimeControl     -> (Nothing, Nothing, Nothing)
+              BlitzControl ms'  -> (Just ("blitz" :: MisoString), Just ms', Nothing)
+              DailyControl sec  -> (Just ("daily" :: MisoString), Nothing, Just sec)
+            tData = object $
+              [ "id"              .= tid
+              , "organizer_id"    .= uid
+              , "organizer_name"  .= name
+              , "name"            .= mTFormName m
+              , "format"          .= mTFormFormat m
+              , "variant"         .= varSlug
+              , "is_rated"        .= mTFormIsRated m
+              , "is_private"      .= mTFormIsPrivate m
+              , "round_interval_minutes" .= mTFormRoundInterval m
+              , "forfeit_timeout_minutes" .= mTFormForfeitTimeout m
+              ]
+              ++ maybe [] (\d -> ["description" .= d]) (if mTFormDescription m == "" then Nothing else Just (mTFormDescription m))
+              ++ maybe [] (\tc -> ["time_control" .= tc]) tcType
+              ++ maybe [] (\ms' -> ["time_per_player_ms" .= ms']) tcPlayerMs
+              ++ maybe [] (\s -> ["time_per_move_seconds" .= s]) tcMoveSec
+              ++ maybe [] (\n -> ["max_players" .= n]) maxP
+              ++ maybe [] (\c -> ["invite_code" .= c]) mCode
+        insert "tournaments" tData (InsertOptions Nothing Nothing)
+          (\_ -> GotoTournament tid) TournamentCreateError
+
+  TournamentCreateError msg ->
+    modify $ \x -> x { mToast = Just ("Error creating tournament: " <> msg) }
+
+  JoinTournament tid -> do
+    m <- get
+    case (mSession m, mProfile m) of
+      (Just sess, Just profile) -> do
+        let uid = userId (sessionUser sess)
+        insert "tournament_players"
+          (object [ "tournament_id" .= tid
+                  , "player_id"     .= uid
+                  , "player_name"   .= pUsername profile
+                  ])
+          (InsertOptions Nothing Nothing)
+          TournamentJoined TournamentJoinError
+      _ -> modify $ \x -> x { mToast = Just "Please sign in and create a profile first." }
+
+  TournamentJoined _ -> do
+    m <- get
+    case mTournament m of
+      Just t -> do
+        selectWithFilters "tournament_players" "*"
+          [eq "tournament_id" (trId t)]
+          (FetchOptions Nothing Nothing (Just ("score", False)) Nothing)
+          TournamentPlayersLoaded TournamentLoadError
+      Nothing -> pure ()
+
+  TournamentJoinError msg ->
+    modify $ \x -> x { mToast = Just ("Error joining tournament: " <> msg) }
+
+  StartTournament tid -> do
+    withSink $ \sink -> do
+      okCb  <- successCallback sink (\_ -> TournamentStarted (object [])) (\v -> TournamentStarted v)
+      errCb <- errorCallback sink (\msg -> TournamentStartError msg)
+      js_invokeEdgeFunction "tournament-advance"
+        (object ["tournament_id" .= tid, "action" .= ("start" :: MisoString)])
+        okCb errCb
+
+  TournamentStarted _ -> do
+    m <- get
+    case mTournament m of
+      Just t -> do
+        selectWithFilters "tournaments" "*"
+          [eq "id" (trId t)]
+          (FetchOptions Nothing Nothing Nothing Nothing)
+          TournamentLoaded TournamentLoadError
+        selectWithFilters "tournament_pairings" "*"
+          [eq "tournament_id" (trId t)]
+          (FetchOptions Nothing Nothing (Just ("round_number", True)) Nothing)
+          TournamentPairingsLoaded TournamentLoadError
+      Nothing -> pure ()
+
+  TournamentStartError msg ->
+    modify $ \x -> x { mToast = Just ("Error starting tournament: " <> msg) }
+
+  SetTournamentCodeInput s ->
+    modify $ \x -> x { mTournamentCodeInput = s }
+
+  LookupTournamentByCode -> do
+    m <- get
+    let code = mTournamentCodeInput m
+    when (code /= "") $
+      selectWithFilters "tournaments" "*"
+        [eq "invite_code" code]
+        (FetchOptions Nothing Nothing Nothing Nothing)
+        TournamentFoundByCode TournamentCodeError
+
+  TournamentFoundByCode val ->
+    case fromJSON val of
+      Success ts -> case (ts :: [TournamentRow]) of
+        (t:_) -> io_ $ pushURI (tournamentURI (trId t))
+        []    -> modify $ \x -> x { mToast = Just "No tournament found with that code." }
+      Error _ -> modify $ \x -> x { mToast = Just "Failed to look up tournament." }
+
+  TournamentCodeError msg ->
+    modify $ \x -> x { mToast = Just ("Lookup error: " <> msg) }
+
   -- Push notifications (app-level) ----------------------------------------
 
   InitPushStatus permState brave firefox safari edge macOS ->
@@ -1258,6 +1508,14 @@ dedup = go []
     go seen (g:gs)
       | grwId g `elem` seen = go seen gs
       | otherwise           = g : go (grwId g : seen) gs
+
+-- | Load public tournaments for the tournament list.
+loadTournaments :: Effect ROOT () Model Action
+loadTournaments =
+  selectWithFilters "tournaments" "*"
+    [neq "status" ("cancelled" :: MisoString)]
+    (FetchOptions Nothing Nothing (Just ("created_at", False)) (Just 50))
+    TournamentsLoaded TournamentsLoadError
 
 -- | Activate the match interest toggle: ensure auth, subscribe, and query.
 activateMatchInterest :: Effect ROOT () Model Action
