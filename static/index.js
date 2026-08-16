@@ -354,7 +354,11 @@ globalThis.nowISO = function() { return new Date().toISOString(); };
 
 globalThis.elapsedMs = function(isoString) {
   if (!isoString) return 0;
-  return Math.max(0, Date.now() - new Date(isoString).getTime());
+  // Clamp below 2^31 - the Haskell side receives this as a 32-bit Int on
+  // wasm32, and elapsed durations past ~24.8 days would otherwise overflow
+  // and wrap into a small/negative number, making stale games look "recent".
+  var diff = Date.now() - new Date(isoString).getTime();
+  return Math.max(0, Math.min(diff, 2000000000));
 };
 
 globalThis.formatDeadline = function(isoString) {
