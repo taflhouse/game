@@ -159,10 +159,11 @@ viewNavbar m =
           H.div_
             [ HP.class_ "flex items-center gap-2"
             ]
-            (  viewLfgToggle m : viewPushBell m : themeToggleBtn
-            :  tournamentsLink : learnLink
-            :  viewNavMenu m
-            :  navAuthButtons m
+            (  (  viewLfgToggle m : viewPushBell m : themeToggleBtn
+               :  tournamentsLink : learnLink
+               :  navAuthButtons m
+               )
+            ++ [ viewNavMenu m ]
             )
         ]
     ]
