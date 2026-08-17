@@ -46,6 +46,7 @@ viewModel gameComp replayComp tutorialComp _ m =
     [ if zen then text "" else viewNavbar m
     , H.div_
         [ HP.class_ "flex-1 overflow-y-auto overscroll-none"
+        , HP.id_ "app-scroll"
         ]
         [ H.div_
             [ HP.class_ (if zen

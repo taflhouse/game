@@ -277,6 +277,9 @@
   .absolute {
     position: absolute;
   }
+  .fixed {
+    position: fixed;
+  }
   .relative {
     position: relative;
   }
@@ -6637,8 +6640,15 @@ code.hljs {
   }
 }
 
-/* Guard against any single row (e.g. the navbar) forcing the whole page to
-   overflow horizontally on narrow viewports. */
-html, body {
+/* #app-scroll is a flex item (flex-1) inside the fixed-position app shell
+   and is meant to be the page's one scrollable region. Without an explicit
+   min-height, flex items default to min-height:auto, which lets this div
+   grow to fit tall content (long forms like New Tournament/New Game)
+   instead of clamping to the space left under the navbar - so it never
+   overflows itself and never scrolls. On mobile, where there's no page-level
+   scroll fallback to fall back on (the app shell is position:fixed), this
+   made long forms completely unreachable below the fold. */
+#app-scroll {
+  min-height: 0;
   overflow-x: hidden;
 }
