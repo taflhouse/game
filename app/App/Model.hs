@@ -148,6 +148,7 @@ data Model = Model
   , mEditUsername     :: !MisoString
   , mEditDisplayName  :: !MisoString
   , mProfileDropdown  :: !Bool
+  , mNavMenuOpen      :: !Bool
     -- Home
   , mPastGames        :: [GameRecord]
   , mGamesLoading     :: !Bool
@@ -239,7 +240,7 @@ instance Eq Model where
     && mProfile a == mProfile b && mNeedsUsername a == mNeedsUsername b
     && mUsernameInput a == mUsernameInput b
     && mEditUsername a == mEditUsername b && mEditDisplayName a == mEditDisplayName b
-    && mProfileDropdown a == mProfileDropdown b
+    && mProfileDropdown a == mProfileDropdown b && mNavMenuOpen a == mNavMenuOpen b
     && mPastGames a == mPastGames b && mGamesLoading a == mGamesLoading b
     && mLocalGames a == mLocalGames b
     && mShowQuoteRef a == mShowQuoteRef b && mQuoteRefGen a == mQuoteRefGen b
@@ -322,6 +323,7 @@ initModel = Model
   , mEditUsername     = ""
   , mEditDisplayName  = ""
   , mProfileDropdown  = False
+  , mNavMenuOpen      = False
   , mPastGames        = []
   , mGamesLoading     = False
   , mLocalGames       = []

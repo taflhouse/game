@@ -72,7 +72,8 @@ updateModel loungeChannelRef = \case
   GotoJoin ->
     io_ $ pushURI joinBareURI
 
-  GotoLearn ->
+  GotoLearn -> do
+    modify $ \m -> m { mNavMenuOpen = False }
     io_ $ pushURI learnURI
 
   ToggleConfigExpand ->
@@ -583,6 +584,9 @@ updateModel loungeChannelRef = \case
   ToggleProfileDropdown ->
     modify $ \m -> m { mProfileDropdown = not (mProfileDropdown m) }
 
+  ToggleNavMenu ->
+    modify $ \m -> m { mNavMenuOpen = not (mNavMenuOpen m) }
+
   GotoYourGames -> do
     modify $ \m -> m { mProfileDropdown = False }
     io_ $ pushURI yourGamesURI
@@ -1066,7 +1070,8 @@ updateModel loungeChannelRef = \case
 
   -- Tournaments -----------------------------------------------------------
 
-  GotoTournaments ->
+  GotoTournaments -> do
+    modify $ \m -> m { mNavMenuOpen = False }
     io_ $ pushURI tournamentsURI
 
   TournamentsLoaded val ->

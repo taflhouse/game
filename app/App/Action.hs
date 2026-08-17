@@ -72,6 +72,7 @@ data Action
   | ProfileLoaded Value
   | ProfileLoadError MisoString
   | ToggleProfileDropdown
+  | ToggleNavMenu
   | GotoProfile
   | GotoProfileEdit
   | GotoYourGames

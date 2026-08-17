@@ -157,31 +157,88 @@ viewNavbar m =
             [ text "TAFLHOUSE" ]
         , -- Right: controls
           H.div_
-            [ HP.class_ "flex items-center gap-4"
+            [ HP.class_ "flex items-center gap-2"
             ]
-            (viewLfgToggle m : viewPushBell m : themeToggleBtn : tournamentsLink : learnLink : navAuthButtons m)
+            (  viewLfgToggle m : viewPushBell m : themeToggleBtn
+            :  tournamentsLink : learnLink
+            :  viewNavMenu m
+            :  navAuthButtons m
+            )
         ]
     ]
 
--- | "Tournaments" link in the navbar.
+-- | "Tournaments" link in the navbar. Hidden below 640px (see 'viewNavMenu'
+-- and the @.nav-wide-only@ rule in static/assets/styles.css).
 tournamentsLink :: View Model Action
 tournamentsLink =
   H.span_
-    [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+    [ HP.class_ "nav-wide-only text-sm text-muted-foreground hover:text-foreground cursor-pointer"
     , style_ [("touch-action", "manipulation")]
     , SVG.onClick GotoTournaments
     ]
     [ text "Tournaments" ]
 
--- | "Learn" link in the navbar.
+-- | "Learn" link in the navbar. Hidden below 640px (see 'viewNavMenu').
 learnLink :: View Model Action
 learnLink =
   H.span_
-    [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+    [ HP.class_ "nav-wide-only text-sm text-muted-foreground hover:text-foreground cursor-pointer"
     , style_ [("touch-action", "manipulation")]
     , SVG.onClick GotoLearn
     ]
     [ text "Learn" ]
+
+-- | Hamburger menu holding "Tournaments" and "Learn" below 640px, where
+-- there isn't room to show them as standalone nav links (see 'tournamentsLink').
+viewNavMenu :: Model -> View Model Action
+viewNavMenu m =
+  H.div_
+    [ HP.class_ "nav-narrow-only"
+    , style_ [("position", "relative")]
+    ]
+    [ H.button_
+        [ HP.class_ "p-2 rounded-md text-foreground hover:bg-muted cursor-pointer"
+        , style_ [("touch-action", "manipulation"), ("background", "none"), ("border", "none")]
+        , SVG.onClick ToggleNavMenu
+        , HP.title_ "Menu"
+        ]
+        [ SVG.svg_
+            [ SP.viewBox_ "0 0 24 24"
+            , HP.width_ "18"
+            , HP.height_ "18"
+            , SP.fill_ "none"
+            , SP.stroke_ "currentcolor"
+            , SP.strokeWidth_ "2"
+            , SP.strokeLinecap_ "round"
+            , SP.strokeLinejoin_ "round"
+            ]
+            [ SVG.path_ [ SP.d_ "M4 6h16" ]
+            , SVG.path_ [ SP.d_ "M4 12h16" ]
+            , SVG.path_ [ SP.d_ "M4 18h16" ]
+            ]
+        ]
+    , if mNavMenuOpen m
+        then H.div_
+          [ HP.class_ "card p-2 flex flex-col gap-1"
+          , style_ [ ("position", "absolute"), ("right", "0"), ("top", "100%")
+                   , ("margin-top", "0.5em"), ("min-width", "8rem"), ("z-index", "50")
+                   ]
+          ]
+          [ H.button_
+              [ HP.class_ "text-sm text-left px-3 py-1.5 rounded hover:bg-muted cursor-pointer bg-transparent border-0 text-foreground w-full"
+              , style_ [("touch-action", "manipulation")]
+              , SVG.onClick GotoTournaments
+              ]
+              [ text "Tournaments" ]
+          , H.button_
+              [ HP.class_ "text-sm text-left px-3 py-1.5 rounded hover:bg-muted cursor-pointer bg-transparent border-0 text-foreground w-full"
+              , style_ [("touch-action", "manipulation")]
+              , SVG.onClick GotoLearn
+              ]
+              [ text "Learn" ]
+          ]
+        else text ""
+    ]
 
 -- | Bell icon for push notifications — shows current permission state.
 viewPushBell :: Model -> View Model Action
