@@ -152,11 +152,11 @@ viewNavbar m =
         ]
         [ -- Left: brand
           H.span_
-            [ HP.class_ "text-xl font-bold tracking-widest text-foreground/80 cursor-pointer select-none"
+            [ HP.class_ "flex items-center gap-2 text-xl font-bold tracking-widest text-foreground/80 cursor-pointer select-none"
             , style_ [("touch-action", "manipulation")]
             , SVG.onClick GotoHome
             ]
-            [ text "TAFLHOUSE" ]
+            [ brandLogoLight, brandLogoDark, text "TAFLHOUSE" ]
         , -- Right: controls
           H.div_
             [ HP.class_ "flex items-center gap-2"
@@ -167,6 +167,48 @@ viewNavbar m =
             )
         ]
     ]
+
+-- | Logo mark for light mode. Mirrors static/assets/taflhouse-logo-light.svg
+-- exactly; swapped for 'brandLogoDark' via the same @dark:@ class pattern
+-- 'viewThemeSwitch' toggles.
+brandLogoLight :: View Model Action
+brandLogoLight = brandLogo "hidden dark:block" "#E0E0F0"
+
+-- | Logo mark for dark mode. Mirrors static/assets/taflhouse-logo-dark.svg.
+brandLogoDark :: View Model Action
+brandLogoDark = brandLogo "dark:hidden" "#0F0F1A"
+
+brandLogo :: MisoString -> MisoString -> View Model Action
+brandLogo visibilityClass bgColor =
+  SVG.svg_
+    [ HP.class_ ("brand-mark " <> visibilityClass)
+    , SP.viewBox_ "0 0 1002 952"
+    , SP.fill_ "none"
+    ]
+    ( SVG.rect_
+        [ SP.x_ "13.5", SP.y_ "13.5", HP.width_ "974.766", HP.height_ "924.589"
+        , SP.fill_ bgColor, SP.stroke_ "#6E57CF", SP.strokeWidth_ "27"
+        ]
+    : [ SVG.rect_
+          [ SP.x_ x, SP.y_ y, HP.width_ "25.1698", HP.height_ "25.1698"
+          , SP.fill_ "#6E56CF", SP.stroke_ "#6E57CF", SP.strokeWidth_ "25.1698"
+          ]
+      | (x, y) <- pieceCoords
+      ]
+    )
+  where
+    pieceCoords :: [(MisoString, MisoString)]
+    pieceCoords =
+      [ ("488.107","237.585"), ("544.487","237.585"), ("431.726","237.585")
+      , ("262.585","406.726"), ("262.585","519.487")
+      , ("488.107","293.965"), ("488.107","350.346"), ("488.107","406.726"), ("488.107","463.107")
+      , ("544.487","463.107"), ("600.868","463.107"), ("431.726","463.107")
+      , ("375.346","463.107"), ("318.965","463.107")
+      , ("657.248","463.107"), ("713.628","463.107"), ("713.628","406.726"), ("713.628","519.487")
+      , ("262.585","463.107")
+      , ("488.107","519.487"), ("488.107","575.868"), ("488.107","632.248"), ("488.107","688.628")
+      , ("544.487","688.628"), ("431.726","688.628")
+      ]
 
 -- | Tournaments are still being tested, so the link is hidden on the
 -- production domain (taflhouse.com) and shown everywhere else (qa.taflhouse.com,
