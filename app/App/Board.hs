@@ -393,9 +393,13 @@ viewBoardContainer
   -> View model action  -- ^ board content (SVG)
   -> View model action
 viewBoardContainer fs zen _n content =
-  let fsSize = if zen
+  let -- Wrapped in max(normalBoardWidthCss, ...) so fullscreen can never
+      -- render smaller than the normal view — on a typical laptop-height
+      -- viewport, "calc(100vh - 29rem)" alone can clamp down below what
+      -- normal mode already shows, which defeats the point of fullscreen.
+      fsSize = "max(" <> normalBoardWidthCss <> ", " <> (if zen
         then "85vmin"
-        else "clamp(50vmin, calc(100vh - 29rem), 85vmin)"
+        else "clamp(50vmin, calc(100vh - 29rem), 85vmin)") <> ")"
   in H.div_
     [ HP.class_ "relative shadow-2xl rounded overflow-hidden border-2 border-border"
     , style_ (if fs
