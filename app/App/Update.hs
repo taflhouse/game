@@ -582,10 +582,10 @@ updateModel loungeChannelRef = \case
     modify $ \m -> m { mNeedsUsername = True }
 
   ToggleProfileDropdown ->
-    modify $ \m -> m { mProfileDropdown = not (mProfileDropdown m) }
+    modify $ \m -> m { mProfileDropdown = not (mProfileDropdown m), mNavMenuOpen = False }
 
   ToggleNavMenu ->
-    modify $ \m -> m { mNavMenuOpen = not (mNavMenuOpen m) }
+    modify $ \m -> m { mNavMenuOpen = not (mNavMenuOpen m), mProfileDropdown = False }
 
   GotoYourGames -> do
     modify $ \m -> m { mProfileDropdown = False }
