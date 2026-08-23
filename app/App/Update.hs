@@ -1538,7 +1538,7 @@ dedup = go []
 loadTournaments :: Effect ROOT () Model Action
 loadTournaments =
   selectWithFilters "tournaments" "*"
-    [neq "status" ("cancelled" :: MisoString)]
+    [neq "status" ("cancelled" :: MisoString), eq "is_private" False]
     (FetchOptions Nothing Nothing (Just ("created_at", False)) (Just 50))
     TournamentsLoaded TournamentsLoadError
 
