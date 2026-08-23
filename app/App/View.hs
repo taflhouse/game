@@ -12,6 +12,7 @@ import qualified Miso.Svg.Property as SP
 
 import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
 
+import App.FFI (js_getHostname)
 import App.JSON (Profile(..), GameRow(..))
 import App.Model
 import App.Action
@@ -160,17 +161,22 @@ viewNavbar m =
           H.div_
             [ HP.class_ "flex items-center gap-2"
             ]
-            (  (  viewLfgToggle m : viewPushBell m : themeToggleBtn
-               :  tournamentsLink : learnLink
-               :  navAuthButtons m
-               )
+            (  viewLfgToggle m : viewPushBell m : themeToggleBtn
+            :  ([tournamentsLink | showTournamentsLink] ++ learnLink : navAuthButtons m)
             ++ [ viewNavMenu m ]
             )
         ]
     ]
 
+-- | Tournaments are still being tested, so the link is hidden on the
+-- production domain (taflhouse.com) and shown everywhere else (qa.taflhouse.com,
+-- local dev, previews).
+showTournamentsLink :: Bool
+showTournamentsLink = js_getHostname /= "taflhouse.com"
+
 -- | "Tournaments" link in the navbar. Hidden below 640px (see 'viewNavMenu'
--- and the @.nav-wide-only@ rule in static/assets/styles.css).
+-- and the @.nav-wide-only@ rule in static/assets/styles.css), and hidden on
+-- the production domain (see 'showTournamentsLink').
 tournamentsLink :: View Model Action
 tournamentsLink =
   H.span_
@@ -226,19 +232,22 @@ viewNavMenu m =
                    , ("margin-top", "0.5em"), ("min-width", "8rem"), ("z-index", "50")
                    ]
           ]
-          [ H.button_
-              [ HP.class_ "text-sm text-left px-3 py-1.5 rounded hover:bg-muted cursor-pointer bg-transparent border-0 text-foreground w-full"
-              , style_ [("touch-action", "manipulation")]
-              , SVG.onClick GotoTournaments
-              ]
-              [ text "Tournaments" ]
-          , H.button_
-              [ HP.class_ "text-sm text-left px-3 py-1.5 rounded hover:bg-muted cursor-pointer bg-transparent border-0 text-foreground w-full"
-              , style_ [("touch-action", "manipulation")]
-              , SVG.onClick GotoLearn
-              ]
-              [ text "Learn" ]
-          ]
+          (  [ H.button_
+                 [ HP.class_ "text-sm text-left px-3 py-1.5 rounded hover:bg-muted cursor-pointer bg-transparent border-0 text-foreground w-full"
+                 , style_ [("touch-action", "manipulation")]
+                 , SVG.onClick GotoTournaments
+                 ]
+                 [ text "Tournaments" ]
+             | showTournamentsLink
+             ]
+          ++ [ H.button_
+                 [ HP.class_ "text-sm text-left px-3 py-1.5 rounded hover:bg-muted cursor-pointer bg-transparent border-0 text-foreground w-full"
+                 , style_ [("touch-action", "manipulation")]
+                 , SVG.onClick GotoLearn
+                 ]
+                 [ text "Learn" ]
+             ]
+          )
         else text ""
     ]
 
