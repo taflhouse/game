@@ -58,6 +58,7 @@ module App.FFI
   , js_generateUUID
   , js_copyToClipboard
   , js_getOrigin
+  , js_getHostname
   , js_generateQRDataURL
   , js_nowISO
   , js_elapsedMs
@@ -102,6 +103,8 @@ foreign import javascript unsafe "globalThis.copyToClipboard($1)"
   js_copyToClipboard_raw :: JSVal -> IO ()
 foreign import javascript unsafe "globalThis.location.origin"
   js_getOrigin_raw :: IO JSVal
+foreign import javascript unsafe "globalThis.location.hostname"
+  js_getHostname_raw :: IO JSVal
 foreign import javascript unsafe "globalThis.generateQRDataURL($1)"
   js_generateQRDataURL_raw :: JSVal -> IO JSVal
 foreign import javascript unsafe "globalThis.toggleFullscreen()"
@@ -328,6 +331,8 @@ js_copyToClipboard_raw :: JSVal -> IO ()
 js_copyToClipboard_raw _ = pure ()
 js_getOrigin_raw :: IO JSVal
 js_getOrigin_raw = toJSVal ("http://localhost:8080" :: MisoString)
+js_getHostname_raw :: IO JSVal
+js_getHostname_raw = toJSVal ("localhost" :: MisoString)
 js_generateQRDataURL_raw :: JSVal -> IO JSVal
 js_generateQRDataURL_raw _ = toJSVal ("" :: MisoString)
 js_toggleFullscreen :: IO ()
@@ -448,6 +453,12 @@ js_copyToClipboard s = toJSVal s >>= js_copyToClipboard_raw
 
 js_getOrigin :: IO MisoString
 js_getOrigin = fromJSValUnchecked =<< js_getOrigin_raw
+
+-- | Current page hostname (e.g. "taflhouse.com", "qa.taflhouse.com"). Stable
+-- for the lifetime of a page load, so it's safe to read as a pure value.
+{-# NOINLINE js_getHostname #-}
+js_getHostname :: MisoString
+js_getHostname = unsafePerformIO $ fromJSValUnchecked =<< js_getHostname_raw
 
 js_generateQRDataURL :: MisoString -> IO MisoString
 js_generateQRDataURL s = do
