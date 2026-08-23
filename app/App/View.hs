@@ -172,11 +172,11 @@ viewNavbar m =
 -- exactly; swapped for 'brandLogoDark' via the same @dark:@ class pattern
 -- 'viewThemeSwitch' toggles.
 brandLogoLight :: View Model Action
-brandLogoLight = brandLogo "hidden dark:block" "#E0E0F0"
+brandLogoLight = brandLogo "dark:hidden" "#E0E0F0"
 
 -- | Logo mark for dark mode. Mirrors static/assets/taflhouse-logo-dark.svg.
 brandLogoDark :: View Model Action
-brandLogoDark = brandLogo "dark:hidden" "#0F0F1A"
+brandLogoDark = brandLogo "hidden dark:block" "#0F0F1A"
 
 brandLogo :: MisoString -> MisoString -> View Model Action
 brandLogo visibilityClass bgColor =

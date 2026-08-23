@@ -29,7 +29,7 @@ import App.Route (variantSlugMs, variantName, lookupVariant)
 viewLounge :: Model -> View Model Action
 viewLounge m =
   H.div_
-    [ HP.class_ "w-full max-w-5xl lounge-zoom" ]
+    [ HP.class_ "w-full max-w-7xl" ]
     ( [ viewHero ]
    ++ (if mLoungeLoading m then []
         else
@@ -84,7 +84,7 @@ viewHero =
             [ HP.class_ "lounge-hero-title" ]
             [ text "One king."
             , H.br_ []
-            , text "Twenty-four attackers."
+            , text "Sixteen attackers."
             , H.br_ []
             , H.em_ [] [ text "Four ways out." ]
             ]
@@ -129,9 +129,10 @@ iconJoin =
     ]
     [ SVG.path_ [ SP.d_ "M9 3h6l3 4-8 14L4 7l5-4Z" ] ]
 
--- | Ambient hnefatafl board (Copenhagen 11x11 opening position) shown
--- beside the hero copy on wide screens. Purely decorative — hidden below
--- the hero's collapse breakpoint (see .lounge-board-art in styles.css).
+-- | Ambient tablut board (9x9 opening position, per boardTablut in
+-- src/Tafl/Game/Board.hs) shown beside the hero copy on wide screens.
+-- Purely decorative — hidden below the hero's collapse breakpoint (see
+-- .lounge-board-art in styles.css).
 viewBoardArt :: View Model Action
 viewBoardArt =
   H.div_
@@ -157,30 +158,30 @@ viewBoardArt =
     dot (cx, cy) =
       SVG.circle_ [ SP.cx_ (ms (show (cx :: Int))), SP.cy_ (ms (show (cy :: Int))), SP.r_ "5" ]
 
+    -- 9x9 grid, cell = 22 (edges at 2 and 200, same frame as before).
     gridCoords :: [Int]
-    gridCoords = [2, 20 .. 200]
+    gridCoords = [2, 24 .. 200]
 
     boardGridLines :: [View Model Action]
     boardGridLines =
          [ SVG.line_ [ SP.x1_ (ms (show p)), SP.y1_ "2", SP.x2_ (ms (show p)), SP.y2_ "200" ] | p <- gridCoords ]
       ++ [ SVG.line_ [ SP.x1_ "2", SP.y1_ (ms (show p)), SP.x2_ "200", SP.y2_ (ms (show p)) ] | p <- gridCoords ]
 
-    -- Attackers: edge clusters of 5 plus one advanced piece per side (24 total).
+    -- Attackers: four groups of four at the cardinal edges (16 total).
     attackerCoords :: [(Int, Int)]
     attackerCoords =
-      [ (65,11),(83,11),(101,11),(119,11),(137,11),(101,29)
-      , (65,191),(83,191),(101,191),(119,191),(137,191),(101,173)
-      , (11,65),(11,83),(11,101),(11,119),(11,137),(29,101)
-      , (191,65),(191,83),(191,101),(191,119),(191,137),(173,101)
+      [ (79,13),(101,13),(123,13),(101,35)
+      , (79,189),(101,189),(123,189),(101,167)
+      , (13,79),(13,101),(13,123),(35,101)
+      , (189,79),(189,101),(189,123),(167,101)
       ]
 
-    -- Defenders: the diamond formation surrounding the king (12 total).
+    -- Defenders: the tight cross around the king (8 total).
     defenderCoords :: [(Int, Int)]
     defenderCoords =
-      [ (83,83),(101,83),(119,83)
-      , (83,101),          (119,101)
-      , (83,119),(101,119),(119,119)
-      , (101,65),(101,137),(65,101),(137,101)
+      [ (101,57),(101,79)
+      , (57,101),(79,101),(123,101),(145,101)
+      , (101,123),(101,145)
       ]
 
 -- ---------------------------------------------------------------------------
