@@ -161,7 +161,7 @@ viewNavbar m =
           H.div_
             [ HP.class_ "flex items-center gap-2"
             ]
-            (  viewLfgToggle m : viewPushBell m : themeToggleBtn
+            (  viewLfgToggle m : viewPushBell m : viewThemeSwitch m
             :  ([tournamentsLink | showTournamentsLink] ++ learnLink : navAuthButtons m)
             ++ [ viewNavMenu m ]
             )
@@ -532,29 +532,41 @@ viewLfgToggle m =
         []
     ]
 
-themeToggleBtn :: View Model Action
-themeToggleBtn =
-  H.button_
-    [ HP.class_ "p-2 rounded-md text-foreground hover:bg-muted cursor-pointer"
-    , style_ [("touch-action", "manipulation"), ("background", "none"), ("border", "none")]
-    , SVG.onClick ToggleTheme
-    , HP.title_ "Toggle theme"
+-- | Light/Dark/System switch. "System" (the default) means the app just
+-- follows the OS's own color-scheme preference, live — see 'js_getThemeMode'
+-- / 'js_setTheme' and the pre-paint script in static/index.html.
+viewThemeSwitch :: Model -> View Model Action
+viewThemeSwitch m =
+  H.div_
+    [ HP.class_ "theme-switch" ]
+    [ themeSwitchBtn "dark"   "Dark theme"   iconMoon
+    , themeSwitchBtn "system" "Match system" iconMonitor
+    , themeSwitchBtn "light"  "Light theme"  iconSun
     ]
-    [ iconSun, iconMoon ]
+  where
+    current = mThemeMode m
+    themeSwitchBtn mode label icon =
+      H.button_
+        [ HP.class_ ("theme-switch-btn" <> if current == mode then " active" else "")
+        , style_ [("touch-action", "manipulation")]
+        , SVG.onClick (ChooseTheme mode)
+        , HP.title_ label
+        ]
+        [ icon ]
+
+themeIconAttrs =
+  [ SP.viewBox_ "0 0 24 24"
+  , SP.fill_ "none"
+  , SP.stroke_ "currentcolor"
+  , SP.strokeWidth_ "2"
+  , SP.strokeLinecap_ "round"
+  , SP.strokeLinejoin_ "round"
+  ]
 
 iconSun :: View Model Action
 iconSun =
   SVG.svg_
-    [ HP.class_ "hidden dark:block"
-    , SP.viewBox_ "0 0 24 24"
-    , HP.width_ "18"
-    , HP.height_ "18"
-    , SP.fill_ "none"
-    , SP.stroke_ "currentcolor"
-    , SP.strokeWidth_ "2"
-    , SP.strokeLinecap_ "round"
-    , SP.strokeLinejoin_ "round"
-    ]
+    themeIconAttrs
     [ SVG.circle_ [ SP.cx_ "12", SP.cy_ "12", SP.r_ "4" ]
     , SVG.path_ [ SP.d_ "M12 2v2" ]
     , SVG.path_ [ SP.d_ "M12 20v2" ]
@@ -569,17 +581,17 @@ iconSun =
 iconMoon :: View Model Action
 iconMoon =
   SVG.svg_
-    [ HP.class_ "dark:hidden"
-    , SP.viewBox_ "0 0 24 24"
-    , HP.width_ "18"
-    , HP.height_ "18"
-    , SP.fill_ "none"
-    , SP.stroke_ "currentcolor"
-    , SP.strokeWidth_ "2"
-    , SP.strokeLinecap_ "round"
-    , SP.strokeLinejoin_ "round"
-    ]
+    themeIconAttrs
     [ SVG.path_ [ SP.d_ "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" ] ]
+
+iconMonitor :: View Model Action
+iconMonitor =
+  SVG.svg_
+    themeIconAttrs
+    [ SVG.rect_ [ SP.x_ "2", SP.y_ "3", HP.width_ "20", HP.height_ "14", SP.rx_ "2" ]
+    , SVG.line_ [ SP.x1_ "8", SP.x2_ "16", SP.y1_ "21", SP.y2_ "21" ]
+    , SVG.line_ [ SP.x1_ "12", SP.x2_ "12", SP.y1_ "17", SP.y2_ "21" ]
+    ]
 
 navAuthButtons :: Model -> [View Model Action]
 navAuthButtons m =

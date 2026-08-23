@@ -3,7 +3,6 @@ module App.FFI
   ( -- * Raw FFI
     js_playMoveSound
   , js_playCaptureSound
-  , js_toggleDarkMode
   , js_loadLocalGames
   , js_clearLocalGames
   , js_toggleFullscreen
@@ -59,6 +58,8 @@ module App.FFI
   , js_copyToClipboard
   , js_getOrigin
   , js_getHostname
+  , js_setTheme
+  , js_getThemeMode
   , js_generateQRDataURL
   , js_nowISO
   , js_elapsedMs
@@ -91,8 +92,10 @@ foreign import javascript unsafe "globalThis.playMoveSound()"
   js_playMoveSound :: IO ()
 foreign import javascript unsafe "globalThis.playCaptureSound()"
   js_playCaptureSound :: IO ()
-foreign import javascript unsafe "globalThis.toggleTheme()"
-  js_toggleDarkMode :: IO ()
+foreign import javascript unsafe "globalThis.setTheme($1)"
+  js_setTheme_raw :: JSVal -> IO ()
+foreign import javascript unsafe "globalThis.getThemeMode()"
+  js_getThemeMode_raw :: IO JSVal
 foreign import javascript unsafe "globalThis.loadLocalGames($1,$2)"
   js_loadLocalGames_ffi :: JSVal -> JSVal -> IO ()
 foreign import javascript unsafe "globalThis.clearLocalGames()"
@@ -319,8 +322,10 @@ js_playMoveSound :: IO ()
 js_playMoveSound = pure ()
 js_playCaptureSound :: IO ()
 js_playCaptureSound = pure ()
-js_toggleDarkMode :: IO ()
-js_toggleDarkMode = pure ()
+js_setTheme_raw :: JSVal -> IO ()
+js_setTheme_raw _ = pure ()
+js_getThemeMode_raw :: IO JSVal
+js_getThemeMode_raw = toJSVal ("system" :: MisoString)
 js_loadLocalGames :: Function -> Function -> IO ()
 js_loadLocalGames _ _ = pure ()
 js_clearLocalGames :: IO ()
@@ -459,6 +464,14 @@ js_getOrigin = fromJSValUnchecked =<< js_getOrigin_raw
 {-# NOINLINE js_getHostname #-}
 js_getHostname :: MisoString
 js_getHostname = unsafePerformIO $ fromJSValUnchecked =<< js_getHostname_raw
+
+-- | Set the color theme: "light", "dark", or "system" (follow the OS).
+js_setTheme :: MisoString -> IO ()
+js_setTheme mode = toJSVal mode >>= js_setTheme_raw
+
+-- | Current theme mode, as stored (or "system" if nothing is stored).
+js_getThemeMode :: IO MisoString
+js_getThemeMode = fromJSValUnchecked =<< js_getThemeMode_raw
 
 js_generateQRDataURL :: MisoString -> IO MisoString
 js_generateQRDataURL s = do

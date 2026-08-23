@@ -52,7 +52,8 @@ data Action
   -- Home
   | GamesLoaded Value
   | GamesLoadError MisoString
-  | ToggleTheme
+  | ChooseTheme MisoString
+  | SetThemeMode MisoString
   | ToggleQuoteRef
   | DismissQuoteRef
   | DismissQuoteRefTimed Int

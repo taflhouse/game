@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark theme-cosmic">
+<html lang="en" class="theme-cosmic">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
@@ -10,10 +10,11 @@
     <script defer src="https://cdn.jsdelivr.net/npm/basecoat-css@0.3.6/dist/js/all.min.js"></script>
     <link href="/assets/styles.css" rel="stylesheet" />
     <script>
-      // Restore theme before first paint to avoid flash
-      if (localStorage.getItem('taflhouse_theme') === 'light') {
-        document.documentElement.classList.remove('dark');
-      }
+      // Apply the stored theme (or the OS preference, if "system"/nothing is
+      // stored) before first paint to avoid a flash.
+      var storedTheme = localStorage.getItem('taflhouse_theme');
+      var prefersDark = storedTheme ? storedTheme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+      if (prefersDark) document.documentElement.classList.add('dark');
     </script>
   </head>
   <body>

@@ -274,8 +274,12 @@ updateModel loungeChannelRef = \case
     when (mQuoteRefGen m == gen) $
       modify $ \x -> x { mShowQuoteRef = False }
 
-  ToggleTheme ->
-    io_ js_toggleDarkMode
+  ChooseTheme mode -> do
+    io_ (js_setTheme mode)
+    modify $ \m -> m { mThemeMode = mode }
+
+  SetThemeMode mode ->
+    modify $ \m -> m { mThemeMode = mode }
 
   -- Toast ----------------------------------------------------------------
 
@@ -503,6 +507,10 @@ updateModel loungeChannelRef = \case
       edge      <- js_isEdgeBrowser
       macOS     <- js_isMacOS
       sink (InitPushStatus permState brave firefox safari edge macOS)
+    -- Sync the theme mode chosen by the pre-paint script in index.html
+    withSink $ \sink -> do
+      mode <- js_getThemeMode
+      sink (SetThemeMode mode)
 
   -- Games / migration ----------------------------------------------------
 

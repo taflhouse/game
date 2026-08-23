@@ -206,6 +206,8 @@ data Model = Model
   , mIsSafari         :: !Bool
   , mIsEdge           :: !Bool
   , mIsMacOS          :: !Bool
+    -- Theme
+  , mThemeMode        :: !MisoString     -- "light" / "dark" / "system"
     -- Tournaments
   , mTournaments        :: [TournamentRow]
   , mTournamentsLoading :: !Bool
@@ -278,6 +280,7 @@ instance Eq Model where
     && mIsSafari a == mIsSafari b
     && mIsEdge a == mIsEdge b
     && mIsMacOS a == mIsMacOS b
+    && mThemeMode a == mThemeMode b
     && mTournaments a == mTournaments b
     && mTournamentsLoading a == mTournamentsLoading b
     && mTournament a == mTournament b
@@ -372,6 +375,7 @@ initModel = Model
   , mIsSafari         = False
   , mIsEdge           = False
   , mIsMacOS          = False
+  , mThemeMode        = "system"
   , mTournaments        = []
   , mTournamentsLoading = False
   , mTournament         = Nothing

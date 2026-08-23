@@ -23,11 +23,30 @@ const supabase = createClient('__SUPABASE_URL__', SUPABASE_KEY, {
 });
 globalThis.supabase = supabase;
 
-globalThis.toggleTheme = () => {
-  document.documentElement.classList.toggle('dark');
-  const isDark = document.documentElement.classList.contains('dark');
-  localStorage.setItem('taflhouse_theme', isDark ? 'dark' : 'light');
+function applyTheme() {
+  const stored = localStorage.getItem('taflhouse_theme');
+  const dark = stored ? stored === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.classList.toggle('dark', dark);
+}
+
+// mode: 'light' | 'dark' | 'system'. "system" means always follow the OS,
+// so it's stored as the absence of a key rather than a snapshot of it.
+globalThis.setTheme = (mode) => {
+  if (mode === 'system') {
+    localStorage.removeItem('taflhouse_theme');
+  } else {
+    localStorage.setItem('taflhouse_theme', mode);
+  }
+  applyTheme();
 };
+
+globalThis.getThemeMode = () => localStorage.getItem('taflhouse_theme') || 'system';
+
+// Live-follow the OS while in "system" mode, for a tab left open across a
+// day/night switch.
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (!localStorage.getItem('taflhouse_theme')) applyTheme();
+});
 
 globalThis.generateUUID = function() { return crypto.randomUUID(); };
 
