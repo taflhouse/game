@@ -29,7 +29,7 @@ import App.Route (variantSlugMs, variantName, lookupVariant)
 viewLounge :: Model -> View Model Action
 viewLounge m =
   H.div_
-    [ HP.class_ "w-full max-w-5xl" ]
+    [ HP.class_ "w-full max-w-5xl lounge-zoom" ]
     ( [ viewHero ]
    ++ (if mLoungeLoading m then []
         else

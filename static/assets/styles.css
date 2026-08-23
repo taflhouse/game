@@ -6662,6 +6662,15 @@ code.hljs {
   --font-display: "Fraunces", Georgia, serif;
 }
 
+/* Scales the whole lounge screen up ~13%, matching what 125%-then-dialed-
+   back browser zoom looked like — everything (type, spacing, the board art)
+   reads a little larger and fills more of a big screen. Scoped to this
+   screen via `zoom` rather than the document root, since `rem` always
+   resolves against the true root regardless of nesting. */
+.lounge-zoom {
+  zoom: 1.125;
+}
+
 .lounge-hero {
   position: relative;
   display: grid;
