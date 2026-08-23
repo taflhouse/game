@@ -6652,3 +6652,300 @@ code.hljs {
   min-height: 0;
   overflow-x: hidden;
 }
+
+/* ---------------------------------------------------------------------
+   Lounge hero — asymmetric hero with an ambient hnefatafl board and an
+   elevated "New Game" / "Join by Code" card, plus restyled live-games,
+   ladder, and epigraph sections that appear once there's real content.
+   --------------------------------------------------------------------- */
+:root, :host {
+  --font-display: "Fraunces", Georgia, serif;
+}
+
+.lounge-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
+  align-items: center;
+  gap: 2rem;
+  padding: clamp(1.5rem, 6vw, 3.5rem) 0 clamp(2rem, 5vw, 3rem);
+}
+@media (max-width: 56rem) {
+  .lounge-hero {
+    grid-template-columns: 1fr;
+  }
+}
+.lounge-hero-copy {
+  position: relative;
+  z-index: 2;
+  max-width: 34rem;
+}
+.lounge-hero-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(1.9rem, 4vw, 2.75rem);
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+  margin: 0 0 1rem;
+  color: var(--foreground);
+  text-wrap: balance;
+}
+.lounge-hero-title em {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--primary);
+}
+.lounge-hero-lede {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+  margin: 0 0 1.75rem;
+  max-width: 28rem;
+}
+.lounge-cta-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 16px 40px rgb(0 0 0 / 0.14);
+  padding: 1.25rem;
+  max-width: 22rem;
+}
+.lounge-cta-card .btn-lg,
+.lounge-cta-card .btn-lg-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.lounge-cta-card svg {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+
+.lounge-board-art {
+  justify-self: end;
+  width: min(24rem, 100%);
+  position: relative;
+  z-index: 1;
+  opacity: 0.9;
+}
+.lounge-board-art svg {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+@media (max-width: 56rem) {
+  .lounge-board-art {
+    display: none;
+  }
+}
+.lounge-board-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.lounge-board-edge {
+  stroke: var(--muted-foreground);
+  stroke-width: 1.4;
+  fill: none;
+  opacity: 0.5;
+}
+.lounge-piece-attacker {
+  fill: var(--piece-attacker);
+  opacity: 0.85;
+}
+.lounge-piece-defender {
+  fill: var(--piece-defender);
+  opacity: 0.85;
+}
+.lounge-piece-king {
+  fill: var(--piece-king);
+  animation: lounge-king-glow 4.5s ease-in-out infinite;
+}
+.lounge-king-ring {
+  fill: none;
+  stroke: var(--piece-king);
+  stroke-width: 1.2px;
+  opacity: 0.55;
+  animation: lounge-king-ring 4.5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lounge-piece-king,
+  .lounge-king-ring {
+    animation: none;
+  }
+}
+@keyframes lounge-king-glow {
+  0%, 100% { opacity: 0.9; }
+  50%      { opacity: 1; }
+}
+@keyframes lounge-king-ring {
+  /* Animates SVG geometry (r/stroke-width) directly rather than a CSS
+     transform: scale(), since SVG elements resolve transform-origin
+     against the whole viewBox (not their own shape) unless transform-box:
+     fill-box is set, which made an earlier version drift off the board. */
+  0%   { r: 9px; stroke-width: 1.4px; opacity: 0.55; }
+  70%, 100% { r: 23px; stroke-width: 0.3px; opacity: 0; }
+}
+
+.lounge-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 0.75rem;
+}
+.lounge-section-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  margin: 0;
+}
+.lounge-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--piece-attacker);
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--piece-attacker) 20%, transparent);
+  animation: lounge-pulse 2.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lounge-live-dot { animation: none; }
+}
+@keyframes lounge-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+
+.lounge-game-card {
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  border-color: var(--border);
+}
+.lounge-game-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklch, var(--primary) 40%, var(--border));
+}
+.lounge-chip {
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.lounge-mini-board {
+  display: grid;
+  gap: 1px;
+  width: 100%;
+  max-width: 8rem;
+  background: var(--muted);
+  border-radius: 4px;
+  padding: 4px;
+}
+.lounge-mini-cell {
+  aspect-ratio: 1;
+  border-radius: 1px;
+  background: color-mix(in oklch, var(--border) 55%, transparent);
+}
+.lounge-mini-a { background: var(--piece-attacker); }
+.lounge-mini-d { background: var(--piece-defender); }
+.lounge-mini-k { background: var(--piece-king); }
+
+.lounge-rankings {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+}
+.lounge-rankings-head {
+  padding: 1rem 1.1rem 0.6rem;
+}
+.lounge-rankings-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.05rem;
+  margin: 0;
+  color: var(--foreground);
+}
+.lounge-rank-row {
+  display: grid;
+  grid-template-columns: 1.6rem 1fr auto auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 1.1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.86rem;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+.lounge-rank-row:hover {
+  background: color-mix(in oklch, var(--muted) 60%, transparent);
+}
+.lounge-rank-row-me {
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
+}
+.lounge-rank-n {
+  font-family: var(--font-mono);
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+.lounge-rank-name {
+  font-weight: 500;
+  color: var(--foreground);
+}
+.lounge-rank-rating {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+.lounge-rank-games {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
+.lounge-epigraph {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  justify-content: center;
+  padding: 1.25rem 0.25rem;
+}
+.lounge-epigraph p {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 1.2rem;
+  line-height: 1.45;
+  color: var(--foreground);
+  margin: 0;
+  text-wrap: balance;
+}
+.lounge-epigraph cite {
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.lounge-lower-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 1.75rem;
+  align-items: start;
+}
+@media (max-width: 46rem) {
+  .lounge-lower-grid {
+    grid-template-columns: 1fr;
+  }
+}
