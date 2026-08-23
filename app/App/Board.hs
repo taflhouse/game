@@ -2,6 +2,7 @@
 module App.Board
   ( -- * Constants
     sqSize
+  , normalBoardWidthCss
     -- * Pure helpers
   , coordStr
   , formatClockMs
@@ -45,6 +46,13 @@ import App.Model (TimeControl(..))
 
 sqSize :: Int
 sqSize = 54
+
+-- | CSS width for the non-fullscreen board, and any companion panel (move
+-- list, replay controls) that should visually line up with it. Scales with
+-- the viewport instead of pinning to a fixed pixel size, so boards don't
+-- stay small on a large monitor — see 'viewBoardContainer'.
+normalBoardWidthCss :: MisoString
+normalBoardWidthCss = "clamp(300px, 80vmin, 46rem)"
 
 -- ---------------------------------------------------------------------------
 -- Pure helpers
@@ -384,16 +392,15 @@ viewBoardContainer
   -> Int           -- ^ board dimension (n)
   -> View model action  -- ^ board content (SVG)
   -> View model action
-viewBoardContainer fs zen n content =
-  let totalPx = sqSize * n
-      fsSize = if zen
+viewBoardContainer fs zen _n content =
+  let fsSize = if zen
         then "85vmin"
         else "clamp(50vmin, calc(100vh - 29rem), 85vmin)"
   in H.div_
     [ HP.class_ "relative shadow-2xl rounded overflow-hidden border-2 border-border"
     , style_ (if fs
         then [("width", fsSize), ("height", fsSize)]
-        else [("width", ms totalPx <> "px"), ("max-width", "calc(100vw - 3rem)")])
+        else [("width", normalBoardWidthCss)])
     ]
     [ content ]
 
@@ -469,7 +476,7 @@ viewClocks n lSide lName lMs lActive rSide rName rMs rActive tc mDeadline =
           ]
   in H.div_
     [ HP.class_ "flex w-full border border-border rounded"
-    , style_ [ ("max-width", ms (sqSize * n) <> "px")
+    , style_ [ ("max-width", normalBoardWidthCss)
              , ("margin-top", "2em"), ("margin-bottom", "0") ]
     ]
     [ cell lSide lName lMs lActive

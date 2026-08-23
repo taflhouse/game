@@ -12,7 +12,7 @@ import qualified Miso.Svg.Property as SP
 import Tafl.Board
 import Tafl.Game.State (GameState(..))
 
-import App.Board (sqSize, viewBasicSVGBoard, viewBoardContainer, viewEvalBar, renderPiece, renderCapturePoofs, svgDefs, renderSquareBg, renderSpecialSquares)
+import App.Board (sqSize, normalBoardWidthCss, viewBasicSVGBoard, viewBoardContainer, viewEvalBar, renderPiece, renderCapturePoofs, svgDefs, renderSquareBg, renderSpecialSquares)
 import App.Tutorial.Model
 import App.Tutorial.Action
 import App.Tutorial.Lessons
@@ -399,7 +399,7 @@ viewInstructionCard lesson step m =
         _        -> False
   in H.div_
     [ HP.class_ "w-full mt-4"
-    , style_ [("max-width", ms (sqSize * boardSize (gsBoard (tmGameState m))) <> "px")]
+    , style_ [("max-width", normalBoardWidthCss)]
     ]
     [ -- Instruction text
       H.div_

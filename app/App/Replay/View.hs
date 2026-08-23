@@ -12,7 +12,7 @@ import Tafl.Board (boardSize, Side(..), Piece(..), MoveAction(..), pieceAt)
 import Tafl.Game.State (GameState, gsBoard, gsLastAction, opponentSide)
 
 import App.JSON (GameRecord(..))
-import App.Board (sqSize, coordStr, viewBasicSVGBoard, viewBoardContainer, viewEvalBar)
+import App.Board (normalBoardWidthCss, coordStr, viewBasicSVGBoard, viewBoardContainer, viewEvalBar)
 import App.Replay.Model
 import App.Replay.Action
 
@@ -84,12 +84,12 @@ viewReplayBoardPanel props _rm gs =
   in viewBoardContainer (rpIsFullscreen props) (rpZenMode props) n (viewBasicSVGBoard gs [])
 
 viewReplayControls :: ReplayModel -> Int -> View ReplayModel ReplayAction
-viewReplayControls rm n =
+viewReplayControls rm _n =
   let idx = rmReplayIndex rm
       maxIdx = length (rmReplayStates rm) - 1
   in H.div_
     [ HP.class_ "flex items-center justify-center gap-2 my-4 w-full"
-    , style_ [("max-width", ms (sqSize * n) <> "px")]
+    , style_ [("max-width", normalBoardWidthCss)]
     ]
     [ replayBtn (RGotoMove 0) "|<" (idx > 0)
     , replayBtn (RGotoMove (idx - 1)) "<" (idx > 0)
@@ -123,7 +123,7 @@ viewReplayMoveList rm n =
           idx = rmReplayIndex rm
       in H.div_
         [ HP.class_ "flex flex-col gap-1 items-center w-full"
-        , style_ [("max-width", ms (sqSize * n) <> "px")]
+        , style_ [("max-width", normalBoardWidthCss)]
         ]
         [ H.div_
             [ HP.class_ "flex justify-between items-center w-full"

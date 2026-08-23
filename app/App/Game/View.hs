@@ -17,8 +17,8 @@ import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
 
 import App.JSON (Profile(..), ChatMessage(..))
 import App.Model (GameMode(..), TimeControl(..), ViewMode(..))
-import App.Board (sqSize, coordStr, svgDefs, renderSquareBg, renderSpecialSquares,
-                  renderPiece, renderLastMove, renderCapturePoofs,
+import App.Board (sqSize, normalBoardWidthCss, coordStr, svgDefs, renderSquareBg,
+                  renderSpecialSquares, renderPiece, renderLastMove, renderCapturePoofs,
                   renderSpectatorArrows,
                   viewBoardContainer, viewEvalBar, viewClocks)
 import App.Game.Model
@@ -334,7 +334,7 @@ viewOpponentBanner :: Int -> MisoString -> View GameModel GameAction
 viewOpponentBanner n oppName =
   H.div_
     [ HP.class_ "flex w-full justify-center items-center border border-border rounded text-sm text-muted-foreground"
-    , style_ [ ("max-width", ms (sqSize * n) <> "px")
+    , style_ [ ("max-width", normalBoardWidthCss)
              , ("margin-top", "2em"), ("margin-bottom", "0")
              , ("padding", "0.5em 0.75em")
              ]
@@ -350,7 +350,7 @@ viewTournamentBadge gm n = case gmTournamentId gm of
     H.a_
       [ HP.class_ "flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground w-full justify-center"
       , HP.href_ ("/tournaments/" <> tid)
-      , style_ [ ("max-width", ms (sqSize * n) <> "px")
+      , style_ [ ("max-width", normalBoardWidthCss)
                , ("padding", "0.25em 0"), ("text-decoration", "none")
                ]
       ]
@@ -401,7 +401,7 @@ viewStatus gm =
       fullMsg = ms msg <> capSuffix
   in H.div_
     [ HP.class_ cls
-    , style_ [ ("max-width", ms (sqSize * n) <> "px")
+    , style_ [ ("max-width", normalBoardWidthCss)
              , ("min-height", "3.5rem")
              , ("border", "1px solid " <> borderColor)
              , ("border-radius", "0.375rem") ]
@@ -413,7 +413,7 @@ viewSpectatorBadge :: Int -> Int -> Bool -> View GameModel GameAction
 viewSpectatorBadge n count hasArrows =
   H.div_
     [ HP.class_ "flex justify-center items-center gap-3 w-full mt-4"
-    , style_ [("max-width", ms (sqSize * n) <> "px")]
+    , style_ [("max-width", normalBoardWidthCss)]
     ]
     [ H.span_
         [ HP.class_ "text-xs text-muted-foreground tracking-widest uppercase" ]
@@ -449,7 +449,7 @@ viewShareSection gm gid =
       n   = boardSize (gsBoard (gmGameState gm))
   in H.div_
     [ HP.class_ "flex items-center gap-2 w-full mt-4"
-    , style_ [("max-width", ms (sqSize * n) <> "px")]
+    , style_ [("max-width", normalBoardWidthCss)]
     ]
     [ H.input_
         [ HP.class_ "input input-sm text-muted-foreground bg-transparent border border-border rounded flex-1"
@@ -477,7 +477,7 @@ viewMultiplayerControls gm =
   in if gameOver then text ""
      else H.div_
        [ HP.class_ "flex items-center justify-center gap-2 mt-4"
-       , style_ [("max-width", ms (sqSize * n) <> "px")]
+       , style_ [("max-width", normalBoardWidthCss)]
        ]
        ([ ctrlBtn GToggleZenMode "Zen"
         , H.button_
@@ -520,7 +520,7 @@ viewOpponentNotice gm = case gmOpponentNotice gm of
         color = if isDisconnect then "var(--destructive)" else "#22c55e"
     in H.div_
       [ HP.class_ "text-center text-sm font-medium w-full"
-      , style_ [ ("max-width", ms (sqSize * n) <> "px")
+      , style_ [ ("max-width", normalBoardWidthCss)
                , ("color", color)
                , ("padding", "0.25em 0")
                ]
@@ -538,7 +538,7 @@ viewPostGamePanel gm
     let n = boardSize (gsBoard (gmGameState gm))
     in H.div_
       [ HP.class_ "flex items-center justify-center gap-2 mt-4"
-      , style_ [("max-width", ms (sqSize * n) <> "px")]
+      , style_ [("max-width", normalBoardWidthCss)]
       ]
       [ H.button_
           [ HP.class_ "btn btn-sm bg-green-600 hover:bg-green-700 text-white border-green-500"
@@ -557,7 +557,7 @@ viewPostGamePanel gm
     let n = boardSize (gsBoard (gmGameState gm))
     in H.div_
       [ HP.class_ "flex items-center justify-center mt-4"
-      , style_ [("max-width", ms (sqSize * n) <> "px")]
+      , style_ [("max-width", normalBoardWidthCss)]
       ]
       [ H.span_
           [ HP.class_ "text-sm text-muted-foreground animate-pulse" ]
@@ -567,7 +567,7 @@ viewPostGamePanel gm
     let n = boardSize (gsBoard (gmGameState gm))
     in H.div_
       [ HP.class_ "flex items-center justify-center mt-4"
-      , style_ [("max-width", ms (sqSize * n) <> "px")]
+      , style_ [("max-width", normalBoardWidthCss)]
       ]
       [ H.button_
           [ HP.class_ "btn btn-outline btn-sm text-foreground"
@@ -580,7 +580,7 @@ viewPostGamePanel gm
     let n = boardSize (gsBoard (gmGameState gm))
     in H.div_
       [ HP.class_ "flex items-center justify-center mt-4"
-      , style_ [("max-width", ms (sqSize * n) <> "px")]
+      , style_ [("max-width", normalBoardWidthCss)]
       ]
       [ H.span_
           [ HP.class_ "text-sm text-muted-foreground" ]
@@ -597,7 +597,7 @@ viewMoveHistory gm
       else let n = boardSize (gsBoard (gmGameState gm))
            in H.div_
              [ HP.class_ "flex justify-center items-center w-full"
-             , style_ [("max-width", ms (sqSize * n) <> "px"), ("margin-top", "0.5em")]
+             , style_ [("max-width", normalBoardWidthCss), ("margin-top", "0.5em")]
              ]
              [ ctrlBtn GToggleZenMode "Zen" ]
   | otherwise =
@@ -608,7 +608,7 @@ viewMoveHistory gm
             Nothing -> length displayStates - 1
       in H.div_
         [ HP.class_ "flex flex-col gap-1 items-center w-full"
-        , style_ [("max-width", ms (sqSize * n) <> "px")]
+        , style_ [("max-width", normalBoardWidthCss)]
         ]
         [ H.div_
             [ HP.class_ "flex justify-between items-center w-full"
