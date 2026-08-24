@@ -87,10 +87,13 @@ checkKingCapture gs landing side
               in if surrounded >= needed then [kingPos] else []
          else []
 
--- | Shield wall captures. When a piece moves to an edge, consecutive enemy
--- pieces along that edge can be captured if each has a friendly piece behind
--- it (one row/column inward) and the run is terminated by a friendly piece
--- or capture helper on the edge. The king is immune to shield wall capture.
+-- | Shield wall captures. A run of enemy pieces along a board edge can be
+-- captured together if each has a friendly piece behind it (one row/column
+-- inward) and the run is terminated by a friendly piece or capture helper on
+-- the edge at both ends. This can be completed by either move: a piece
+-- landing on the edge to cap the run, or a piece landing in the inward
+-- support square to supply the last piece of backing the run needed. The
+-- king is immune to shield wall capture.
 checkShieldWalls :: GameState -> Coords -> [Coords]
 checkShieldWalls gs landing =
   let board = gsBoard gs
@@ -99,19 +102,65 @@ checkShieldWalls gs landing =
       opp   = case side of AttackerSide -> DefenderSide; DefenderSide -> AttackerSide
       lr    = row landing
       lc    = col landing
-      -- Horizontal edge: scan left and right along columns
+      -- Landing caps a run along a horizontal (top/bottom) edge.
       hCaps = if lr == 0 || lr == n - 1
               then let rowBehind = if lr == n - 1 then n - 2 else 1
                    in scanEdge gs side opp lr lc (-1) rowBehind True
                    ++ scanEdge gs side opp lr lc 1    rowBehind True
               else []
-      -- Vertical edge: scan up and down along rows
+      -- Landing caps a run along a vertical (left/right) edge.
       vCaps = if lc == 0 || lc == n - 1
               then let colBehind = if lc == n - 1 then n - 2 else 1
                    in scanEdge gs side opp lc lr (-1) colBehind False
                    ++ scanEdge gs side opp lc lr 1    colBehind False
               else []
-  in hCaps ++ vCaps
+      -- Landing supplies inward support for a run on the row just outside it.
+      hSupport = concatMap (\edgeRow -> supportRun gs side opp edgeRow lr lc True)
+                            (supportedEdges lr n)
+      -- Landing supplies inward support for a run on the column just outside it.
+      vSupport = concatMap (\edgeCol -> supportRun gs side opp edgeCol lc lr False)
+                            (supportedEdges lc n)
+  in hCaps ++ vCaps ++ hSupport ++ vSupport
+
+-- | If @pos@ is one square inward from a board edge, the index of that edge.
+supportedEdges :: Int -> Int -> [Int]
+supportedEdges pos n
+  | pos == 1     = [0]
+  | pos == n - 2 = [n - 1]
+  | otherwise    = []
+
+-- | @landing@ sits at @behindIdx@, one square inward from @edgeIdx@, and just
+-- supplied support for whatever piece is on the edge at @anchorPos@. If
+-- that's a supported enemy piece, walk outward in both directions along the
+-- edge to find the full contiguous run, and capture the whole run if both
+-- ends are terminated by a friendly capture helper.
+supportRun :: GameState -> Side -> Side -> Int -> Int -> Int -> Bool -> [Coords]
+supportRun gs side opp edgeIdx behindIdx anchorPos isHorizontal
+  | not (insideBounds board anchorCoords) = []
+  | sideOfPiece (pieceAt board anchorCoords) /= Just opp = []
+  | isKing board anchorCoords = []
+  | otherwise =
+      let (leftPieces,  leftEnd)  = walk (-1)
+          (rightPieces, rightEnd) = walk 1
+          endOk p = insideBounds board (mkCoords p) && canHelpCapture gs (mkCoords p) side
+      in if endOk leftEnd && endOk rightEnd
+         then leftPieces ++ [anchorCoords] ++ rightPieces
+         else []
+  where
+    board = gsBoard gs
+    mkCoords p = if isHorizontal then Coords edgeIdx p else Coords p edgeIdx
+    mkBehind p = if isHorizontal then Coords behindIdx p else Coords p behindIdx
+    anchorCoords = mkCoords anchorPos
+
+    walk delta = collect (anchorPos + delta) []
+      where
+        collect p acc
+          | not (insideBounds board (mkCoords p)) = (acc, p)
+          | sideOfPiece (pieceAt board (mkCoords p)) /= Just opp = (acc, p)
+          | not (insideBounds board (mkBehind p)) = (acc, p)
+          | not (canHelpCapture gs (mkBehind p) side) = (acc, p)
+          | isKing board (mkCoords p) = (acc, p)
+          | otherwise = collect (p + delta) (mkCoords p : acc)
 
 -- | Scan along an edge from the landing position in one direction,
 -- collecting capturable enemy pieces. The scan continues while:

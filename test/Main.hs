@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
 import Test.Hspec
@@ -6,9 +7,10 @@ import Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 import qualified Data.Vector as V
+import Data.List (sort)
 
 import Tafl.Board
-import Tafl.Rules (BoardVariant(..))
+import Tafl.Rules (BoardVariant(..), copenhagen)
 import Tafl.Game (act, initialState, GameState(..), GameResult(..))
 import Tafl.Game.Move (getPossibleActions, isActionPossible)
 import Tafl.Game.Symmetry (canonicalBoardKey, rotate90, mirrorBoard, symmetryVariants)
@@ -133,6 +135,27 @@ historyLen = length . simHistory
 
 moveListLen :: SimModel -> Int
 moveListLen = length . simMoveList
+
+-- | Build a square board of side @n@, defaulting to Empty, with the given
+-- pieces placed at specific coordinates.
+mkBoard :: Int -> [(Coords, Piece)] -> Board
+mkBoard n placements = V.fromList
+  [ V.fromList [ pieceAtPos r c | c <- [0 .. n - 1] ] | r <- [0 .. n - 1] ]
+  where pieceAtPos r c = maybe Empty id (lookup (Coords r c) placements)
+
+-- | A fresh Copenhagen-rules game state around a hand-built board, with the
+-- attacker to move.
+mkGameState :: Board -> GameState
+mkGameState board = GameState
+  { gsBoard        = board
+  , gsActions      = []
+  , gsBoardHistory = mempty
+  , gsTurn         = 0
+  , gsResult       = GameResult False Nothing ""
+  , gsCaptures     = []
+  , gsLastAction   = Nothing
+  , gsRules        = copenhagen
+  }
 
 -- ---------------------------------------------------------------------------
 -- Tests
@@ -292,6 +315,49 @@ main = hspec $ do
       let mDone = playToEnd 500 m0
       if not (isGameOver mDone) then pure ()
       else isGameOver (gotoMove 1 . gotoMove 0 $ mDone) `shouldBe` True
+
+  describe "Shield wall captures" $ do
+    let n = 9
+
+    it "captures a wall when the completing move is the inward support square" $ do
+      let wallBoard = mkBoard n
+            [ (Coords 2 8, Attacker)
+            , (Coords 3 7, Attacker)
+            , (Coords 3 8, Defender)
+            , (Coords 4 8, Defender)
+            , (Coords 5 8, Attacker)
+            , (Coords 4 6, Attacker)
+            ]
+          gs = mkGameState wallBoard
+          gs' = act gs (MoveAction (Coords 4 6) (Coords 4 7))
+      sort (gsCaptures gs') `shouldBe` sort [Coords 3 8, Coords 4 8]
+      pieceAt (gsBoard gs') (Coords 3 8) `shouldBe` Empty
+      pieceAt (gsBoard gs') (Coords 4 8) `shouldBe` Empty
+
+    it "does not capture when a wall piece still lacks inward support" $ do
+      let noSupportBoard = mkBoard n
+            [ (Coords 2 8, Attacker)
+            , (Coords 3 8, Defender)
+            , (Coords 4 8, Defender)
+            , (Coords 5 8, Attacker)
+            , (Coords 4 6, Attacker)
+            ]
+          gs = mkGameState noSupportBoard
+          gs' = act gs (MoveAction (Coords 4 6) (Coords 4 7))
+      gsCaptures gs' `shouldBe` []
+
+    it "still captures when the completing move caps the edge directly" $ do
+      let capBoard = mkBoard n
+            [ (Coords 2 8, Attacker)
+            , (Coords 3 7, Attacker)
+            , (Coords 3 8, Defender)
+            , (Coords 4 8, Defender)
+            , (Coords 4 7, Attacker)
+            , (Coords 5 7, Attacker)
+            ]
+          gs = mkGameState capBoard
+          gs' = act gs (MoveAction (Coords 5 7) (Coords 5 8))
+      sort (gsCaptures gs') `shouldBe` sort [Coords 3 8, Coords 4 8]
 
   -- -----------------------------------------------------------------------
   -- Property-based tests: Board symmetry
