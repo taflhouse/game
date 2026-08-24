@@ -579,22 +579,23 @@ viewLfgToggle m =
 -- / 'js_setTheme' and the pre-paint script in static/index.html.
 viewThemeSwitch :: Model -> View Model Action
 viewThemeSwitch m =
-  H.div_
-    [ HP.class_ "theme-switch" ]
-    [ themeSwitchBtn "dark"   "Dark theme"   iconMoon
-    , themeSwitchBtn "system" "Match system" iconMonitor
-    , themeSwitchBtn "light"  "Light theme"  iconSun
+  H.button_
+    [ HP.class_ "theme-switch-btn"
+    , style_ [("touch-action", "manipulation")]
+    , SVG.onClick (ChooseTheme next)
+    , HP.title_ label
     ]
+    [ icon ]
   where
     current = mThemeMode m
-    themeSwitchBtn mode label icon =
-      H.button_
-        [ HP.class_ ("theme-switch-btn" <> if current == mode then " active" else "")
-        , style_ [("touch-action", "manipulation")]
-        , SVG.onClick (ChooseTheme mode)
-        , HP.title_ label
-        ]
-        [ icon ]
+    (next, icon) = case current of
+      "light" -> ("dark",   iconSun)
+      "dark"  -> ("system", iconMoon)
+      _       -> ("light",  iconMonitor)
+    label = case current of
+      "light" -> "Light theme (click for dark)"
+      "dark"  -> "Dark theme (click for system)"
+      _       -> "Match system (click for light)"
 
 themeIconAttrs =
   [ SP.viewBox_ "0 0 24 24"
@@ -695,7 +696,7 @@ navAuthButtons m =
         ]
       _ ->
         [ H.span_
-            [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+            [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer whitespace-nowrap shrink-0"
             , style_ [("touch-action", "manipulation")]
             , SVG.onClick GotoSignIn
             ]
