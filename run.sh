@@ -27,7 +27,10 @@ fi
 
 # Initial build
 echo "==> Building frontend..."
-nix --extra-experimental-features 'nix-command flakes' develop .#wasm --command make
+# DEVELOPER_DIR: the `wasm` devShell sets it to a nix-store Apple SDK path,
+# which breaks /usr/bin/git's internal xcrun lookup ("error: tool 'git' not
+# found"). Re-overriding it after --command restores the real Xcode CLT.
+nix --extra-experimental-features 'nix-command flakes' develop .#wasm --command env DEVELOPER_DIR=/Library/Developer/CommandLineTools make
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -43,7 +46,7 @@ tmux split-window -t "$SESSION" -v -c "$DIR" \
    echo \"==> Watching for changes (app/ src/ static/)...\" && \
    fswatch -o -l 2 -e dist-newstyle -e public -e \"\\.o$\" -e \"\\.hi$\" --include \"\\.hs$\" --include \"\\.js$\" --include \"\\.html$\" --include \"\\.css$\" app/ src/ static/ | while read _; do \
      echo \"==> Rebuilding...\"; \
-     nix --extra-experimental-features \"nix-command flakes\" develop .#wasm --command make \
+     nix --extra-experimental-features \"nix-command flakes\" develop .#wasm --command env DEVELOPER_DIR=/Library/Developer/CommandLineTools make \
        && echo \"==> Build complete\" || echo \"==> Build failed\"; \
    done; exec bash'"
 

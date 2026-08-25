@@ -9,7 +9,10 @@ update:
 	wasm32-wasi-cabal update
 
 build:
-	wasm32-wasi-cabal build
+	# -j1: cabal's parallel job-server uses POSIX named semaphores, which are
+	# flaky on macOS and intermittently crash with
+	# "semWait: invalid argument (Bad file descriptor)".
+	wasm32-wasi-cabal build -j1
 	rm -rf public
 	cp -r static public
 	sed -i'' -e "s|__SUPABASE_URL__|$${SUPABASE_URL}|g" public/index.js
