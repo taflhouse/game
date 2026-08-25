@@ -105,7 +105,7 @@ viewHero =
                 , style_ [("touch-action", "manipulation")]
                 , SVG.onClick GotoJoin
                 ]
-                [ iconJoin, text "Join by Code" ]
+                [ text "Join by Code" ]
             ]
         ]
     , viewBoardArt
@@ -119,15 +119,6 @@ iconPlus =
     , SP.strokeLinecap_ "round"
     ]
     [ SVG.path_ [ SP.d_ "M12 5v14M5 12h14" ] ]
-
-iconJoin :: View Model Action
-iconJoin =
-  SVG.svg_
-    [ SP.viewBox_ "0 0 24 24", HP.width_ "16", HP.height_ "16"
-    , SP.fill_ "none", SP.stroke_ "currentcolor", SP.strokeWidth_ "1.8"
-    , SP.strokeLinecap_ "round", SP.strokeLinejoin_ "round"
-    ]
-    [ SVG.path_ [ SP.d_ "M9 3h6l3 4-8 14L4 7l5-4Z" ] ]
 
 -- | Ambient tablut board (9x9 opening position, per boardTablut in
 -- src/Tafl/Game/Board.hs) shown beside the hero copy on wide screens.
