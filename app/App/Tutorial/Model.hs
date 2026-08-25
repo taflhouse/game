@@ -83,4 +83,4 @@ initialTutorialModel = TutorialModel
 
 -- | How long an InfoStep is displayed before it auto-advances.
 infoStepDurationSeconds :: Double
-infoStepDurationSeconds = 6.0
+infoStepDurationSeconds = 12.0

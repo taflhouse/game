@@ -221,9 +221,7 @@ viewActiveLesson lesson m =
       n = boardSize (gsBoard gs)
   in H.div_
     [ HP.class_ "flex flex-col items-center w-full" ]
-    [ -- Auto-advance countdown (InfoStep only)
-      viewAutoAdvanceBar step m
-    , -- Back to lessons link
+    [ -- Back to lessons link
       H.div_
         [ HP.class_ "w-full max-w-2xl mb-4"
         , style_ [("margin-top", "2em")]
@@ -248,6 +246,8 @@ viewActiveLesson lesson m =
         , viewBoardContainer False False n
             (viewTutorialBoard gs step m)
         ]
+    , -- Auto-advance countdown (InfoStep only)
+      viewAutoAdvanceBar lesson step m
     , -- Instruction card
       viewInstructionCard lesson step m
     , -- Congrats overlay
@@ -396,29 +396,41 @@ renderValidDot (Coords r c) =
 -- 'infoStepDurationSeconds' and then advance on their own. This bar shows
 -- that countdown as a thin fill that grows left-to-right, with a pause/play
 -- toggle alongside it.
-viewAutoAdvanceBar :: TutorialStep -> TutorialModel -> View TutorialModel TutorialAction
-viewAutoAdvanceBar step m = case tsKind step of
+--
+-- The fill's progress is driven entirely by a CSS animation rather than by
+-- re-setting its width on every tick from Haskell: the tick loop's cadence
+-- isn't reliable enough (render cost/scheduling jitter) to drive a smooth
+-- width transition directly, which showed up as visible stutter. CSS
+-- animation-play-state pauses/resumes natively, and the `key_` (tied to the
+-- lesson/step) forces the browser to mount a fresh element — restarting the
+-- animation — whenever the step changes.
+viewAutoAdvanceBar :: TutorialLesson -> TutorialStep -> TutorialModel -> View TutorialModel TutorialAction
+viewAutoAdvanceBar lesson step m = case tsKind step of
   InfoStep ->
-    let elapsed = infoStepDurationSeconds - tmAutoAdvanceRemaining m
-        pct = max 0 (min 100 (round (elapsed / infoStepDurationSeconds * 100))) :: Int
-    in H.div_
-      [ HP.class_ "w-full max-w-2xl flex items-center gap-2 mb-2" ]
+    H.div_
+      [ HP.class_ "w-full flex items-center gap-2"
+      , style_ [("max-width", normalBoardWidthCss), ("margin-top", "1em")]
+      ]
       [ H.div_
           [ HP.class_ "flex-1 rounded-full overflow-hidden"
           , style_ [("height", "3px"), ("background", "var(--muted)")]
           ]
           [ H.div_
-              [ style_
+              [ key_ (tlId lesson <> "-" <> ms (show (tmStepIndex m)))
+              , style_
                   [ ("height", "100%")
-                  , ("width", ms (show pct) <> "%")
                   , ("background", "var(--primary)")
-                  , ("transition", "width 0.1s linear")
+                  , ("animation-name", "tutorial-countdown-anim")
+                  , ("animation-duration", ms (show infoStepDurationSeconds) <> "s")
+                  , ("animation-timing-function", "linear")
+                  , ("animation-fill-mode", "forwards")
+                  , ("animation-play-state", if tmAutoAdvancePaused m then "paused" else "running")
                   ]
               ]
               []
           ]
       , H.button_
-          [ HP.class_ "text-xs text-muted-foreground hover:text-foreground shrink-0"
+          [ HP.class_ "text-muted-foreground hover:text-foreground shrink-0"
           , style_ [("touch-action", "manipulation")]
           , SVG.onClick TTogglePause
           , HP.title_ (if tmAutoAdvancePaused m then "Resume" else "Pause")
@@ -435,6 +447,18 @@ viewInstructionCard :: TutorialLesson -> TutorialStep -> TutorialModel -> View T
 viewInstructionCard lesson step m =
   let totalSteps = length (tlSteps lesson)
       currentStep = tmStepIndex m + 1
+      isInfoStep = case tsKind step of
+        InfoStep -> True
+        _        -> False
+      -- Stuck-on-last-step recovery: if the congrats overlay was shown then
+      -- dismissed by clicking outside it, there'd be no way back to the
+      -- "Next Lesson"/"All Lessons" choice without this. tmStepComplete only
+      -- becomes True once this step's own challenge is actually solved (and
+      -- survives the dismiss, since TDismissCongrats doesn't reset it), so
+      -- this can't be used to skip the challenge itself — unlike checking
+      -- tmCompletedLessons, which stays True on replay before it's re-solved.
+      isLastStep = tmStepIndex m == totalSteps - 1
+      lessonAlreadyDone = isLastStep && tmStepComplete m
   in H.div_
     [ HP.class_ "w-full mt-4"
     , style_ [("max-width", normalBoardWidthCss)]
@@ -474,6 +498,14 @@ viewInstructionCard lesson step m =
                       , SVG.onClick TBackStep
                       ]
                       [ text "Back" ]
+                    else text ""
+                , if isInfoStep || lessonAlreadyDone
+                    then H.button_
+                      [ HP.class_ "btn btn-sm bg-primary text-primary-foreground"
+                      , style_ [("touch-action", "manipulation")]
+                      , SVG.onClick TNextStep
+                      ]
+                      [ text "Next" ]
                     else text ""
                 ]
             , -- Step counter

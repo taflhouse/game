@@ -40,15 +40,15 @@ tmux new-session -d -s "$SESSION" -c "$DIR" \
    nix --extra-experimental-features \"nix-command flakes\" develop .#wasm --command \
    npx http-server public -p 8080 -c-1 --proxy \"http://localhost:8080?\"; exec bash'"
 
-# Watch & rebuild on source changes (bottom pane)
-tmux split-window -t "$SESSION" -v -c "$DIR" \
-  "bash -c 'source .env.local 2>/dev/null; \
-   echo \"==> Watching for changes (app/ src/ static/)...\" && \
-   fswatch -o -l 2 -e dist-newstyle -e public -e \"\\.o$\" -e \"\\.hi$\" --include \"\\.hs$\" --include \"\\.js$\" --include \"\\.html$\" --include \"\\.css$\" app/ src/ static/ | while read _; do \
-     echo \"==> Rebuilding...\"; \
-     nix --extra-experimental-features \"nix-command flakes\" develop .#wasm --command env DEVELOPER_DIR=/Library/Developer/CommandLineTools make \
-       && echo \"==> Build complete\" || echo \"==> Build failed\"; \
-   done; exec bash'"
+## Watch & rebuild on source changes (bottom pane)
+#tmux split-window -t "$SESSION" -v -c "$DIR" \
+#  "bash -c 'source .env.local 2>/dev/null; \
+#   echo \"==> Watching for changes (app/ src/ static/)...\" && \
+#   fswatch -o -l 2 -e dist-newstyle -e public -e \"\\.o$\" -e \"\\.hi$\" --include \"\\.hs$\" --include \"\\.js$\" --include \"\\.html$\" --include \"\\.css$\" app/ src/ static/ | while read _; do \
+#     echo \"==> Rebuilding...\"; \
+#     nix --extra-experimental-features \"nix-command flakes\" develop .#wasm --command env DEVELOPER_DIR=/Library/Developer/CommandLineTools make \
+#       && echo \"==> Build complete\" || echo \"==> Build failed\"; \
+#   done; exec bash'"
 
 # Even out pane heights
 tmux select-layout -t "$SESSION" even-vertical

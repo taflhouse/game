@@ -6564,6 +6564,11 @@ code.hljs {
   animation: tutorial-glow-anim 2s ease-in-out infinite;
 }
 
+@keyframes tutorial-countdown-anim {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
 /* Capture poof animations (Wind Waker cel-shaded style) */
 @keyframes poof-flash {
   0% { transform: scale(0); opacity: 0.9; }
