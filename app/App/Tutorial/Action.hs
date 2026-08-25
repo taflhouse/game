@@ -18,3 +18,5 @@ data TutorialAction
   | TDismissCongrats
   | TPoofsDone
   | TLoadProgress [MisoString]
+  | TAutoAdvanceTick MisoString Int
+  | TTogglePause

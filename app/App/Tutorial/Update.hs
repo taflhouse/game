@@ -65,6 +65,7 @@ updateTutorial = \case
           , tmStateHistory  = [gs0]
           }
         io_ $ pushURI (learnLessonURI lid)
+        startInfoStepTimer lesson 0
 
   TBackToLessons -> do
     modify $ \m -> m
@@ -113,12 +114,13 @@ updateTutorial = \case
               , tmStateHistory  = history
               , tmCapturePoofs  = []
               }
+            startInfoStepTimer lesson nextIdx
 
   TBackStep -> do
     m <- get
     case tmLesson m of
       Nothing -> pure ()
-      Just _lesson -> do
+      Just lesson -> do
         let prevIdx = max 0 (tmStepIndex m - 1)
             gs0 = case drop prevIdx (tmStateHistory m) of
               (s:_) -> s
@@ -134,6 +136,7 @@ updateTutorial = \case
           , tmEvalScore     = evaluate gs0
           , tmCapturePoofs  = []
           }
+        startInfoStepTimer lesson prevIdx
 
   TCellClicked coords -> do
     m <- get
@@ -184,6 +187,28 @@ updateTutorial = \case
 
   TDismissCongrats ->
     modify $ \m -> m { tmShowCongrats = False }
+
+  TTogglePause ->
+    modify $ \m -> m { tmAutoAdvancePaused = not (tmAutoAdvancePaused m) }
+
+  TAutoAdvanceTick lid idx -> do
+    m <- get
+    case tmLesson m of
+      Just lesson
+        | tlId lesson == lid
+        , tmStepIndex m == idx
+        , not (tmShowCongrats m)
+        , InfoStep <- tsKind (tlSteps lesson !! idx) ->
+            if tmAutoAdvancePaused m
+              then scheduleTick lid idx
+              else
+                let remaining = tmAutoAdvanceRemaining m - autoAdvanceTickSeconds
+                in if remaining <= 0
+                  then updateTutorial TNextStep
+                  else do
+                    modify $ \x -> x { tmAutoAdvanceRemaining = remaining }
+                    scheduleTick lid idx
+      _ -> pure ()
 
 -- ---------------------------------------------------------------------------
 -- Move step click handler
@@ -346,6 +371,33 @@ handleChallengeClick coords gs step predicate mAutoResp = do
 -- ---------------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------------
+
+-- | InfoStep auto-advance: how often we recheck the countdown, in seconds
+-- (and the matching microsecond delay for threadDelay).
+autoAdvanceTickSeconds :: Double
+autoAdvanceTickSeconds = 0.1
+
+autoAdvanceTickMicros :: Int
+autoAdvanceTickMicros = round (autoAdvanceTickSeconds * 1000000)
+
+scheduleTick :: MisoString -> Int -> Effect Model TutorialProps TutorialModel TutorialAction
+scheduleTick lid idx = withSink $ \sink -> do
+  threadDelay autoAdvanceTickMicros
+  sink (TAutoAdvanceTick lid idx)
+
+-- | Reset and (re)start the auto-advance countdown if the given step is an
+-- InfoStep. No-op for interactive steps, which advance on their own once the
+-- player completes them.
+startInfoStepTimer :: TutorialLesson -> Int -> Effect Model TutorialProps TutorialModel TutorialAction
+startInfoStepTimer lesson idx =
+  case tsKind (tlSteps lesson !! idx) of
+    InfoStep -> do
+      modify $ \x -> x
+        { tmAutoAdvanceRemaining = infoStepDurationSeconds
+        , tmAutoAdvancePaused    = False
+        }
+      scheduleTick (tlId lesson) idx
+    _ -> pure ()
 
 buildGameState :: TutorialLesson -> GameState
 buildGameState lesson =

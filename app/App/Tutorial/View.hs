@@ -221,7 +221,9 @@ viewActiveLesson lesson m =
       n = boardSize (gsBoard gs)
   in H.div_
     [ HP.class_ "flex flex-col items-center w-full" ]
-    [ -- Back to lessons link
+    [ -- Auto-advance countdown (InfoStep only)
+      viewAutoAdvanceBar step m
+    , -- Back to lessons link
       H.div_
         [ HP.class_ "w-full max-w-2xl mb-4"
         , style_ [("margin-top", "2em")]
@@ -387,6 +389,45 @@ renderValidDot (Coords r c) =
     ]
 
 -- ---------------------------------------------------------------------------
+-- Auto-advance countdown bar (InfoStep only)
+-- ---------------------------------------------------------------------------
+
+-- | InfoStep screens have no "Next" button — they display for
+-- 'infoStepDurationSeconds' and then advance on their own. This bar shows
+-- that countdown as a thin fill that grows left-to-right, with a pause/play
+-- toggle alongside it.
+viewAutoAdvanceBar :: TutorialStep -> TutorialModel -> View TutorialModel TutorialAction
+viewAutoAdvanceBar step m = case tsKind step of
+  InfoStep ->
+    let elapsed = infoStepDurationSeconds - tmAutoAdvanceRemaining m
+        pct = max 0 (min 100 (round (elapsed / infoStepDurationSeconds * 100))) :: Int
+    in H.div_
+      [ HP.class_ "w-full max-w-2xl flex items-center gap-2 mb-2" ]
+      [ H.div_
+          [ HP.class_ "flex-1 rounded-full overflow-hidden"
+          , style_ [("height", "3px"), ("background", "var(--muted)")]
+          ]
+          [ H.div_
+              [ style_
+                  [ ("height", "100%")
+                  , ("width", ms (show pct) <> "%")
+                  , ("background", "var(--primary)")
+                  , ("transition", "width 0.1s linear")
+                  ]
+              ]
+              []
+          ]
+      , H.button_
+          [ HP.class_ "text-xs text-muted-foreground hover:text-foreground shrink-0"
+          , style_ [("touch-action", "manipulation")]
+          , SVG.onClick TTogglePause
+          , HP.title_ (if tmAutoAdvancePaused m then "Resume" else "Pause")
+          ]
+          [ text (if tmAutoAdvancePaused m then "\x25B6" else "\x23F8") ]
+      ]
+  _ -> text ""
+
+-- ---------------------------------------------------------------------------
 -- Instruction card
 -- ---------------------------------------------------------------------------
 
@@ -394,9 +435,6 @@ viewInstructionCard :: TutorialLesson -> TutorialStep -> TutorialModel -> View T
 viewInstructionCard lesson step m =
   let totalSteps = length (tlSteps lesson)
       currentStep = tmStepIndex m + 1
-      isInfoStep = case tsKind step of
-        InfoStep -> True
-        _        -> False
   in H.div_
     [ HP.class_ "w-full mt-4"
     , style_ [("max-width", normalBoardWidthCss)]
@@ -436,14 +474,6 @@ viewInstructionCard lesson step m =
                       , SVG.onClick TBackStep
                       ]
                       [ text "Back" ]
-                    else text ""
-                , if isInfoStep
-                    then H.button_
-                      [ HP.class_ "btn btn-sm bg-primary text-primary-foreground"
-                      , style_ [("touch-action", "manipulation")]
-                      , SVG.onClick TNextStep
-                      ]
-                      [ text "Next" ]
                     else text ""
                 ]
             , -- Step counter

@@ -3,6 +3,7 @@ module App.Tutorial.Model
   ( TutorialModel(..)
   , TutorialProps(..)
   , initialTutorialModel
+  , infoStepDurationSeconds
   ) where
 
 import Miso.String (MisoString)
@@ -34,6 +35,8 @@ data TutorialModel = TutorialModel
   , tmLessonNotFound   :: Bool
   , tmCompletedLessons :: [MisoString]
   , tmStateHistory     :: [GameState]   -- start-of-step game state, indexed by step number
+  , tmAutoAdvanceRemaining :: Double    -- seconds left before an InfoStep auto-advances
+  , tmAutoAdvancePaused    :: Bool
   }
 
 -- Manual Eq instance: compare tmLesson by tlId (StepKind contains functions)
@@ -54,6 +57,8 @@ instance Eq TutorialModel where
     && tmLessonNotFound a == tmLessonNotFound b
     && tmCompletedLessons a == tmCompletedLessons b
     && tmStateHistory a == tmStateHistory b
+    && tmAutoAdvanceRemaining a == tmAutoAdvanceRemaining b
+    && tmAutoAdvancePaused a == tmAutoAdvancePaused b
 
 initialTutorialModel :: TutorialModel
 initialTutorialModel = TutorialModel
@@ -72,4 +77,10 @@ initialTutorialModel = TutorialModel
   , tmLessonNotFound   = False
   , tmCompletedLessons = []
   , tmStateHistory     = []
+  , tmAutoAdvanceRemaining = infoStepDurationSeconds
+  , tmAutoAdvancePaused    = False
   }
+
+-- | How long an InfoStep is displayed before it auto-advances.
+infoStepDurationSeconds :: Double
+infoStepDurationSeconds = 6.0
