@@ -222,7 +222,7 @@ showTournamentsLink = js_getHostname /= "taflhouse.com"
 tournamentsLink :: View Model Action
 tournamentsLink =
   H.span_
-    [ HP.class_ "nav-wide-only text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+    [ HP.class_ "nav-link nav-wide-only text-sm text-muted-foreground hover:text-foreground cursor-pointer"
     , style_ [("touch-action", "manipulation")]
     , SVG.onClick GotoTournaments
     ]
@@ -232,7 +232,7 @@ tournamentsLink =
 learnLink :: View Model Action
 learnLink =
   H.span_
-    [ HP.class_ "nav-wide-only text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+    [ HP.class_ "nav-link nav-wide-only text-sm text-muted-foreground hover:text-foreground cursor-pointer"
     , style_ [("touch-action", "manipulation")]
     , SVG.onClick GotoLearn
     ]
@@ -696,7 +696,7 @@ navAuthButtons m =
         ]
       _ ->
         [ H.span_
-            [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer whitespace-nowrap shrink-0"
+            [ HP.class_ "nav-link text-sm text-muted-foreground hover:text-foreground cursor-pointer whitespace-nowrap shrink-0"
             , style_ [("touch-action", "manipulation")]
             , SVG.onClick GotoSignIn
             ]

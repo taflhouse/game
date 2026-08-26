@@ -6645,6 +6645,37 @@ code.hljs {
   }
 }
 
+/* Navbar text links: the label brightens and a hairline accent underline
+   wipes in from the left. Animating `right` from 100% to 0 (rather than a
+   transform) keeps the wipe anchored to the left edge regardless of label
+   width. No `display` here on purpose — .nav-wide-only owns that, and an
+   equal-specificity override would leak the collapsed links back in below
+   640px. */
+.nav-link {
+  position: relative;
+  padding-bottom: 2px;
+  transition: color 0.15s ease;
+}
+.nav-link::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 100%;
+  bottom: -2px;
+  height: 1px;
+  background: var(--primary);
+  transition: right 0.2s ease;
+}
+.nav-link:hover::after {
+  right: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-link,
+  .nav-link::after {
+    transition: none;
+  }
+}
+
 /* #app-scroll is a flex item (flex-1) inside the fixed-position app shell
    and is meant to be the page's one scrollable region. Without an explicit
    min-height, flex items default to min-height:auto, which lets this div
