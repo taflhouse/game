@@ -421,6 +421,16 @@ globalThis.startGameClock = function(attackerMs, defenderMs, currentTurn, lastMo
 
   const lastMoveTime = lastMoveAtISO ? new Date(lastMoveAtISO).getTime() : Date.now();
 
+  // clockCb sinks a GClockTick into the WASM app, which mutates the model and
+  // re-renders the whole view. Calling it on every 100ms poll meant ten full
+  // re-renders a second for the length of a blitz game, which backs up the
+  // app's message queue and delays both local moves and incoming realtime
+  // updates. Keep polling at 100ms so timeouts stay accurate, but only call
+  // back when the *displayed* value changes: tenths inside the last 10s, where
+  // they're actually rendered, and whole seconds above that.
+  const displayKey = (ms) => (ms < 10000 ? Math.ceil(ms / 100) : Math.ceil(ms / 1000));
+  let lastKey = null;
+
   const intervalId = setInterval(() => {
     const elapsed = Date.now() - lastMoveTime;
     let atkDisplay, defDisplay;
@@ -431,7 +441,11 @@ globalThis.startGameClock = function(attackerMs, defenderMs, currentTurn, lastMo
       atkDisplay = attackerMs;
       defDisplay = Math.max(0, defenderMs - elapsed);
     }
-    clockCb(atkDisplay, defDisplay);
+    const key = displayKey(atkDisplay) + ':' + displayKey(defDisplay);
+    if (key !== lastKey) {
+      lastKey = key;
+      clockCb(atkDisplay, defDisplay);
+    }
     if (atkDisplay <= 0) { clearInterval(intervalId); globalThis._gameClockId = null; timeoutCb('attacker'); }
     else if (defDisplay <= 0) { clearInterval(intervalId); globalThis._gameClockId = null; timeoutCb('defender'); }
   }, 100);
