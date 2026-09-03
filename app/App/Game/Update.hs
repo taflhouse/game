@@ -719,7 +719,10 @@ updateGame GameRefs{..} = \case
           DailyControl _ ->
             [ "last_move_at" .= nowStr ] ++
             maybe [] (\d -> ["move_deadline" .= d]) mDeadlineStr
-          NoTimeControl -> []
+          -- Untimed games have no clock, but the lounge uses last_move_at to
+          -- decide which active games are still live, so it has to be written
+          -- for every time control.
+          NoTimeControl -> [ "last_move_at" .= nowStr ]
     case gmGameId gm of
       Just gid -> do
         let baseFields = if finished (gsResult gs)
@@ -780,7 +783,7 @@ updateGame GameRefs{..} = \case
               DailyControl _ ->
                 [ "last_move_at" .= nowStr ] ++
                 maybe [] (\d -> ["move_deadline" .= d]) mDeadlineStr
-              NoTimeControl -> []
+              NoTimeControl -> [ "last_move_at" .= nowStr ]
         case gmTimeControl gm of
           NoTimeControl -> pure ()
           _ -> modify $ \x -> x { gmLastMoveAt = Just nowStr
@@ -1559,7 +1562,7 @@ updateGame GameRefs{..} = \case
                 , "time_per_move_seconds" .= perMoveSec
                 , "last_move_at"          .= nowStr
                 ]
-              NoTimeControl -> []
+              NoTimeControl -> [ "last_move_at" .= nowStr ]
             gameData = object $
               [ "id"            .= newUuid
               , "user_id"       .= uid
