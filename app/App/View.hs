@@ -80,8 +80,6 @@ viewModel gameComp replayComp tutorialComp _ m =
     , viewToast m
     , viewMatchToast m
     , viewMatchModal m
-    , viewReadyPopover m
-    , viewPushPopover m
     ]
 
 -- | Mount the game component when init data is available.
@@ -145,14 +143,14 @@ viewToast m = case mToast m of
 viewNavbar :: Model -> View Model Action
 viewNavbar m =
   H.div_
-    [ HP.class_ "border-b border-border bg-background/95 backdrop-blur shrink-0"
+    [ HP.class_ "navbar-shell border-b border-border bg-background/95 backdrop-blur shrink-0"
     ]
     [ H.div_
         [ HP.class_ "flex items-center justify-between px-4 py-3 mx-auto w-full max-w-7xl"
         ]
         [ -- Left: brand
           H.span_
-            [ HP.class_ "flex items-center gap-2 text-xl font-bold tracking-widest text-foreground/80 cursor-pointer select-none"
+            [ HP.class_ "navbar-brand flex items-center gap-2 text-xl font-bold tracking-widest text-foreground/80 cursor-pointer select-none"
             , style_ [("touch-action", "manipulation")]
             , SVG.onClick GotoHome
             ]
@@ -310,26 +308,30 @@ viewPushBell m =
           | otherwise               -> "Enable notifications"
   in if status == "unsupported"
      then text ""  -- hide bell entirely on unsupported browsers
-     else H.button_
-       [ HP.class_ "p-2 rounded-md cursor-pointer hover:bg-muted"
-       , style_ [ ("touch-action", "manipulation"), ("background", "none"), ("border", "none")
-                , ("display", "inline-flex"), ("align-items", "center"), ("position", "relative") ]
-       , SVG.onClick TogglePushPopover
-       , HP.title_ titleText
-       ]
-       [ SVG.svg_
-           [ SP.viewBox_ "0 0 24 24"
-           , HP.width_ "18"
-           , HP.height_ "18"
-           , SP.fill_ "none"
-           , SP.stroke_ bellColor
-           , SP.strokeWidth_ "2"
-           , SP.strokeLinecap_ "round"
-           , SP.strokeLinejoin_ "round"
-           ]
-           [ SVG.path_ [ SP.d_ "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" ]
-           , SVG.path_ [ SP.d_ "M13.73 21a2 2 0 0 1-3.46 0" ]
-           ]
+     else H.div_
+       [ HP.class_ "nav-anchor" ]
+       [ H.button_
+         [ HP.class_ "p-2 rounded-md cursor-pointer hover:bg-muted"
+         , style_ [ ("touch-action", "manipulation"), ("background", "none"), ("border", "none")
+                  , ("display", "inline-flex"), ("align-items", "center") ]
+         , SVG.onClick TogglePushPopover
+         , HP.title_ titleText
+         ]
+         [ SVG.svg_
+             [ SP.viewBox_ "0 0 24 24"
+             , HP.width_ "18"
+             , HP.height_ "18"
+             , SP.fill_ "none"
+             , SP.stroke_ bellColor
+             , SP.strokeWidth_ "2"
+             , SP.strokeLinecap_ "round"
+             , SP.strokeLinejoin_ "round"
+             ]
+             [ SVG.path_ [ SP.d_ "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" ]
+             , SVG.path_ [ SP.d_ "M13.73 21a2 2 0 0 1-3.46 0" ]
+             ]
+         ]
+       , viewPushPopover m
        ]
 
 -- | Push notification popover — soft-ask before triggering browser permission.
@@ -438,11 +440,7 @@ pushPopoverBackdrop =
 pushPopoverCard :: [View Model Action] -> View Model Action
 pushPopoverCard children =
   H.div_
-    [ HP.class_ "card p-4 shadow-lg"
-    , style_ [ ("position", "fixed"), ("top", "3.5rem"), ("right", "4rem")
-             , ("z-index", "9999"), ("max-width", "20rem")
-             ]
-    ]
+    [ HP.class_ "card p-4 shadow-lg nav-popover" ]
     children
 
 pushPopoverButtons :: [(MisoString, Action, Bool)] -> View Model Action
@@ -466,12 +464,7 @@ viewPushPopoverBraveHelp =
   H.div_ []
     [ pushPopoverBackdrop
     , H.div_
-        [ HP.class_ "card p-4 shadow-lg"
-        , style_ [ ("position", "fixed"), ("top", "3.5rem"), ("right", "1rem")
-                 , ("z-index", "9999"), ("max-width", "22rem")
-                 , ("max-height", "calc(100vh - 5rem)"), ("overflow-y", "auto")
-                 ]
-        ]
+        [ HP.class_ "card p-4 shadow-lg nav-popover nav-popover-help" ]
         [ H.div_ [ HP.class_ "mb-1" ]
             [ H.span_
                 [ HP.class_ "text-xs text-muted-foreground hover:text-foreground cursor-pointer"
@@ -561,17 +554,21 @@ viewLfgToggle :: Model -> View Model Action
 viewLfgToggle m =
   let active = mMatchInterested m
       color = if active then "#22c55e" else "#f97316"
-  in H.button_
-    [ HP.class_ "p-2 rounded-md cursor-pointer hover:bg-muted"
-    , style_ [ ("touch-action", "manipulation"), ("background", "none"), ("border", "none")
-             , ("display", "inline-flex"), ("align-items", "center") ]
-    , SVG.onClick ToggleMatchInterest
-    , HP.title_ (if active then "Stop looking for games" else "Look for games")
-    ]
-    [ H.span_
-        [ style_ [ ("width", "10px"), ("height", "10px"), ("border-radius", "50%")
-                 , ("background", color), ("display", "inline-block") ] ]
-        []
+  in H.div_
+    [ HP.class_ "nav-anchor" ]
+    [ H.button_
+        [ HP.class_ "p-2 rounded-md cursor-pointer hover:bg-muted"
+        , style_ [ ("touch-action", "manipulation"), ("background", "none"), ("border", "none")
+                 , ("display", "inline-flex"), ("align-items", "center") ]
+        , SVG.onClick ToggleMatchInterest
+        , HP.title_ (if active then "Stop looking for games" else "Look for games")
+        ]
+        [ H.span_
+            [ style_ [ ("width", "10px"), ("height", "10px"), ("border-radius", "50%")
+                     , ("background", color), ("display", "inline-block") ] ]
+            []
+        ]
+    , viewReadyPopover m
     ]
 
 -- | Light/Dark/System switch. "System" (the default) means the app just
@@ -643,7 +640,7 @@ navAuthButtons m =
         [ H.div_
             [ style_ [("position", "relative")] ]
             [ H.span_
-                [ HP.class_ "text-sm text-muted-foreground hover:text-foreground cursor-pointer flex items-center gap-1"
+                [ HP.class_ "nav-label text-sm text-muted-foreground hover:text-foreground cursor-pointer flex items-center gap-1"
                 , style_ [("touch-action", "manipulation")]
                 , SVG.onClick ToggleProfileDropdown
                 ]
@@ -838,11 +835,7 @@ viewReadyExplain =
         ] []
     , -- Card
       H.div_
-        [ HP.class_ "card p-4 shadow-lg"
-        , style_ [ ("position", "fixed"), ("top", "3.5rem"), ("right", "4rem")
-                 , ("z-index", "9999"), ("max-width", "18rem")
-                 ]
-        ]
+        [ HP.class_ "card p-4 shadow-lg nav-popover nav-popover-narrow" ]
         [ H.div_ [ HP.class_ "text-sm font-bold mb-2" ]
             [ text "Get notified of matches" ]
         , H.div_ [ HP.class_ "text-xs text-muted-foreground mb-3" ]
@@ -875,11 +868,7 @@ viewReadyFilters m =
         ] []
     , -- Card
       H.div_
-        [ HP.class_ "card p-4 shadow-lg"
-        , style_ [ ("position", "fixed"), ("top", "3.5rem"), ("right", "4rem")
-                 , ("z-index", "9999"), ("min-width", "16rem"), ("max-width", "20rem")
-                 ]
-        ]
+        [ HP.class_ "card p-4 shadow-lg nav-popover nav-popover-filters" ]
         [ H.div_ [ HP.class_ "text-sm font-bold mb-3" ]
             [ text "Match preferences" ]
         -- "Any" override

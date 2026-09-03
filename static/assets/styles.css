@@ -6645,6 +6645,78 @@ code.hljs {
   }
 }
 
+/* Navbar type sits 12.5% above the utility scale, matching the hand-scaling
+   applied to the lounge (see the note above .lounge-hero). The mockup got
+   there via `html { font-size: 18px }`; doing that here would double-scale
+   everything the lounge already accounts for, so the navbar is bumped on its
+   own. Explicit rem because the utility scale has no 1.41rem / 0.98rem step.
+   These rules are unlayered, so they beat the `text-xl` / `text-sm`
+   utilities in @layer utilities regardless of source order. */
+.navbar-brand {
+  font-size: 1.41rem;
+}
+.nav-link,
+.nav-label {
+  font-size: 0.98rem;
+}
+
+/* Navbar popovers (the push bell and the "looking for game" dot) hang off
+   their own trigger instead of the viewport corner: the button sits inside a
+   relative .nav-anchor and the card is absolutely positioned beneath it.
+   `width: max-content` is required — an absolutely positioned box with
+   `right: 0; width: auto` shrink-to-fits against its containing block, which
+   here is a ~2rem icon button. */
+.navbar-shell {
+  position: relative;
+  z-index: 50;
+}
+.nav-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.nav-popover {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  z-index: 9999;
+  width: max-content;
+  max-width: min(20rem, calc(100vw - 2rem));
+}
+.nav-popover-narrow {
+  max-width: min(18rem, calc(100vw - 2rem));
+}
+.nav-popover-filters {
+  min-width: 16rem;
+}
+.nav-popover-help {
+  max-width: min(22rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 5rem);
+  overflow-y: auto;
+}
+
+/* On phones the trigger sits too far from the right edge for a right-anchored
+   card to stay on screen, so pin it to the viewport with a uniform inset. The
+   navbar has no transform/filter, so `fixed` still resolves against the
+   viewport despite .navbar-shell being positioned. */
+@media (max-width: 30rem) {
+  .nav-popover {
+    position: fixed;
+    top: 3.5rem;
+    left: 1rem;
+    right: 1rem;
+    width: auto;
+    max-width: none;
+  }
+  .nav-popover-narrow,
+  .nav-popover-help {
+    max-width: none;
+  }
+  .nav-popover-filters {
+    min-width: 0;
+  }
+}
+
 /* Navbar text links: the label brightens and a hairline accent underline
    wipes in from the left. Animating `right` from 100% to 0 (rather than a
    transform) keeps the wipe anchored to the left edge regardless of label
@@ -7016,8 +7088,8 @@ code.hljs {
 }
 
 .brand-mark {
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 1.97rem;
+  height: 1.97rem;
   border-radius: 4px;
   overflow: hidden;
 }
