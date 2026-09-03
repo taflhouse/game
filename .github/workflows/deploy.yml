@@ -24,7 +24,7 @@ jobs:
           DATABASE_URL: ${{ github.ref_name == 'main' && secrets.PROD_DATABASE_URL || secrets.STAGING_DATABASE_URL }}
 
       - name: Push auth config (Postmark SMTP, site URL)
-        run: supabase config push --project-ref "$PROJECT_REF"
+        run: supabase config push --yes --project-ref "$PROJECT_REF"
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           PROJECT_REF: ${{ github.ref_name == 'main' && secrets.PROD_PROJECT_REF || secrets.STAGING_PROJECT_REF }}

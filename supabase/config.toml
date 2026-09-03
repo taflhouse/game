@@ -115,6 +115,16 @@ file_size_limit = "50MiB"
 # [storage.image_transformation]
 # enabled = true
 
+# Analytics and Vector buckets are paid-tier features. The CLI defaults
+# storage.vector.enabled to true, and `config push` sends the whole storage
+# block, so a free-tier project rejects the push with HTTP 402. Pin both off
+# explicitly rather than inheriting the CLI default.
+[storage.analytics]
+enabled = false
+
+[storage.vector]
+enabled = false
+
 [auth]
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
