@@ -90,7 +90,10 @@ For local development, create `cabal.project.local` (gitignored) to override wit
 
 GitHub Actions on push to `main` (production) or `staging` (staging):
 1. Supabase CLI pushes migrations via transaction pooler (`--db-url`)
-2. Nix builds WASM app
-3. Wrangler deploys to Cloudflare Workers
+2. `supabase config push` applies `supabase/config.toml` to the hosted project — note this
+   pushes the whole `[auth]` block, so environment-specific values (`SITE_URL`,
+   `SITE_URL_WILDCARD`, `POSTMARK_API_TOKEN`) are `env(...)` placeholders supplied by the workflow
+3. Nix builds WASM app
+4. Wrangler deploys to Cloudflare Workers
 
-Secrets: `PROD_DATABASE_URL`, `STAGING_DATABASE_URL`, `PROD_SUPABASE_URL`, `STAGING_SUPABASE_URL`, `PROD_SUPABASE_KEY`, `STAGING_SUPABASE_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`
+Secrets: `PROD_DATABASE_URL`, `STAGING_DATABASE_URL`, `PROD_SUPABASE_URL`, `STAGING_SUPABASE_URL`, `PROD_SUPABASE_KEY`, `STAGING_SUPABASE_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `PROD_POSTMARK_API_TOKEN`, `STAGING_POSTMARK_API_TOKEN`

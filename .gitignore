@@ -4,3 +4,4 @@ public
 .envrc
 .env.*
 cabal.project.local
+conversations.html
