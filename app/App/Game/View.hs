@@ -160,16 +160,10 @@ viewGame props gm
           Nothing ->
             ( AttackerSide, fromMaybe "Attacker" (gmAttackerName gm), gmAttackerTimeMs gm, turn == AttackerSide
             , DefenderSide, fromMaybe "Defender" (gmDefenderName gm), gmDefenderTimeMs gm, turn == DefenderSide )
-    in H.div_ [HP.class_ "w-full flex flex-col items-center"]
-      [ if zen then viewZenBackdrop else text ""
-      , viewTournamentBadge gm n
-      , if showClocks then viewClocks n leftSide leftName leftMs leftActive rightSide rightName rightMs rightActive (gmTimeControl gm) (gmMoveDeadline gm)
-        else if showBanner then viewOpponentBanner n (fromMaybe "Opponent" (gmOpponentName gm))
-        else text ""
-      , H.div_
+        boardRow = H.div_
           ([HP.id_ "board-row"
           , HP.class_ ("flex flex-row items-stretch justify-center gap-2" <> if zen then " zen" else "")]
-          ++ [style_ ([("margin-top", "2em") | (showClocks || showBanner) && not zen]
+          ++ [style_ ([("margin-top", "2em") | showClocks || showBanner]
                    ++ if zen
                         then [ ("margin-top", "0")
                              , ("position", "relative"), ("z-index", "51") ]
@@ -177,23 +171,38 @@ viewGame props gm
           [ if showEval && not zen then viewEvalBar (gmEvalScore gm) else text ""
           , viewBoardPanel gm
           ]
-      , if not zen && gmGameMode gm == MultiplayerMode && gmPlayerSide gm == Nothing
-        then viewSpectatorBadge n (gmSpectatorCount gm) (not (null (gmArrows gm))) else text ""
-      , if zen then text "" else viewStatus gm
-      , if zen then text "" else viewOpponentNotice gm
-      , if zen then text "" else viewMoveHistory gm
-      , if zen then text ""
-        else if gmGameMode gm == MultiplayerMode && isJust (gmPlayerSide gm)
-        then viewMultiplayerControls gm else text ""
-      , if zen then text "" else viewPostGamePanel gm
-      , if zen then text "" else viewShareLink props gm
-      , viewZenHint gm
-      , if zen then text "" else viewChatToggle gm
-      , if zen then text "" else viewChatPanel gm
-      , if zen then text "" else viewVoiceButton gm
-      , if zen then text "" else viewVoiceInviteBanner gm
-      , if zen then text "" else viewVideoPiP gm
-      ]
+    -- Built by concatenation rather than a fixed list of `if zen then text ""`
+    -- placeholders, so zen renders the three nodes it actually needs instead of
+    -- sixteen mostly-empty ones.
+    in H.div_ [HP.class_ "w-full flex flex-col items-center"]
+      (  [ viewZenBackdrop | zen ]
+      ++ [ viewTournamentBadge gm n | not zen ]
+      ++ [ if showClocks
+             then viewClocks n leftSide leftName leftMs leftActive rightSide rightName rightMs rightActive (gmTimeControl gm) (gmMoveDeadline gm)
+             else viewOpponentBanner n (fromMaybe "Opponent" (gmOpponentName gm))
+         | showClocks || showBanner ]
+      ++ [ boardRow ]
+      ++ (if zen then [] else
+           [ if gmGameMode gm == MultiplayerMode && gmPlayerSide gm == Nothing
+               then viewSpectatorBadge n (gmSpectatorCount gm) (not (null (gmArrows gm)))
+               else text ""
+           , viewStatus gm
+           , viewOpponentNotice gm
+           , viewMoveHistory gm
+           , if gmGameMode gm == MultiplayerMode && isJust (gmPlayerSide gm)
+               then viewMultiplayerControls gm else text ""
+           , viewPostGamePanel gm
+           , viewShareLink props gm
+           ])
+      ++ [ viewZenHint gm ]
+      ++ (if zen then [] else
+           [ viewChatToggle gm
+           , viewChatPanel gm
+           , viewVoiceButton gm
+           , viewVoiceInviteBanner gm
+           , viewVideoPiP gm
+           ])
+      )
 
 -- | Board panel with container
 viewBoardPanel :: GameModel -> View GameModel GameAction
