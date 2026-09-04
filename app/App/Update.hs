@@ -1058,6 +1058,10 @@ updateModel loungeChannelRef = \case
     let entering = mViewMode m == NormalView
     modify $ \x -> x { mViewMode = if entering then ZenView else NormalView
                       , mZenHint  = entering }
+    -- Hiding the app's own chrome does nothing about the browser's, which is
+    -- what leaves a URL bar over zen mode on a phone. Ask for real fullscreen
+    -- too; a no-op where the API is missing.
+    io_ $ if entering then js_enterFullscreen else js_exitFullscreen
     when entering $
       withSink $ \sink -> do
         threadDelay 4000000

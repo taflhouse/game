@@ -10,6 +10,8 @@ module App.FFI
   , js_loadLocalGames
   , js_clearLocalGames
   , js_toggleFullscreen
+  , js_enterFullscreen
+  , js_exitFullscreen
   , js_onDocumentDblClick
   , js_onKeyboardShortcut
   , js_onAppResume
@@ -126,6 +128,10 @@ foreign import javascript unsafe "globalThis.generateQRDataURL($1)"
   js_generateQRDataURL_raw :: JSVal -> IO JSVal
 foreign import javascript unsafe "globalThis.toggleFullscreen()"
   js_toggleFullscreen :: IO ()
+foreign import javascript unsafe "globalThis.enterFullscreen()"
+  js_enterFullscreen :: IO ()
+foreign import javascript unsafe "globalThis.exitFullscreen()"
+  js_exitFullscreen :: IO ()
 foreign import javascript unsafe "globalThis.onDocumentDblClick($1)"
   js_onDocumentDblClick_ffi :: JSVal -> IO ()
 foreign import javascript unsafe "globalThis.onKeyboardShortcut($1)"
@@ -371,6 +377,10 @@ js_generateQRDataURL_raw :: JSVal -> IO JSVal
 js_generateQRDataURL_raw _ = toJSVal ("" :: MisoString)
 js_toggleFullscreen :: IO ()
 js_toggleFullscreen = pure ()
+js_enterFullscreen :: IO ()
+js_enterFullscreen = pure ()
+js_exitFullscreen :: IO ()
+js_exitFullscreen = pure ()
 js_onDocumentDblClick :: Function -> IO ()
 js_onDocumentDblClick _ = pure ()
 

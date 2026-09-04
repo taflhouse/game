@@ -61,12 +61,48 @@ globalThis.generateQRDataURL = function(text) {
   return qr.createDataURL(6, 0);
 };
 
-globalThis.toggleFullscreen = () => {
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(() => {});
-  } else {
-    document.documentElement.requestFullscreen().catch(() => {});
-  }
+// Browser fullscreen. The prefixed forms still matter on older WebKit, and
+// iPhone Safari has no Fullscreen API at all - hence the guards, and hence the
+// web app manifest, which is the only way to lose the URL bar there.
+//
+// The previous version called requestFullscreen() unguarded: where the method
+// is missing that throws a TypeError synchronously, which the trailing .catch()
+// never sees.
+function fullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+globalThis.isFullscreenSupported = function() {
+  const el = document.documentElement;
+  return !!(el.requestFullscreen || el.webkitRequestFullscreen);
+};
+
+globalThis.enterFullscreen = function() {
+  try {
+    if (fullscreenElement()) return;
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!req) return;
+    const r = req.call(el);
+    // Rejected when user activation has expired, which it can by the time the
+    // update loop gets here. Nothing useful to do about it.
+    if (r && r.catch) r.catch(() => {});
+  } catch (e) { /* no fullscreen here */ }
+};
+
+globalThis.exitFullscreen = function() {
+  try {
+    if (!fullscreenElement()) return;
+    const ex = document.exitFullscreen || document.webkitExitFullscreen;
+    if (!ex) return;
+    const r = ex.call(document);
+    if (r && r.catch) r.catch(() => {});
+  } catch (e) { /* no fullscreen here */ }
+};
+
+globalThis.toggleFullscreen = function() {
+  if (fullscreenElement()) globalThis.exitFullscreen();
+  else globalThis.enterFullscreen();
 };
 
 globalThis.onKeyboardShortcut = (undoCb) => {
