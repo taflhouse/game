@@ -6569,6 +6569,12 @@ code.hljs {
   to { width: 100%; }
 }
 
+/* Zen mode hides the A/D/K letters on the pieces - the point of zen is an
+   uncluttered board, and colour alone distinguishes the sides. */
+.zen-board .piece-label {
+  display: none;
+}
+
 /* Capture poof animations (Wind Waker cel-shaded style) */
 @keyframes poof-flash {
   0% { transform: scale(0); opacity: 0.9; }

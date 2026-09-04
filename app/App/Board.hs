@@ -185,7 +185,8 @@ renderPiece k animate r c piece =
         , SP.strokeWidth_ "2"
         ]
     , SVG.text_
-        [ SP.x_ (ms half)
+        [ HP.class_ "piece-label"
+        , SP.x_ (ms half)
         , SP.y_ (ms (half + 1))
         , SP.textAnchor_ "middle"
         , SP.dominantBaseline_ "central"
@@ -401,7 +402,8 @@ viewBoardContainer fs zen _n content =
         then "85vmin"
         else "clamp(50vmin, calc(100vh - 29rem), 85vmin)") <> ")"
   in H.div_
-    [ HP.class_ "relative shadow-2xl rounded overflow-hidden border-2 border-border"
+    [ HP.class_ ("relative shadow-2xl rounded overflow-hidden border-2 border-border"
+                 <> if zen then " zen-board" else "")
     , style_ (if fs
         then [("width", fsSize), ("height", fsSize)]
         else [("width", normalBoardWidthCss)])
