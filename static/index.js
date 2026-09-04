@@ -97,26 +97,128 @@ globalThis.onDocumentDblClick = (cb) => {
   });
 };
 
+// -- WebAudio sound synthesis --
+//
+// One shared AudioContext: browsers cap how many a page may hold (~6), and the
+// move sound fires often enough to hit that if each call made its own.
+let _actx = null;
+function actx() {
+  if (!_actx) {
+    _actx = new (globalThis.AudioContext || globalThis.webkitAudioContext)();
+  }
+  if (_actx.state === 'suspended') _actx.resume().catch(() => {});
+  return _actx;
+}
+
+let _noise = null;
+function noiseBuffer(ctx) {
+  if (!_noise) {
+    const n = Math.floor(ctx.sampleRate * 0.5);
+    _noise = ctx.createBuffer(1, n, ctx.sampleRate);
+    const d = _noise.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return _noise;
+}
+
+// A stone-on-board knock: two pitched partials plus a lowpassed onset click.
+// Frequencies track the source wav - bright ~440Hz attack settling onto ~265Hz.
+function knock(ctx, at, gain, f1, f2, decay, bright) {
+  [[f1, decay * 0.55, 0.7], [f2, decay, 0.5]].forEach(([f, d, amp]) => {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(f * 1.06, at);
+    osc.frequency.exponentialRampToValueAtTime(f, at + 0.012);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, amp * gain), at + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + d);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(at);
+    osc.stop(at + d + 0.01);
+  });
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuffer(ctx);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = bright;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.35 * gain, at);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + 0.014);
+  src.connect(lp).connect(g).connect(ctx.destination);
+  src.start(at, Math.random() * 0.4);
+  src.stop(at + 0.02);
+}
+
+// A plain sine with a soft swell - the join chime's voice, reused for the
+// capture tail so all three sounds stay in one family.
+function tone(ctx, at, f, level, len) {
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = f;
+  g.gain.setValueAtTime(0.0001, at);
+  g.gain.exponentialRampToValueAtTime(level, at + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + len);
+  osc.connect(g).connect(ctx.destination);
+  osc.start(at);
+  osc.stop(at + len + 0.01);
+}
+
 globalThis.playMoveSound = () => {
-  // Delay sound to sync with the 150ms piece movement animation
-  setTimeout(() => {
-    const audio = new Audio('/chess_move_on_alabaster.wav');
-    audio.play().catch(() => {});
-  }, 150);
+  try {
+    const ctx = actx();
+    // 150ms offset syncs with the piece movement animation, as before.
+    knock(ctx, ctx.currentTime + 0.15, 0.5, 438, 265, 0.05, 1800);
+  } catch (e) { /* autoplay blocked or no WebAudio */ }
 };
 
+// Capture variants. Each is a set of knocks (the landing, then the captured
+// piece going off the board) plus optional tones receding after them.
+// Switch by changing CAPTURE_VARIANT.
+//   knock: [offset, gain, pitch, lowPartial, decay, clickBrightness]
+//   tone:  [offset, pitch, level, length]
+const CAPTURE_VARIANTS = {
+  // second knock a fifth down - the two sit closest together
+  fifth: {
+    knocks: [[0.000, 0.55, 440, 294, 0.06, 1800],
+             [0.085, 0.42, 294, 196, 0.11, 1400]],
+    tones: [],
+  },
+  // second knock a full octave down and a touch slower - reads as heavier
+  octave: {
+    knocks: [[0.000, 0.55, 440, 294, 0.06, 1800],
+             [0.090, 0.44, 220, 147, 0.14, 1300]],
+    tones: [],
+  },
+  // one knock, then E5-C5-G4 receding in the join chime's voice
+  chime: {
+    knocks: [[0.000, 0.50, 415, 277, 0.07, 1700]],
+    tones: [[0.06, 659.25, 0.085, 0.34],
+            [0.13, 523.25, 0.075, 0.34],
+            [0.20, 392.00, 0.065, 0.34]],
+  },
+};
+const CAPTURE_VARIANT = 'octave';
+
 globalThis.playCaptureSound = () => {
-  setTimeout(() => {
-    const audio = new Audio('/capture.wav');
-    audio.play().catch(() => {});
-  }, 150);
+  try {
+    const ctx = actx();
+    // Same 150ms offset as the move sound: on a capture only this fires, so the
+    // first knock doubles as the moving piece landing.
+    const t0 = ctx.currentTime + 0.15;
+    const v = CAPTURE_VARIANTS[CAPTURE_VARIANT];
+    v.knocks.forEach(([dt, gain, f1, f2, decay, bright]) =>
+      knock(ctx, t0 + dt, gain, f1, f2, decay, bright));
+    v.tones.forEach(([dt, f, level, len]) => tone(ctx, t0 + dt, f, level, len));
+  } catch (e) { /* autoplay blocked or no WebAudio */ }
 };
 
 globalThis.playJoinSound = () => {
   // Synthesised two-note chime - no asset to fetch, so it can't be delayed by
   // a cold cache at the exact moment the opponent appears.
   try {
-    const ctx = new (globalThis.AudioContext || globalThis.webkitAudioContext)();
+    const ctx = actx();
     const now = ctx.currentTime;
     [[587.33, 0], [880.0, 0.12]].forEach(([freq, at]) => {
       const osc = ctx.createOscillator();
@@ -130,7 +232,6 @@ globalThis.playJoinSound = () => {
       osc.start(now + at);
       osc.stop(now + at + 0.36);
     });
-    setTimeout(() => ctx.close().catch(() => {}), 800);
   } catch (e) { /* autoplay blocked or no WebAudio */ }
 };
 
