@@ -24,6 +24,12 @@ data GameAction
   | GPresenceSync Value
   | GRealtimeSubscribed Channel
   | GRealtimeError MisoString
+    -- Resync: refetch the game row when realtime may have missed something
+  | GResyncGame
+  | GResyncTick
+  | GResyncTimerStarted Int
+  | GResyncLoaded Value
+  | GResyncError MisoString
   | GMoveUpdated Value
   | GMoveUpdateError MisoString
   | GWriteMpMoveWithClock MisoString (Maybe MisoString)

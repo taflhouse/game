@@ -3,11 +3,14 @@ module App.FFI
   ( -- * Raw FFI
     js_playMoveSound
   , js_playCaptureSound
+  , js_playJoinSound
   , js_loadLocalGames
   , js_clearLocalGames
   , js_toggleFullscreen
   , js_onDocumentDblClick
   , js_onKeyboardShortcut
+  , js_onAppResume
+  , js_clearAppResume
   , js_startGameClock
   , js_stopGameClock
   , js_startDailyClock
@@ -92,6 +95,8 @@ foreign import javascript unsafe "globalThis.playMoveSound()"
   js_playMoveSound :: IO ()
 foreign import javascript unsafe "globalThis.playCaptureSound()"
   js_playCaptureSound :: IO ()
+foreign import javascript unsafe "globalThis.playJoinSound()"
+  js_playJoinSound :: IO ()
 foreign import javascript unsafe "globalThis.setTheme($1)"
   js_setTheme_raw :: JSVal -> IO ()
 foreign import javascript unsafe "globalThis.getThemeMode()"
@@ -116,6 +121,10 @@ foreign import javascript unsafe "globalThis.onDocumentDblClick($1)"
   js_onDocumentDblClick_ffi :: JSVal -> IO ()
 foreign import javascript unsafe "globalThis.onKeyboardShortcut($1)"
   js_onKeyboardShortcut_ffi :: JSVal -> IO ()
+foreign import javascript unsafe "globalThis.onAppResume($1)"
+  js_onAppResume_ffi :: JSVal -> IO ()
+foreign import javascript unsafe "globalThis.clearAppResume()"
+  js_clearAppResume :: IO ()
 foreign import javascript unsafe "globalThis.nowISO()"
   js_nowISO_raw :: IO JSVal
 foreign import javascript unsafe "globalThis.elapsedMs($1)"
@@ -270,6 +279,9 @@ js_loadLocalGames (Function a) (Function b) = js_loadLocalGames_ffi a b
 js_onDocumentDblClick :: Function -> IO ()
 js_onDocumentDblClick (Function a) = js_onDocumentDblClick_ffi a
 
+js_onAppResume :: Function -> IO ()
+js_onAppResume (Function a) = js_onAppResume_ffi a
+
 js_onKeyboardShortcut :: Function -> IO ()
 js_onKeyboardShortcut (Function a) = js_onKeyboardShortcut_ffi a
 
@@ -322,6 +334,8 @@ js_playMoveSound :: IO ()
 js_playMoveSound = pure ()
 js_playCaptureSound :: IO ()
 js_playCaptureSound = pure ()
+js_playJoinSound :: IO ()
+js_playJoinSound = pure ()
 js_setTheme_raw :: JSVal -> IO ()
 js_setTheme_raw _ = pure ()
 js_getThemeMode_raw :: IO JSVal
@@ -344,6 +358,12 @@ js_toggleFullscreen :: IO ()
 js_toggleFullscreen = pure ()
 js_onDocumentDblClick :: Function -> IO ()
 js_onDocumentDblClick _ = pure ()
+
+js_onAppResume :: Function -> IO ()
+js_onAppResume _ = pure ()
+
+js_clearAppResume :: IO ()
+js_clearAppResume = pure ()
 js_onKeyboardShortcut :: Function -> IO ()
 js_onKeyboardShortcut _ = pure ()
 js_nowISO_raw :: IO JSVal

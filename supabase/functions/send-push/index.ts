@@ -231,7 +231,7 @@ Deno.serve(async (req) => {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const { user_id, game_id, mover_name, variant } = await req.json();
+  const { user_id, game_id, mover_name, variant, event } = await req.json();
   if (!user_id || !game_id) {
     return new Response("Missing user_id or game_id", { status: 400 });
   }
@@ -247,11 +247,20 @@ Deno.serve(async (req) => {
     return Response.json({ sent: 0, total: 0 });
   }
 
-  const payload = JSON.stringify({
-    title: `${mover_name} made a move`,
-    body: `It's your turn in ${variant}!`,
-    game_id,
-  });
+  // `event` defaults to "move" so older callers keep their existing wording.
+  const payload = JSON.stringify(
+    event === "join"
+      ? {
+        title: `${mover_name} joined your game`,
+        body: `Your ${variant} game is ready.`,
+        game_id,
+      }
+      : {
+        title: `${mover_name} made a move`,
+        body: `It's your turn in ${variant}!`,
+        game_id,
+      },
+  );
 
   let sent = 0;
   const staleIds: string[] = [];

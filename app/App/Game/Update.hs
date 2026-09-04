@@ -46,6 +46,11 @@ updateGame GameRefs{..} = \case
 
   GameMount -> do
     props <- getProps
+    -- Frozen tabs and dropped connections both silently stop realtime; refetch
+    -- whenever we come back rather than waiting for a page reload.
+    withSink $ \sink -> do
+      cb <- Function <$> asyncCallback (sink GResyncGame)
+      js_onAppResume cb
     case gpInitData props of
       NewLocalGame uuid variant mode aiSide aiDepth aiNodeLimit -> do
         let gs = initialState variant
@@ -166,6 +171,9 @@ updateGame GameRefs{..} = \case
             subscribeToTable ("chat:" <> uuid) "game_chat" ("game_id=eq." <> uuid)
               GChatReceived GChatSubscribed GChatError
             subscribeVoiceBroadcast grVoiceChannelRef uuid
+            -- Backstop for the join UPDATE: realtime is the only thing that
+            -- delivers it, and a dropped channel never replays it.
+            startResyncTimer
             -- Start matchmaking polling timer
             when isMatchmaking $
               startMatchmakingTimer grChannelRef
@@ -285,6 +293,7 @@ updateGame GameRefs{..} = \case
               subscribeToTable ("chat:" <> gid) "game_chat" ("game_id=eq." <> gid)
                 GChatReceived GChatSubscribed GChatError
               subscribeVoiceBroadcast grVoiceChannelRef gid
+              when (grwStatus gr == "waiting") startResyncTimer
               selectWithFilters "game_chat" "*" [eq "game_id" gid]
                 (FetchOptions Nothing Nothing Nothing Nothing) GChatHistoryLoaded GChatHistoryError
             when (grwStatus gr == "active") $
@@ -324,6 +333,7 @@ updateGame GameRefs{..} = \case
               subscribeToTable ("chat:" <> gid) "game_chat" ("game_id=eq." <> gid)
                 GChatReceived GChatSubscribed GChatError
               subscribeVoiceBroadcast grVoiceChannelRef gid
+              when (grwStatus gr == "waiting") startResyncTimer
               selectWithFilters "game_chat" "*" [eq "game_id" gid]
                 (FetchOptions Nothing Nothing Nothing Nothing) GChatHistoryLoaded GChatHistoryError
             when (grwStatus gr == "active") $
@@ -338,6 +348,10 @@ updateGame GameRefs{..} = \case
     case gmMatchmakingTimerId gm of
       Just tid -> io_ $ js_clearInterval tid
       Nothing  -> pure ()
+    case gmResyncTimerId gm of
+      Just tid -> io_ $ js_clearInterval tid
+      Nothing  -> pure ()
+    io_ js_clearAppResume
     io_ $ do
       mCh <- readIORef grChannelRef
       case mCh of
@@ -531,133 +545,52 @@ updateGame GameRefs{..} = \case
           , gmCapturePoofs = []
           }
 
-  GRealtimeChange val -> do
-    gm <- get
+  GRealtimeChange val ->
     case parseRealtimeRow val of
       Nothing -> pure ()
-      Just gr -> do
-        let remoteMoves = grwMoves gr
-            localMoves = gmMoveList gm
-            variant = fromMaybe (gmVariant gm) (lookupVariant (grwVariant gr))
+      Just gr -> applyGameRow grChannelRef grClockRef gr
 
-        when (grwStatus gr == "active"
-              && (gmAttackerName gm == Nothing || gmDefenderName gm == Nothing)) $ do
-          -- Cancel matchmaking timer when opponent joins
-          case gmMatchmakingTimerId gm of
-            Just tid -> do
-              io_ $ js_clearInterval tid
-              modify $ \x -> x { gmMatchmakingTimerId = Nothing, gmIsMatchmaking = False }
-            Nothing -> pure ()
-          let oppName = case gmPlayerSide gm of
-                Just AttackerSide -> grwDefenderName gr
-                Just DefenderSide -> grwAttackerName gr
-                Nothing -> Nothing
-          modify $ \x -> applyClockFromRow gr $ x
-            { gmOpponentName = oppName
-            , gmAttackerName = grwAttackerName gr
-            , gmDefenderName = grwDefenderName gr
-            , gmAttackerId = grwAttackerId gr
-            , gmDefenderId = grwDefenderId gr
-            }
-          -- Detect rated -> casual downgrade
-          when (gmIsRated gm && not (grwIsRated gr)) $ do
-            modify $ \x -> x { gmIsRated = False }
-            mailParent $ object ["type" .= ("rated_downgraded" :: MisoString)]
-          case parseTimeControl gr of
-            BlitzControl _ -> startBlitzClock grChannelRef grClockRef
-            DailyControl _ -> startDailyClock grClockRef
-            _ -> pure ()
+  -- Refetch the row and fold it in as if realtime had delivered it. Fired on
+  -- tab resume / network recovery and by the resync poll below.
+  GResyncGame -> do
+    gm <- get
+    case gmGameId gm of
+      Just gid | gmGameMode gm == MultiplayerMode
+               , not (finished (gsResult (gmGameState gm))) -> selectGameRow gid
+      _ -> pure ()
 
-        -- Auto-cancelled by cron or externally
-        when (grwStatus gr == "cancelled" && isNothing (gmOpponentName gm)) $ do
-          case gmMatchmakingTimerId gm of
-            Just tid -> io_ $ js_clearInterval tid
-            Nothing  -> pure ()
-          modify $ \x -> x { gmMatchmakingTimerId = Nothing, gmIsMatchmaking = False }
-          io_ $ pushURI (configureURI "multiplayer")
+  GResyncTick -> do
+    gm <- get
+    case gmGameId gm of
+      Just gid | needsResyncPoll gm -> selectGameRow gid
+      _ -> stopResyncTimer
 
-        when (length remoteMoves > length localMoves) $ do
-          let gs0 = initialState variant
-              (hist, gs) = replayMoves gs0 remoteMoves
-              oldBoard = if null hist then gsBoard gs else gsBoard (last hist)
-              poofs = [(c, pieceAt oldBoard c) | c <- gsCaptures gs]
-          modify $ \x -> applyClockFromRow gr $ x
-            { gmGameState = gs
-            , gmHistory = hist
-            , gmMoveList = remoteMoves
-            , gmSelected = Nothing
-            , gmValidMoves = []
-            , gmBrowseIndex = Nothing
-            , gmAnimateMove = if not (null remoteMoves) then Just (last remoteMoves) else Nothing
-            , gmCapturePoofs = poofs
-            }
-          io_ (if null poofs then js_playMoveSound else js_playCaptureSound)
-          when (not (null poofs)) $
-            withSink $ \sink -> do
-              threadDelay 400000
-              sink GPoofsDone
-          case parseTimeControl gr of
-            BlitzControl _ -> startBlitzClock grChannelRef grClockRef
-            DailyControl _ -> startDailyClock grClockRef
-            _ -> pure ()
+  GResyncTimerStarted tid -> do
+    gm <- get
+    -- Defensive: never leave a previously started interval running.
+    case gmResyncTimerId gm of
+      Just old | old /= tid -> io_ $ js_clearInterval old
+      _ -> pure ()
+    modify $ \x -> x { gmResyncTimerId = Just tid }
 
-        case grwDrawOfferedBy gr of
-          Just offeredBy | Just mySide <- gmPlayerSide gm
-                         , sideStr mySide /= offeredBy
-                         -> modify $ \x -> x { gmDrawOffered = True }
-          Nothing -> modify $ \x -> x { gmDrawOffered = False }
-          _ -> pure ()
+  GResyncLoaded val ->
+    case fromJSON val of
+      Success (gr:_) -> applyGameRow grChannelRef grClockRef (gr :: GameRow)
+      _ -> pure ()
 
-        -- Interest status on waiting matchmaking games
-        when (gmIsMatchmaking gm && grwStatus gr == "waiting") $ do
-          case grwInterestStatus gr of
-            Just "viewing" | not (gmInterestShown gm) -> do
-              modify $ \x -> x { gmInterestShown = True }
-              -- Extend timeout: subtract 3 ticks to give more time
-              modify $ \x -> x { gmMatchmakingTicks = max 0 (gmMatchmakingTicks x - 3) }
-              -- Restart timer if it was stopped
-              case gmMatchmakingTimerId gm of
-                Nothing -> startMatchmakingTimer grChannelRef
-                Just _  -> pure ()
-            Just "declined" -> do
-              modify $ \x -> x { gmInterestShown = False }
-              -- Stop timer and show AI fallback (same as tick >= 6)
-              case gmMatchmakingTimerId gm of
-                Just tid -> do
-                  io_ $ js_clearInterval tid
-                  modify $ \x -> x { gmMatchmakingTimerId = Nothing, gmMatchmakingTicks = 6 }
-                Nothing ->
-                  modify $ \x -> x { gmMatchmakingTicks = 6 }
-            _ -> pure ()
-
-        -- Rematch offer detection
-        case grwRematchOfferedBy gr of
-          Just offeredBy | Just mySide <- gmPlayerSide gm
-                         , sideStr mySide /= offeredBy
-                         -> modify $ \x -> x { gmRematchOffered = True }
-          Nothing -> modify $ \x -> x { gmRematchOffered = False, gmRematchPending = False }
-          _ -> pure ()
-
-        -- Rematch navigation: when rematch_game_id is set, navigate both players
-        case grwRematchGameId gr of
-          Just newGid | isNothing (gmRematchGameId gm) -> do
-            modify $ \x -> x { gmRematchGameId = Just newGid }
-            io_ $ pushURI (playURI newGid)
-          _ -> pure ()
-
-        when (grwResultDesc gr /= "in_progress" && grwStatus gr == "finished") $ do
-          let winSide = case grwWinner gr of
-                Just "attacker" -> Just AttackerSide
-                Just "defender" -> Just DefenderSide
-                _ -> Nothing
-              result = GameResult True winSide (fromMisoString (grwResultDesc gr))
-          modify $ \x -> x { gmGameState = (gmGameState x) { gsResult = result }
-                           , gmOpponentNotice = Nothing }
-          stopClock' grClockRef
+  -- Swallowed on purpose: the poll will try again shortly.
+  GResyncError _ -> pure ()
 
   GRealtimeSubscribed ch -> do
     io_ $ writeIORef grChannelRef (Just ch)
     gm <- get
+    -- A rejoin after a drop starts from "now", so pull the row once to pick up
+    -- whatever happened while we were disconnected.
+    when (not (gmRealtimeHealthy gm)) $ do
+      modify $ \x -> x { gmRealtimeHealthy = True }
+      case gmGameId gm of
+        Just gid -> selectGameRow gid
+        Nothing  -> pure ()
     let (role, sideVal) = case gmPlayerSide gm of
           Just s  -> ("player" :: MisoString, Just (sideStr s))
           Nothing -> ("spectator", Nothing)
@@ -692,7 +625,18 @@ updateGame GameRefs{..} = \case
         threadDelay 3000000
         sink GDismissNotice
 
-  GRealtimeError _ -> pure ()
+  -- CHANNEL_ERROR / TIMED_OUT / an unsolicited CLOSED. supabase-js rejoins on
+  -- its own, but events during the gap are gone for good, so drop to polling
+  -- until the channel reports SUBSCRIBED again.
+  GRealtimeError _ -> do
+    gm <- get
+    modify $ \x -> x { gmRealtimeHealthy = False }
+    case gmGameId gm of
+      Just gid | gmGameMode gm == MultiplayerMode
+               , not (finished (gsResult (gmGameState gm))) -> do
+        selectGameRow gid
+        startResyncTimer
+      _ -> pure ()
 
   GMoveUpdated _ -> pure ()
 
@@ -1668,6 +1612,179 @@ triggerAi _channelRef _clockRef = do
 sideStr :: Side -> MisoString
 sideStr AttackerSide = "attacker"
 sideStr DefenderSide = "defender"
+
+-- | Fold a @games@ row into the model: opponent joins, opponent moves,
+-- draw/rematch offers, cancellation and game end.
+--
+-- Shared by the realtime channel and by 'GResyncGame' so a refetched row takes
+-- exactly the same path a live UPDATE would have. Postgres Changes never
+-- replays events a dropped channel missed, so the refetch path is what keeps a
+-- backgrounded or briefly disconnected client from going stale until reload.
+applyGameRow
+  :: IORef (Maybe Channel)
+  -> IORef (Maybe Int)
+  -> GameRow
+  -> Effect Model GameProps GameModel GameAction
+applyGameRow grChannelRef grClockRef gr = do
+  gm <- get
+  let remoteMoves = grwMoves gr
+      localMoves = gmMoveList gm
+      variant = fromMaybe (gmVariant gm) (lookupVariant (grwVariant gr))
+
+  when (grwStatus gr == "active"
+        && (gmAttackerName gm == Nothing || gmDefenderName gm == Nothing)) $ do
+    -- The opponent is here: stop polling for them, and actually make a noise
+    -- about it -- the screen swap alone is easy to miss on a backgrounded tab.
+    stopResyncTimer
+    io_ js_playJoinSound
+    -- Cancel matchmaking timer when opponent joins
+    case gmMatchmakingTimerId gm of
+      Just tid -> do
+        io_ $ js_clearInterval tid
+        modify $ \x -> x { gmMatchmakingTimerId = Nothing, gmIsMatchmaking = False }
+      Nothing -> pure ()
+    let oppName = case gmPlayerSide gm of
+          Just AttackerSide -> grwDefenderName gr
+          Just DefenderSide -> grwAttackerName gr
+          Nothing -> Nothing
+    modify $ \x -> applyClockFromRow gr $ x
+      { gmOpponentName = oppName
+      , gmAttackerName = grwAttackerName gr
+      , gmDefenderName = grwDefenderName gr
+      , gmAttackerId = grwAttackerId gr
+      , gmDefenderId = grwDefenderId gr
+      }
+    -- Detect rated -> casual downgrade
+    when (gmIsRated gm && not (grwIsRated gr)) $ do
+      modify $ \x -> x { gmIsRated = False }
+      mailParent $ object ["type" .= ("rated_downgraded" :: MisoString)]
+    case parseTimeControl gr of
+      BlitzControl _ -> startBlitzClock grChannelRef grClockRef
+      DailyControl _ -> startDailyClock grClockRef
+      _ -> pure ()
+
+  -- Auto-cancelled by cron or externally
+  when (grwStatus gr == "cancelled" && isNothing (gmOpponentName gm)) $ do
+    case gmMatchmakingTimerId gm of
+      Just tid -> io_ $ js_clearInterval tid
+      Nothing  -> pure ()
+    modify $ \x -> x { gmMatchmakingTimerId = Nothing, gmIsMatchmaking = False }
+    io_ $ pushURI (configureURI "multiplayer")
+
+  when (length remoteMoves > length localMoves) $ do
+    let gs0 = initialState variant
+        (hist, gs) = replayMoves gs0 remoteMoves
+        oldBoard = if null hist then gsBoard gs else gsBoard (last hist)
+        poofs = [(c, pieceAt oldBoard c) | c <- gsCaptures gs]
+    modify $ \x -> applyClockFromRow gr $ x
+      { gmGameState = gs
+      , gmHistory = hist
+      , gmMoveList = remoteMoves
+      , gmSelected = Nothing
+      , gmValidMoves = []
+      , gmBrowseIndex = Nothing
+      , gmAnimateMove = if not (null remoteMoves) then Just (last remoteMoves) else Nothing
+      , gmCapturePoofs = poofs
+      }
+    io_ (if null poofs then js_playMoveSound else js_playCaptureSound)
+    when (not (null poofs)) $
+      withSink $ \sink -> do
+        threadDelay 400000
+        sink GPoofsDone
+    case parseTimeControl gr of
+      BlitzControl _ -> startBlitzClock grChannelRef grClockRef
+      DailyControl _ -> startDailyClock grClockRef
+      _ -> pure ()
+
+  case grwDrawOfferedBy gr of
+    Just offeredBy | Just mySide <- gmPlayerSide gm
+                   , sideStr mySide /= offeredBy
+                   -> modify $ \x -> x { gmDrawOffered = True }
+    Nothing -> modify $ \x -> x { gmDrawOffered = False }
+    _ -> pure ()
+
+  -- Interest status on waiting matchmaking games
+  when (gmIsMatchmaking gm && grwStatus gr == "waiting") $ do
+    case grwInterestStatus gr of
+      Just "viewing" | not (gmInterestShown gm) -> do
+        modify $ \x -> x { gmInterestShown = True }
+        -- Extend timeout: subtract 3 ticks to give more time
+        modify $ \x -> x { gmMatchmakingTicks = max 0 (gmMatchmakingTicks x - 3) }
+        -- Restart timer if it was stopped
+        case gmMatchmakingTimerId gm of
+          Nothing -> startMatchmakingTimer grChannelRef
+          Just _  -> pure ()
+      Just "declined" -> do
+        modify $ \x -> x { gmInterestShown = False }
+        -- Stop timer and show AI fallback (same as tick >= 6)
+        case gmMatchmakingTimerId gm of
+          Just tid -> do
+            io_ $ js_clearInterval tid
+            modify $ \x -> x { gmMatchmakingTimerId = Nothing, gmMatchmakingTicks = 6 }
+          Nothing ->
+            modify $ \x -> x { gmMatchmakingTicks = 6 }
+      _ -> pure ()
+
+  -- Rematch offer detection
+  case grwRematchOfferedBy gr of
+    Just offeredBy | Just mySide <- gmPlayerSide gm
+                   , sideStr mySide /= offeredBy
+                   -> modify $ \x -> x { gmRematchOffered = True }
+    Nothing -> modify $ \x -> x { gmRematchOffered = False, gmRematchPending = False }
+    _ -> pure ()
+
+  -- Rematch navigation: when rematch_game_id is set, navigate both players
+  case grwRematchGameId gr of
+    Just newGid | isNothing (gmRematchGameId gm) -> do
+      modify $ \x -> x { gmRematchGameId = Just newGid }
+      io_ $ pushURI (playURI newGid)
+    _ -> pure ()
+
+  when (grwResultDesc gr /= "in_progress" && grwStatus gr == "finished") $ do
+    let winSide = case grwWinner gr of
+          Just "attacker" -> Just AttackerSide
+          Just "defender" -> Just DefenderSide
+          _ -> Nothing
+        result = GameResult True winSide (fromMisoString (grwResultDesc gr))
+    modify $ \x -> x { gmGameState = (gmGameState x) { gsResult = result }
+                     , gmOpponentNotice = Nothing }
+    stopClock' grClockRef
+
+-- | Refetch the authoritative row for a game.
+selectGameRow :: MisoString -> Effect Model GameProps GameModel GameAction
+selectGameRow gid =
+  selectWithFilters "games" "*" [eq "id" gid]
+    (FetchOptions Nothing Nothing Nothing Nothing) GResyncLoaded GResyncError
+
+-- | Whether the 5s poll should keep running: while waiting for an opponent to
+-- show up (the join UPDATE is the one event with no other way to reach us), or
+-- while the realtime channel is known to be down.
+needsResyncPoll :: GameModel -> Bool
+needsResyncPoll gm =
+  gmGameMode gm == MultiplayerMode
+  && isJust (gmGameId gm)
+  && not (finished (gsResult (gmGameState gm)))
+  && (  (isNothing (gmOpponentName gm) && isJust (gmPlayerSide gm))
+     || not (gmRealtimeHealthy gm))
+
+-- | Start the resync poll, unless one is already running.
+startResyncTimer :: Effect Model GameProps GameModel GameAction
+startResyncTimer = do
+  gm <- get
+  case gmResyncTimerId gm of
+    Just _  -> pure ()
+    Nothing -> withSink $ \sink -> do
+      cb <- Function <$> asyncCallback (sink GResyncTick)
+      tid <- js_setInterval cb 5000
+      sink (GResyncTimerStarted tid)
+
+stopResyncTimer :: Effect Model GameProps GameModel GameAction
+stopResyncTimer = do
+  gm <- get
+  case gmResyncTimerId gm of
+    Just tid -> io_ $ js_clearInterval tid
+    Nothing  -> pure ()
+  modify $ \x -> x { gmResyncTimerId = Nothing }
 
 parseRealtimeRow :: Value -> Maybe GameRow
 parseRealtimeRow val =

@@ -112,6 +112,42 @@ globalThis.playCaptureSound = () => {
   }, 150);
 };
 
+globalThis.playJoinSound = () => {
+  // Synthesised two-note chime - no asset to fetch, so it can't be delayed by
+  // a cold cache at the exact moment the opponent appears.
+  try {
+    const ctx = new (globalThis.AudioContext || globalThis.webkitAudioContext)();
+    const now = ctx.currentTime;
+    [[587.33, 0], [880.0, 0.12]].forEach(([freq, at]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, now + at);
+      gain.gain.exponentialRampToValueAtTime(0.25, now + at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + at + 0.35);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + at);
+      osc.stop(now + at + 0.36);
+    });
+    setTimeout(() => ctx.close().catch(() => {}), 800);
+  } catch (e) { /* autoplay blocked or no WebAudio */ }
+};
+
+// -- App resume (tab foregrounded / network back) --
+//
+// Realtime is fire-and-forget: a channel that drops while the tab is frozen
+// reconnects without replaying what it missed. One listener pair dispatches to
+// whichever component is currently mounted, so nothing leaks across mounts.
+let appResumeCb = null;
+globalThis.onAppResume = (cb) => { appResumeCb = cb; };
+globalThis.clearAppResume = () => { appResumeCb = null; };
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && appResumeCb) appResumeCb();
+});
+globalThis.addEventListener('online', () => { if (appResumeCb) appResumeCb(); });
+
 globalThis.animatePieceMove = (fromR, fromC, toR, toC, sqSize) => {
   requestAnimationFrame(() => {
     const el = document.getElementById('piece-' + toR + '-' + toC);
@@ -337,10 +373,14 @@ globalThis["subscribePostgresChanges"] = function(channelName, table, filter, ch
     .subscribe(function(status) {
       if (status === 'SUBSCRIBED') subscribedCb(channel);
       else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') errorCb(status);
+      else if (status === 'CLOSED' && !channel._intentionalClose) errorCb(status);
     });
 };
 
 globalThis["removeChannel"] = function(channel) {
+  // Mark the close as ours so the subscribe callback below doesn't report it
+  // as a dropped channel and kick off a pointless resync.
+  if (channel) { channel._intentionalClose = true; }
   globalThis["supabase"].removeChannel(channel);
 };
 
@@ -356,6 +396,7 @@ globalThis["subscribePostgresChangesWithPresence"] = function(channelName, table
     .subscribe(function(status) {
       if (status === 'SUBSCRIBED') subscribedCb(channel);
       else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') errorCb(status);
+      else if (status === 'CLOSED' && !channel._intentionalClose) errorCb(status);
     });
 };
 
@@ -486,6 +527,7 @@ globalThis.subscribeBroadcast = function(channelName, eventName, messageCb, subs
     .subscribe(function(status) {
       if (status === 'SUBSCRIBED') subscribedCb(channel);
       else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') errorCb(status);
+      else if (status === 'CLOSED' && !channel._intentionalClose) errorCb(status);
     });
 };
 

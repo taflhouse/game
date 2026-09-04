@@ -93,6 +93,10 @@ data GameModel = GameModel
   , gmRematchGameId   :: Maybe MisoString
   , gmAttackerId      :: Maybe MisoString
   , gmDefenderId      :: Maybe MisoString
+    -- Realtime resync: Postgres Changes never replays what a dropped channel
+    -- missed, so a poll/refetch backstop is what keeps the model honest.
+  , gmResyncTimerId   :: Maybe Int
+  , gmRealtimeHealthy :: !Bool
     -- Matchmaking
   , gmIsMatchmaking        :: !Bool
   , gmMatchmakingTimerId   :: Maybe Int
@@ -168,6 +172,8 @@ initialGameModel = GameModel
   , gmRematchGameId   = Nothing
   , gmAttackerId      = Nothing
   , gmDefenderId      = Nothing
+  , gmResyncTimerId   = Nothing
+  , gmRealtimeHealthy = True
   , gmIsMatchmaking        = False
   , gmMatchmakingTimerId   = Nothing
   , gmMatchmakingTicks     = 0
