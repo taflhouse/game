@@ -53,7 +53,7 @@ viewModel gameComp replayComp tutorialComp _ m =
         ]
         [ H.div_
             [ HP.class_ (if zen
-                then "flex flex-col items-center justify-center min-h-full px-4 mx-auto w-full max-w-7xl"
+                then "flex flex-col items-center justify-center min-h-full py-8 px-4 mx-auto w-full max-w-7xl"
                 else "flex flex-col items-center min-h-full pt-8 pb-12 px-4 mx-auto w-full max-w-7xl")
             ]
             [ if mNeedsUsername m && mGuestName m == Nothing && mScreen m /= SignInScreen && mScreen m /= SignUpScreen

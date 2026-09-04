@@ -58,7 +58,7 @@ normalBoardWidthCss = "clamp(300px, 80vmin, 46rem)"
 -- can take far more of the viewport. Capped against viewport height as well as
 -- vmin so the clocks above it still fit on a short screen.
 zenBoardWidthCss :: MisoString
-zenBoardWidthCss = "clamp(300px, min(85vmin, calc(100vh - 9rem)), 56rem)"
+zenBoardWidthCss = "clamp(300px, min(85vmin, calc(100vh - 12rem)), 56rem)"
 
 -- ---------------------------------------------------------------------------
 -- Pure helpers

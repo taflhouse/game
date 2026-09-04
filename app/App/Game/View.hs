@@ -169,8 +169,11 @@ viewGame props gm
       , H.div_
           ([HP.id_ "board-row"
           , HP.class_ ("flex flex-row items-stretch justify-center gap-2" <> if zen then " zen" else "")]
-          ++ [style_ ([("margin-top", "2em") | showClocks || showBanner]
-                   ++ if zen then [("position", "relative"), ("z-index", "51")] else [])])
+          ++ [style_ ([("margin-top", "2em") | (showClocks || showBanner) && not zen]
+                   ++ if zen
+                        then [ ("margin-top", "0")
+                             , ("position", "relative"), ("z-index", "51") ]
+                        else [])])
           [ if showEval && not zen then viewEvalBar (gmEvalScore gm) else text ""
           , viewBoardPanel gm
           ]
