@@ -4,6 +4,9 @@ module App.FFI
     js_playMoveSound
   , js_playCaptureSound
   , js_playJoinSound
+  , js_playWinSound
+  , js_playLoseSound
+  , js_playDrawSound
   , js_loadLocalGames
   , js_clearLocalGames
   , js_toggleFullscreen
@@ -97,6 +100,12 @@ foreign import javascript unsafe "globalThis.playCaptureSound()"
   js_playCaptureSound :: IO ()
 foreign import javascript unsafe "globalThis.playJoinSound()"
   js_playJoinSound :: IO ()
+foreign import javascript unsafe "globalThis.playWinSound()"
+  js_playWinSound :: IO ()
+foreign import javascript unsafe "globalThis.playLoseSound()"
+  js_playLoseSound :: IO ()
+foreign import javascript unsafe "globalThis.playDrawSound()"
+  js_playDrawSound :: IO ()
 foreign import javascript unsafe "globalThis.setTheme($1)"
   js_setTheme_raw :: JSVal -> IO ()
 foreign import javascript unsafe "globalThis.getThemeMode()"
@@ -336,6 +345,12 @@ js_playCaptureSound :: IO ()
 js_playCaptureSound = pure ()
 js_playJoinSound :: IO ()
 js_playJoinSound = pure ()
+js_playWinSound :: IO ()
+js_playWinSound = pure ()
+js_playLoseSound :: IO ()
+js_playLoseSound = pure ()
+js_playDrawSound :: IO ()
+js_playDrawSound = pure ()
 js_setTheme_raw :: JSVal -> IO ()
 js_setTheme_raw _ = pure ()
 js_getThemeMode_raw :: IO JSVal

@@ -97,6 +97,9 @@ data GameModel = GameModel
     -- missed, so a poll/refetch backstop is what keeps the model honest.
   , gmResyncTimerId   :: Maybe Int
   , gmRealtimeHealthy :: !Bool
+    -- Set once the outcome sound has played, so browsing back through the
+    -- move list (or a redundant announce call) can't replay it.
+  , gmOutcomeAnnounced :: !Bool
     -- Matchmaking
   , gmIsMatchmaking        :: !Bool
   , gmMatchmakingTimerId   :: Maybe Int
@@ -174,6 +177,7 @@ initialGameModel = GameModel
   , gmDefenderId      = Nothing
   , gmResyncTimerId   = Nothing
   , gmRealtimeHealthy = True
+  , gmOutcomeAnnounced = False
   , gmIsMatchmaking        = False
   , gmMatchmakingTimerId   = Nothing
   , gmMatchmakingTicks     = 0

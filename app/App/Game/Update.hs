@@ -277,6 +277,9 @@ updateGame GameRefs{..} = \case
               , gmEvalScore = evaluate gs
               , gmInviteCode = grwInviteCode gr
               , gmTournamentId = grwTournamentId gr
+              -- Already over when we opened it: nothing to announce.
+              , gmOutcomeAnnounced = finished (gsResult gs)
+                                     || grwStatus gr == "finished"
               }
             when (grwStatus gr == "cancelled") $
               io_ $ pushURI (configureURI "multiplayer")
@@ -317,6 +320,9 @@ updateGame GameRefs{..} = \case
               , gmEvalScore = evaluate gs
               , gmInviteCode = grwInviteCode gr
               , gmTournamentId = grwTournamentId gr
+              -- Already over when we opened it: nothing to announce.
+              , gmOutcomeAnnounced = finished (gsResult gs)
+                                     || grwStatus gr == "finished"
               }
             when (grwStatus gr == "cancelled") $
               io_ $ pushURI (configureURI "multiplayer")
@@ -691,6 +697,7 @@ updateGame GameRefs{..} = \case
       Nothing -> pure ()
     if finished (gsResult gs)
       then do
+        announceOutcome
         stopClock' grClockRef
         case gmGameId gm of
           Just gid' -> triggerRatingUpdate gid'
@@ -841,6 +848,7 @@ updateGame GameRefs{..} = \case
       , gmAttackerTimeMs = if sideStr' == "attacker" then 0 else gmAttackerTimeMs x
       , gmDefenderTimeMs = if sideStr' == "defender" then 0 else gmDefenderTimeMs x
       }
+    announceOutcome
     stopClock' grClockRef
     when (gmGameMode gm == MultiplayerMode) $
       case gmGameId gm of
@@ -1613,6 +1621,33 @@ sideStr :: Side -> MisoString
 sideStr AttackerSide = "attacker"
 sideStr DefenderSide = "defender"
 
+-- | Play the outcome sound once the game has ended, exactly once.
+--
+-- The result becomes final along several paths - a local move, your own
+-- multiplayer move, a row arriving over realtime (opponent move, resign, draw
+-- agreed), or a clock timeout - so this is called from all of them and guards
+-- itself with 'gmOutcomeAnnounced' rather than relying on any one of them being
+-- the single entry point. That flag is also what stops a fanfare firing again
+-- when you browse back through the move list and return to the end.
+announceOutcome :: Effect Model GameProps GameModel GameAction
+announceOutcome = do
+  gm <- get
+  let result = gsResult (gmGameState gm)
+      -- Whose side is the person at this keyboard on? In a hotseat game they
+      -- are both, and a spectator is neither; both get the neutral sound.
+      otherSide AttackerSide = DefenderSide
+      otherSide DefenderSide = AttackerSide
+      mySide = case gmGameMode gm of
+        MultiplayerMode -> gmPlayerSide gm
+        AiMode          -> Just (otherSide (gmAiSide gm))
+        PracticeMode    -> Nothing
+  when (finished result && not (gmOutcomeAnnounced gm)) $ do
+    modify $ \x -> x { gmOutcomeAnnounced = True }
+    io_ $ case (winner result, mySide) of
+      (Just w, Just me) | w == me   -> js_playWinSound
+                        | otherwise -> js_playLoseSound
+      _                             -> js_playDrawSound
+
 -- | Fold a @games@ row into the model: opponent joins, opponent moves,
 -- draw/rematch offers, cancellation and game end.
 --
@@ -1748,6 +1783,7 @@ applyGameRow grChannelRef grClockRef gr = do
         result = GameResult True winSide (fromMisoString (grwResultDesc gr))
     modify $ \x -> x { gmGameState = (gmGameState x) { gsResult = result }
                      , gmOpponentNotice = Nothing }
+    announceOutcome
     stopClock' grClockRef
 
 -- | Refetch the authoritative row for a game.
@@ -1861,6 +1897,7 @@ stopClock' clockRef = io_ $ do
 
 saveGame :: IORef (Maybe Channel) -> IORef (Maybe Int) -> Effect Model GameProps GameModel GameAction
 saveGame _channelRef _clockRef = do
+  announceOutcome
   gm <- get
   props <- getProps
   let gs = gmGameState gm

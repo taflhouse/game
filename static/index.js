@@ -214,6 +214,57 @@ globalThis.playCaptureSound = () => {
   } catch (e) { /* autoplay blocked or no WebAudio */ }
 };
 
+// Game outcome. Win variants are selectable the same way as the capture ones.
+//   tone: [offset, pitch, level, length]
+const WIN_VARIANTS = {
+  // the join chime carried on up - D5 A5 D6, unmistakably the same voice
+  rise:    [[0.00, 587.33, 0.20, 0.42], [0.12, 880.00, 0.20, 0.42],
+            [0.24, 1174.66, 0.22, 0.85]],
+  // full rising major arpeggio, brightest
+  fanfare: [[0.00, 587.33, 0.19, 0.34], [0.10, 739.99, 0.19, 0.34],
+            [0.20, 880.00, 0.19, 0.34], [0.30, 1174.66, 0.22, 0.90]],
+  // same shape a fourth lower - gentler, tops out at A5
+  warm:    [[0.00, 440.00, 0.20, 0.38], [0.11, 554.37, 0.20, 0.38],
+            [0.22, 659.25, 0.20, 0.38], [0.33, 880.00, 0.22, 0.90]],
+  // two notes, then a soft echo of the pair
+  echo:    [[0.00, 587.33, 0.22, 0.40], [0.12, 880.00, 0.24, 0.55],
+            [0.42, 587.33, 0.09, 0.40], [0.54, 880.00, 0.10, 0.70]],
+};
+const WIN_VARIANT = 'warm';
+
+globalThis.playWinSound = () => {
+  try {
+    const ctx = actx();
+    const t0 = ctx.currentTime + 0.08;
+    WIN_VARIANTS[WIN_VARIANT].forEach(([dt, f, level, len]) =>
+      tone(ctx, t0 + dt, f, level, len));
+  } catch (e) { /* autoplay blocked or no WebAudio */ }
+};
+
+// The mirror of a win: the same voice falling, slower and quieter. Losing
+// shouldn't be punished with a loud noise.
+globalThis.playLoseSound = () => {
+  try {
+    const ctx = actx();
+    const t0 = ctx.currentTime + 0.08;
+    [[0.00, 440.00, 0.14, 0.45], [0.16, 349.23, 0.13, 0.50],
+     [0.32, 293.66, 0.13, 0.95]].forEach(([dt, f, level, len]) =>
+      tone(ctx, t0 + dt, f, level, len));
+  } catch (e) { /* autoplay blocked or no WebAudio */ }
+};
+
+// Draws, and endings where there is no "you" - hotseat games and spectators.
+// Level, going nowhere.
+globalThis.playDrawSound = () => {
+  try {
+    const ctx = actx();
+    const t0 = ctx.currentTime + 0.08;
+    tone(ctx, t0, 440.00, 0.15, 0.70);
+    tone(ctx, t0 + 0.005, 587.33, 0.13, 0.70);
+    tone(ctx, t0 + 0.30, 440.00, 0.09, 0.80);
+  } catch (e) { /* autoplay blocked or no WebAudio */ }
+};
+
 globalThis.playJoinSound = () => {
   // Synthesised two-note chime - no asset to fetch, so it can't be delayed by
   // a cold cache at the exact moment the opponent appears.
