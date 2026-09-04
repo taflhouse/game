@@ -52,9 +52,19 @@ viewModel gameComp replayComp tutorialComp _ m =
         , HP.id_ "app-scroll"
         ]
         [ H.div_
+            -- Padding and min-height are set inline on purpose. Tailwind isn't
+            -- run by the build - static/assets/styles.css is a checked-in
+            -- generated sheet - so any class not already in it silently does
+            -- nothing. min-h-full, pt-8 and py-8 are all absent from it, which
+            -- is why the zen board sat flush against the top of the viewport
+            -- and why justify-center had no free space to centre within.
             [ HP.class_ (if zen
-                then "flex flex-col items-center justify-center min-h-full py-8 px-4 mx-auto w-full max-w-7xl"
-                else "flex flex-col items-center min-h-full pt-8 pb-12 px-4 mx-auto w-full max-w-7xl")
+                then "flex flex-col items-center justify-center px-4 mx-auto w-full max-w-7xl"
+                else "flex flex-col items-center px-4 mx-auto w-full max-w-7xl")
+            , style_ (("min-height", "100%") :
+                if zen
+                  then [("padding-top", "2rem"), ("padding-bottom", "2rem")]
+                  else [("padding-top", "2rem"), ("padding-bottom", "3rem")])
             ]
             [ if mNeedsUsername m && mGuestName m == Nothing && mScreen m /= SignInScreen && mScreen m /= SignUpScreen
                 then viewUsernameGate m
