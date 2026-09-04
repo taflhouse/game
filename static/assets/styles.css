@@ -6539,6 +6539,11 @@ code.hljs {
   margin-top: 4em;
 }
 
+/* Zen centres the board in the viewport, so the usual top margin has to go. */
+#board-row.zen {
+  margin-top: 0;
+}
+
 @media (max-height: 600px) {
   :fullscreen #board-row.zen {
     margin-top: 2em;

@@ -1367,7 +1367,9 @@ updateModel loungeChannelRef = \case
       Just "rated_downgraded" ->
         updateModel loungeChannelRef (ShowToast "Your opponent joined as a guest \x2014 this game is now casual.")
       Just "game_unmounted" ->
-        modify $ \m -> m { mGameInitData = Nothing }
+        -- Zen is per-component, so clear the root's copy on the way out or the
+        -- next game screen mounts with the navbar already hidden.
+        modify $ \m -> m { mGameInitData = Nothing, mViewMode = NormalView }
       Just "toggle_zen" -> updateModel loungeChannelRef ToggleZenMode
       Just "toggle_fullscreen" -> updateModel loungeChannelRef ToggleFullscreen
       Just "replay_unmounted" ->

@@ -143,12 +143,13 @@ viewReplayMoveList rm n =
         ]
 
 -- | Full-screen backdrop behind the board in zen mode.
--- Double-clicking anywhere outside the board exits zen mode.
+-- Clicking anywhere outside the board exits zen mode. The board itself sits
+-- above this (z-index 51), so play is unaffected.
 viewReplayZenBackdrop :: View ReplayModel ReplayAction
 viewReplayZenBackdrop =
   H.div_
     [ style_ [ ("position", "fixed"), ("inset", "0"), ("z-index", "50") ]
-    , on "dblclick" emptyDecoder (\() _ -> RToggleZen)
+    , on "click" emptyDecoder (\() _ -> RToggleZen)
     ]
     []
 
@@ -163,8 +164,8 @@ viewReplayZenHint props
                , ("pointer-events", "none")
                ]
       ]
-      [ H.span_ [ HP.class_ "hidden sm:inline" ] [ text "Double-click outside board to exit zen mode" ]
-      , H.span_ [ HP.class_ "sm:hidden" ] [ text "Double-tap outside board to exit zen mode" ]
+      [ H.span_ [ HP.class_ "hidden sm:inline" ] [ text "Click outside board to exit zen mode" ]
+      , H.span_ [ HP.class_ "sm:hidden" ] [ text "Tap outside board to exit zen mode" ]
       ]
   | otherwise = text ""
 

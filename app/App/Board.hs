@@ -54,6 +54,12 @@ sqSize = 54
 normalBoardWidthCss :: MisoString
 normalBoardWidthCss = "clamp(300px, 80vmin, 46rem)"
 
+-- | Zen mode drops the navbar, controls, move list and eval bar, so the board
+-- can take far more of the viewport. Capped against viewport height as well as
+-- vmin so the clocks above it still fit on a short screen.
+zenBoardWidthCss :: MisoString
+zenBoardWidthCss = "clamp(300px, min(85vmin, calc(100vh - 9rem)), 56rem)"
+
 -- ---------------------------------------------------------------------------
 -- Pure helpers
 -- ---------------------------------------------------------------------------
@@ -406,7 +412,7 @@ viewBoardContainer fs zen _n content =
                  <> if zen then " zen-board" else "")
     , style_ (if fs
         then [("width", fsSize), ("height", fsSize)]
-        else [("width", normalBoardWidthCss)])
+        else [("width", if zen then zenBoardWidthCss else normalBoardWidthCss)])
     ]
     [ content ]
 

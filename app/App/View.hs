@@ -40,7 +40,9 @@ viewModel
   -> Component Model TutorialProps TutorialModel TutorialAction
   -> () -> Model -> View Model Action
 viewModel gameComp replayComp tutorialComp _ m =
-  let zen = mViewMode m == ZenView && mScreen m == ReplayScreen
+  -- The screen check keeps a stale ZenView from hiding the navbar elsewhere.
+  let zen = mViewMode m == ZenView
+            && (mScreen m == ReplayScreen || mScreen m == GameScreen)
   in H.div_
     [ HP.class_ "fixed inset-0 flex flex-col bg-background font-sans"
     ]

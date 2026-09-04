@@ -889,6 +889,8 @@ updateGame GameRefs{..} = \case
       { gmViewMode = if entering then ZenView else NormalView
       , gmZenHint = entering
       }
+    -- The navbar belongs to the root component, so it has to be told.
+    mailParent $ object ["type" .= ("toggle_zen" :: MisoString)]
     when entering $ do
       withSink $ \sink -> do
         threadDelay 4000000
