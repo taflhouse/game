@@ -23,6 +23,7 @@ data RuleSet = RuleSet
   , repetitionTurnLimit    :: !Int
   , shieldWalls            :: !Bool
   , exitForts              :: !Bool
+  , exitFortRequiresMobileKing :: !Bool
   , edgeEscape             :: !Bool
   , cornerBaseWidth        :: !Int
   , startingSide           :: !Side
@@ -39,6 +40,7 @@ copenhagen = RuleSet
   , attackerCountToCapture = 4
   , repetitionTurnLimit    = 3
   , shieldWalls            = True
+  , exitFortRequiresMobileKing = True
   , exitForts              = True
   , edgeEscape             = False
   , cornerBaseWidth        = 1
@@ -63,8 +65,18 @@ data BoardVariant
 
 -- | Default rules for a given variant.
 -- Alea Evangelii uses wider corners; all others use Copenhagen defaults.
+--
+-- Exit forts are a Copenhagen invention, tuned for 11x11's 24-against-12 force
+-- ratio. The smallest legal fort is a king in an edge pocket: three defenders,
+-- or four once the king must also be able to move. That extra piece is a
+-- quarter of Brandubh's entire defending force -- a 7x7 fort would need all
+-- four defenders placed exactly -- and an eighth of Tablut's. Below 11x11 the
+-- mobility clause is therefore relaxed, so the rule stays reachable on boards
+-- it was never designed for.
 variantDefaultRules :: BoardVariant -> RuleSet
 variantDefaultRules AleaEvangelii = copenhagen { cornerBaseWidth = 2 }
+variantDefaultRules Brandubh      = copenhagen { exitFortRequiresMobileKing = False }
+variantDefaultRules Tablut        = copenhagen { exitFortRequiresMobileKing = False }
 variantDefaultRules _             = copenhagen
 
 -- | URL-safe slug for a variant.

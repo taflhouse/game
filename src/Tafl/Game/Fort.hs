@@ -6,6 +6,7 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import qualified Data.Vector as V
 import Tafl.Board
+import Tafl.Rules (RuleSet(..))
 import Tafl.Game.State
 import Tafl.Game.Move (getPossibleMovesFrom)
 
@@ -22,20 +23,22 @@ oppositeNeighborPairs :: [((Int, Int), (Int, Int))]
 oppositeNeighborPairs = [((-1, 0), (1, 0)), ((0, -1), (0, 1))]
 
 -- | Check if the king is inside a valid exit fort.
--- Returns True when the king is on a non-corner edge square, is able to move,
--- and sits inside a valid fort structure, regardless of which piece moved last.
+-- Returns True when the king is on a non-corner edge square inside a valid
+-- fort structure, regardless of which piece moved last. Under Copenhagen rules
+-- the king must also be able to move; see 'exitFortRequiresMobileKing'.
 kingEscapedThroughFort :: GameState -> Bool
 kingEscapedThroughFort gs =
   case findKing (gsBoard gs) of
     Nothing -> False
     Just kingPos ->
       isEdge gs kingPos
-      && kingCanMove gs kingPos
+      && (not (exitFortRequiresMobileKing (gsRules gs)) || kingCanMove gs kingPos)
       && insideFort (gsBoard gs) kingPos
 
--- | An exit fort requires the king to be able to move: a king boxed in on
--- every side by its own defenders has no way out of the fort, so however
--- impenetrable the wall is the formation does not win the game.
+-- | Copenhagen requires the king to be able to move: a king boxed in on every
+-- side by its own defenders has no way out, so however impenetrable the wall
+-- is, the formation is not an /exit/ fort. Relaxed on the small boards, where
+-- the extra wall piece it costs is a large fraction of the defending force.
 kingCanMove :: GameState -> Coords -> Bool
 kingCanMove gs kingPos = not (null (getPossibleMovesFrom gs kingPos))
 

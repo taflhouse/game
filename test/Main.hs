@@ -10,8 +10,9 @@ import qualified Data.Vector as V
 import Data.List (sort)
 
 import Tafl.Board
-import Tafl.Rules (BoardVariant(..), copenhagen)
+import Tafl.Rules (BoardVariant(..), RuleSet(..), copenhagen, variantDefaultRules)
 import Tafl.Game (act, initialState, GameState(..), GameResult(..))
+import Tafl.Game.Fort (kingEscapedThroughFort)
 import Tafl.Game.Move (getPossibleActions, isActionPossible)
 import Tafl.Game.Symmetry (canonicalBoardKey, rotate90, mirrorBoard, symmetryVariants)
 
@@ -358,6 +359,47 @@ main = hspec $ do
           gs = mkGameState capBoard
           gs' = act gs (MoveAction (Coords 5 7) (Coords 5 8))
       sort (gsCaptures gs') `shouldBe` sort [Coords 3 8, Coords 4 8]
+
+  describe "Exit forts" $ do
+    -- A king in an edge pocket walled in on all three open sides: sealed
+    -- against attackers, but with nowhere to go.
+    let sealedIn n =
+          let c = n `div` 2
+          in [ (Coords (n - 1) c, King)
+             , (Coords (n - 1) (c - 1), Defender)
+             , (Coords (n - 1) (c + 1), Defender)
+             , (Coords (n - 2) c, Defender)
+             ]
+        -- The same pocket widened by one square, so the king has somewhere to
+        -- move inside the wall.
+        withRoom n =
+          let c = n `div` 2
+          in [ (Coords (n - 1) c, King)
+             , (Coords (n - 1) (c - 2), Defender)
+             , (Coords (n - 1) (c + 1), Defender)
+             , (Coords (n - 2) (c - 1), Defender)
+             , (Coords (n - 2) c, Defender)
+             , (Coords (n - 2) (c + 1), Defender)
+             ]
+        withRules rules board = (mkGameState board) { gsRules = rules }
+
+    it "rejects a king with no legal move when the rules demand mobility" $ do
+      let gs = withRules copenhagen (mkBoard 11 (sealedIn 11))
+      kingEscapedThroughFort gs `shouldBe` False
+
+    it "accepts the same formation where the mobility clause is relaxed" $ do
+      let rules = copenhagen { exitFortRequiresMobileKing = False }
+          gs = withRules rules (mkBoard 9 (sealedIn 9))
+      kingEscapedThroughFort gs `shouldBe` True
+
+    it "accepts a fort the king can move inside under Copenhagen rules" $ do
+      let gs = withRules copenhagen (mkBoard 11 (withRoom 11))
+      kingEscapedThroughFort gs `shouldBe` True
+
+    it "demands a mobile king on 11x11 and above but not below" $ do
+      map (exitFortRequiresMobileKing . variantDefaultRules)
+          [Brandubh, Tablut, Classic, Parlett, AleaEvangelii]
+        `shouldBe` [False, False, True, True, True]
 
   -- -----------------------------------------------------------------------
   -- Property-based tests: Board symmetry
