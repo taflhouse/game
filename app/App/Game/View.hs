@@ -374,23 +374,25 @@ viewStatus gm =
       isAi   = gmGameMode gm == AiMode
       isMp   = gmGameMode gm == MultiplayerMode
       myTurn = gmPlayerSide gm == Just side
-      baseCls = "text-center my-4 font-bold card px-3 w-full flex justify-center items-center"
-      (cls, msg)
+      -- flex-col so a finished game reads as a headline above the detail,
+      -- both centred; every other state is a single line.
+      baseCls = "text-center my-4 font-bold card px-3 w-full flex flex-col justify-center items-center"
+      (cls, msg, detail)
         | finished result = case winner result of
-            Just AttackerSide -> (baseCls <> " text-destructive", "Attackers win! " <> desc result)
-            Just DefenderSide -> (baseCls, "Defenders win! " <> desc result)
-            Nothing           -> (baseCls, "Draw! " <> desc result)
-        | gmAiThinking gm = (baseCls <> " text-muted-foreground animate-pulse", "AI thinking...")
+            Just AttackerSide -> (baseCls <> " text-destructive", "Attackers Win!", ms (desc result))
+            Just DefenderSide -> (baseCls, "Defenders Win!", ms (desc result))
+            Nothing           -> (baseCls, "Draw!", ms (desc result))
+        | gmAiThinking gm = (baseCls <> " text-muted-foreground animate-pulse", "AI thinking...", "")
         | isAi && gmAiSide gm == side = (baseCls,
-            (if side == AttackerSide then "Attacker's turn" else "Defender's turn") <> " (AI)")
-        | isAi = (baseCls, "Your turn")
-        | isMp && myTurn = (baseCls, "Your turn")
+            (if side == AttackerSide then "Attacker's turn" else "Defender's turn") <> " (AI)", "")
+        | isAi = (baseCls, "Your turn", "")
+        | isMp && myTurn = (baseCls, "Your turn", "")
         | isMp && gmPlayerSide gm == Nothing = (baseCls,
-            (if side == AttackerSide then "Attacker" else "Defender") <> "'s turn")
+            (if side == AttackerSide then "Attacker" else "Defender") <> "'s turn", "")
         | isMp = (baseCls <> " text-muted-foreground",
-            maybe "Opponent" fromMisoString (gmOpponentName gm) <> "'s turn")
-        | side == AttackerSide = (baseCls, "Attacker's turn")
-        | otherwise            = (baseCls, "Defender's turn")
+            fromMaybe "Opponent" (gmOpponentName gm) <> "'s turn", "")
+        | side == AttackerSide = (baseCls, "Attacker's turn", "")
+        | otherwise            = (baseCls, "Defender's turn", "")
       borderColor
         | not (finished result) = "transparent"
         | otherwise = case winner result of
@@ -401,7 +403,7 @@ viewStatus gm =
         | finished result || null caps = ""
         | otherwise = let c = length caps
                       in " · Captured " <> ms (show c) <> if c == 1 then " piece" else " pieces"
-      fullMsg = ms msg <> capSuffix
+      fullMsg = msg <> capSuffix
   in H.div_
     [ HP.class_ cls
     , style_ [ ("max-width", normalBoardWidthCss)
@@ -409,7 +411,12 @@ viewStatus gm =
              , ("border", "1px solid " <> borderColor)
              , ("border-radius", "0.375rem") ]
     ]
-    [ text (ms fullMsg) ]
+    ( text fullMsg
+    : [ H.div_
+          [ HP.class_ "font-normal text-sm text-muted-foreground mt-1" ]
+          [ text detail ]
+      | detail /= ""
+      ] )
 
 -- | Spectator badge shown when watching a game you're not a player in
 viewSpectatorBadge :: Int -> Int -> Bool -> View GameModel GameAction
