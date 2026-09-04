@@ -198,16 +198,33 @@ const CAPTURE_VARIANTS = {
             [0.13, 523.25, 0.075, 0.34],
             [0.20, 392.00, 0.065, 0.34]],
   },
+  // knock, then D5-A4 - short and unfussy, for taking a piece
+  twoNote: {
+    knocks: [[0.000, 0.50, 415, 277, 0.07, 1700]],
+    tones: [[0.07, 587.33, 0.09, 0.32],
+            [0.16, 440.00, 0.08, 0.40]],
+  },
+  // knock, then A4-F4-C4 - falls further and settles lower, for losing one
+  lowTail: {
+    knocks: [[0.000, 0.52, 415, 277, 0.07, 1700]],
+    tones: [[0.06, 440.00, 0.10, 0.36],
+            [0.13, 349.23, 0.09, 0.36],
+            [0.20, 261.63, 0.08, 0.42]],
+  },
 };
-const CAPTURE_VARIANT = 'octave';
+// Which variant plays depends on whose piece just left the board, so the sound
+// tells you what happened without looking. Losing a piece falls further and
+// lands lower than taking one.
+const CAPTURE_BY_YOU  = 'twoNote';   // you took one of theirs
+const CAPTURE_OF_YOURS = 'lowTail';  // they took one of yours
 
-globalThis.playCaptureSound = () => {
+globalThis.playCaptureSound = (byYou) => {
   try {
     const ctx = actx();
     // Same 150ms offset as the move sound: on a capture only this fires, so the
     // first knock doubles as the moving piece landing.
     const t0 = ctx.currentTime + 0.15;
-    const v = CAPTURE_VARIANTS[CAPTURE_VARIANT];
+    const v = CAPTURE_VARIANTS[byYou ? CAPTURE_BY_YOU : CAPTURE_OF_YOURS];
     v.knocks.forEach(([dt, gain, f1, f2, decay, bright]) =>
       knock(ctx, t0 + dt, gain, f1, f2, decay, bright));
     v.tones.forEach(([dt, f, level, len]) => tone(ctx, t0 + dt, f, level, len));

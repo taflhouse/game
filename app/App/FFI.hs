@@ -96,8 +96,8 @@ import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, jsg, (#), Function(..))
 #ifdef WASM
 foreign import javascript unsafe "globalThis.playMoveSound()"
   js_playMoveSound :: IO ()
-foreign import javascript unsafe "globalThis.playCaptureSound()"
-  js_playCaptureSound :: IO ()
+foreign import javascript unsafe "globalThis.playCaptureSound($1)"
+  js_playCaptureSound :: Bool -> IO ()
 foreign import javascript unsafe "globalThis.playJoinSound()"
   js_playJoinSound :: IO ()
 foreign import javascript unsafe "globalThis.playWinSound()"
@@ -341,8 +341,8 @@ foreign import javascript unsafe "localStorage.getItem($1) || ''"
 #else
 js_playMoveSound :: IO ()
 js_playMoveSound = pure ()
-js_playCaptureSound :: IO ()
-js_playCaptureSound = pure ()
+js_playCaptureSound :: Bool -> IO ()
+js_playCaptureSound _ = pure ()
 js_playJoinSound :: IO ()
 js_playJoinSound = pure ()
 js_playWinSound :: IO ()

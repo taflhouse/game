@@ -165,7 +165,7 @@ updateTutorial = \case
     let gs = tmGameState m
         gs' = act gs autoMove
         poofs = [(c, pieceAt (gsBoard gs) c) | c <- gsCaptures gs']
-    io_ (if null poofs then js_playMoveSound else js_playCaptureSound)
+    io_ (if null poofs then js_playMoveSound else js_playCaptureSound False)
     modify $ \x -> x
       { tmGameState   = gs'
       , tmAnimateMove  = Just autoMove
@@ -253,7 +253,7 @@ handleMoveStepClick coords gs step mAllowedPieces mAllowedTargets mAutoResp = do
             let moveAction = MoveAction sel coords
                 gs' = act gs moveAction
                 poofs = [(c, pieceAt (gsBoard gs) c) | c <- gsCaptures gs']
-            io_ (if null poofs then js_playMoveSound else js_playCaptureSound)
+            io_ (if null poofs then js_playMoveSound else js_playCaptureSound True)
             modify $ \x -> x
               { tmGameState   = gs'
               , tmSelected    = Nothing
@@ -327,7 +327,7 @@ handleChallengeClick coords gs step predicate mAutoResp = do
             if predicate gs'
               then do
                 let poofs = [(c, pieceAt (gsBoard gs) c) | c <- gsCaptures gs']
-                io_ (if null poofs then js_playMoveSound else js_playCaptureSound)
+                io_ (if null poofs then js_playMoveSound else js_playCaptureSound True)
                 modify $ \x -> x
                   { tmGameState   = gs'
                   , tmSelected    = Nothing

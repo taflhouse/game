@@ -425,6 +425,7 @@ updateGame GameRefs{..} = \case
         Just sel | coords `elem` gmValidMoves gm -> do
           let move = MoveAction sel coords
               gs' = act activeGs move
+              poofs = [(c, pieceAt (gsBoard activeGs) c) | c <- gsCaptures gs']
               (newHist, newMoves) = case gmBrowseIndex gm of
                 Just i -> (take i (gmHistory gm ++ [gmGameState gm]), take i (gmMoveList gm))
                 Nothing -> (gmHistory gm, gmMoveList gm)
@@ -439,10 +440,12 @@ updateGame GameRefs{..} = \case
             , gmBrowseIndex = Nothing
             , gmEvalScore = evaluate gs'
             , gmAnimateMove = Just move
-            , gmCapturePoofs = [(c, pieceAt (gsBoard activeGs) c) | c <- gsCaptures gs']
+            , gmCapturePoofs = poofs
             }
-          io_ (if null (gsCaptures gs') then js_playMoveSound else js_playCaptureSound)
-          when (not (null (gsCaptures gs'))) $
+          io_ (if null poofs
+                 then js_playMoveSound
+                 else js_playCaptureSound (capturedByYou gm (map snd poofs)))
+          when (not (null poofs)) $
             withSink $ \sink -> do
               threadDelay 400000
               sink GPoofsDone
@@ -475,6 +478,7 @@ updateGame GameRefs{..} = \case
       then do
         let gs = gmGameState gm
             gs' = act gs move
+            poofs = [(c, pieceAt (gsBoard gs) c) | c <- gsCaptures gs']
         modify $ const $ gm
           { gmGameState = gs'
           , gmSelected = Nothing
@@ -486,10 +490,12 @@ updateGame GameRefs{..} = \case
           , gmFullMoveList = Nothing
           , gmEvalScore = evaluate gs'
           , gmAnimateMove = Just move
-          , gmCapturePoofs = [(c, pieceAt (gsBoard gs) c) | c <- gsCaptures gs']
+          , gmCapturePoofs = poofs
           }
-        io_ (if null (gsCaptures gs') then js_playMoveSound else js_playCaptureSound)
-        when (not (null (gsCaptures gs'))) $
+        io_ (if null poofs
+               then js_playMoveSound
+               else js_playCaptureSound (capturedByYou gm (map snd poofs)))
+        when (not (null poofs)) $
           withSink $ \sink -> do
             threadDelay 400000
             sink GPoofsDone
@@ -1621,6 +1627,27 @@ sideStr :: Side -> MisoString
 sideStr AttackerSide = "attacker"
 sideStr DefenderSide = "defender"
 
+-- | Which side the person at this keyboard is playing. Nothing in a hotseat
+-- game, where they are both, and for a spectator, who is neither.
+playerSide :: GameModel -> Maybe Side
+playerSide gm = case gmGameMode gm of
+  MultiplayerMode -> gmPlayerSide gm
+  AiMode          -> Just (otherSide (gmAiSide gm))
+  PracticeMode    -> Nothing
+  where
+    otherSide AttackerSide = DefenderSide
+    otherSide DefenderSide = AttackerSide
+
+-- | The capture sound depends on whose pieces just went: 'True' when they were
+-- the opponent's. With no "you" in the game, use the brighter of the two.
+capturedByYou :: GameModel -> [Piece] -> Bool
+capturedByYou gm ps = case playerSide gm of
+  Nothing -> True
+  Just me -> not (any ((== me) . pieceSide) ps)
+  where
+    pieceSide Attacker = AttackerSide
+    pieceSide _        = DefenderSide
+
 -- | Play the outcome sound once the game has ended, exactly once.
 --
 -- The result becomes final along several paths - a local move, your own
@@ -1633,14 +1660,7 @@ announceOutcome :: Effect Model GameProps GameModel GameAction
 announceOutcome = do
   gm <- get
   let result = gsResult (gmGameState gm)
-      -- Whose side is the person at this keyboard on? In a hotseat game they
-      -- are both, and a spectator is neither; both get the neutral sound.
-      otherSide AttackerSide = DefenderSide
-      otherSide DefenderSide = AttackerSide
-      mySide = case gmGameMode gm of
-        MultiplayerMode -> gmPlayerSide gm
-        AiMode          -> Just (otherSide (gmAiSide gm))
-        PracticeMode    -> Nothing
+      mySide = playerSide gm
   when (finished result && not (gmOutcomeAnnounced gm)) $ do
     modify $ \x -> x { gmOutcomeAnnounced = True }
     io_ $ case (winner result, mySide) of
@@ -1721,7 +1741,9 @@ applyGameRow grChannelRef grClockRef gr = do
       , gmAnimateMove = if not (null remoteMoves) then Just (last remoteMoves) else Nothing
       , gmCapturePoofs = poofs
       }
-    io_ (if null poofs then js_playMoveSound else js_playCaptureSound)
+    io_ (if null poofs
+           then js_playMoveSound
+           else js_playCaptureSound (capturedByYou gm (map snd poofs)))
     when (not (null poofs)) $
       withSink $ \sink -> do
         threadDelay 400000
