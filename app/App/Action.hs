@@ -86,6 +86,8 @@ data Action
   | CreateMultiplayerGame
   | InitMultiplayerGame MisoString MisoString MisoString  -- invCode uuid qrDataUrl
   | JoinMultiplayerGame
+  | JoinCodeResolved Value
+  | JoinCodeResolveFailed
   | GameFoundToJoin Value
   | GameJoinError MisoString
   | InviteCodeLookup Value

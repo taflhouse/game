@@ -248,10 +248,15 @@ updateModel loungeChannelRef = \case
           , mJoinCodeInput = fromMaybe (mJoinCodeInput x) mCode
           }
         case mCode of
-          Just _ -> do
-            m' <- get
-            when (hasDisplayName m') $
-              withSink $ \sink -> sink JoinMultiplayerGame
+          -- Resolve the code before asking for a name or signing anyone in.
+          -- Games are world-readable, so a visitor to a finished game reaches
+          -- the replay without a username and without an anonymous account.
+          Just code -> do
+            modify $ \x -> x { mJoinResolving = True }
+            selectWithFilters "games" "*"
+              [eq "invite_code" code]
+              (FetchOptions Nothing Nothing Nothing Nothing)
+              JoinCodeResolved (\_ -> JoinCodeResolveFailed)
           Nothing -> pure ()
 
   -- Home UI --------------------------------------------------------------
@@ -478,7 +483,7 @@ updateModel loungeChannelRef = \case
                                , mJoinNameInput = if mJoinNameInput m' == ""
                                                     then gName else mJoinNameInput m' }
             m' <- get
-            when (mScreen m' == JoinScreen && mJoinCodeInput m' /= "") $
+            when (readyToAutoJoin m') $
               withSink $ \sink -> sink JoinMultiplayerGame
         | otherwise -> do
             loadPastGames
@@ -569,7 +574,7 @@ updateModel loungeChannelRef = \case
       , mUsernameInput  = ""
       }
     m' <- get
-    when (mScreen m' == JoinScreen && mJoinCodeInput m' /= "") $
+    when (readyToAutoJoin m') $
       withSink $ \sink -> sink JoinMultiplayerGame
 
   ProfileCreateError _ ->
@@ -581,7 +586,7 @@ updateModel loungeChannelRef = \case
         (p:_) -> do
           modify $ \m -> m { mProfile = Just p, mNeedsUsername = False }
           m' <- get
-          when (mScreen m' == JoinScreen && mJoinCodeInput m' /= "") $
+          when (readyToAutoJoin m') $
             withSink $ \sink -> sink JoinMultiplayerGame
         []    -> modify $ \m -> m { mNeedsUsername = True }
       Error _ -> modify $ \m -> m { mNeedsUsername = True }
@@ -713,6 +718,25 @@ updateModel loungeChannelRef = \case
                 [eq "invite_code" code, eq "status" ("waiting" :: MisoString)]
                 (FetchOptions Nothing Nothing Nothing Nothing)
                 GameFoundToJoin GameJoinError
+
+  -- A name is only needed to take a seat. Anyone arriving at a game that is
+  -- already under way or over is a viewer, so send them straight there: /play
+  -- resumes for a participant and spectates for everyone else. Only a game
+  -- still waiting for an opponent falls through to the join flow.
+  JoinCodeResolved val ->
+    case fromJSON val of
+      Success rows -> case (rows :: [GameRow]) of
+        (gr:_) | grwStatus gr `elem` ["finished", "active"] -> do
+                   modify $ \m -> m { mJoinResolving = False }
+                   io_ $ replaceURI $ if grwStatus gr == "finished"
+                     then gamePermalinkURI (grwId gr)
+                     else playURI (grwId gr)
+        _ -> resumeJoinFlow
+      Error _ -> resumeJoinFlow
+
+  -- The lookup failed. Fall through to the ordinary join flow rather than
+  -- stranding the visitor on a spinner.
+  JoinCodeResolveFailed -> resumeJoinFlow
 
   GameFoundToJoin val ->
     case fromJSON val of
@@ -1445,6 +1469,22 @@ loadProfile sess = do
     ProfileLoaded ProfileLoadError
 
 -- | Does the user already have a display name (profile username or guest name)?
+-- | Auto-join fires from the route change, session restore and profile load.
+-- None of them may run while the invite code is still being resolved, or the
+-- name prompt appears before we know whether the game is even joinable.
+readyToAutoJoin :: Model -> Bool
+readyToAutoJoin m = mScreen m == JoinScreen
+                 && mJoinCodeInput m /= ""
+                 && not (mJoinResolving m)
+
+-- | Clear the preflight and continue into the ordinary join flow.
+resumeJoinFlow :: Effect ROOT () Model Action
+resumeJoinFlow = do
+  modify $ \x -> x { mJoinResolving = False }
+  m <- get
+  when (hasDisplayName m) $
+    withSink $ \sink -> sink JoinMultiplayerGame
+
 hasDisplayName :: Model -> Bool
 hasDisplayName m = case mProfile m of
   Just p | pUsername p /= "" -> True

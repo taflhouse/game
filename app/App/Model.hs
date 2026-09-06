@@ -162,6 +162,7 @@ data Model = Model
   , mInviteExpiry     :: !InviteExpiry
   , mJoinCodeInput    :: !MisoString
   , mJoinNameInput    :: !MisoString
+  , mJoinResolving    :: !Bool
   , mGuestName        :: Maybe MisoString
   , mDeferredMpAction :: Maybe DeferredMpAction
   , mPendingRatedJoin :: Maybe GameRow
@@ -249,6 +250,7 @@ instance Eq Model where
     && mIsRated a == mIsRated b && mSidePreference a == mSidePreference b
     && mTimeControl a == mTimeControl b && mInviteExpiry a == mInviteExpiry b
     && mJoinCodeInput a == mJoinCodeInput b && mJoinNameInput a == mJoinNameInput b
+    && mJoinResolving a == mJoinResolving b
     && mGuestName a == mGuestName b
     && mDeferredMpAction a == mDeferredMpAction b
     && mPendingRatedJoin a == mPendingRatedJoin b
@@ -338,6 +340,7 @@ initModel = Model
   , mInviteExpiry     = Expiry10Min
   , mJoinCodeInput    = ""
   , mJoinNameInput    = ""
+  , mJoinResolving    = False
   , mGuestName        = Nothing
   , mDeferredMpAction = Nothing
   , mPendingRatedJoin = Nothing

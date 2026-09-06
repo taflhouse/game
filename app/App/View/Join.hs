@@ -17,6 +17,10 @@ import App.Action
 
 viewJoin :: Model -> View Model Action
 viewJoin m
+  -- Resolving the invite code. We do not yet know whether this visitor needs
+  -- to join anything or is only here to watch a game that is already over, so
+  -- ask for nothing until the lookup lands.
+  | mJoinResolving m = spinner "Loading game..."
   | Just _ <- mPendingRatedJoin m =
     -- Rated game sign-in prompt
     H.div_
@@ -50,10 +54,10 @@ viewJoin m
       ]
   | mDeferredMpAction m == Just DeferJoin =
     -- Waiting for anonymous sign-in
-    joiningSpinner
+    spinner "Joining game..."
   | mJoinCodeInput m /= "" && not needsName =
     -- Has code and name, auto-joining
-    joiningSpinner
+    spinner "Joining game..."
   | otherwise =
     -- Show form (name input when needed, code input when missing)
     H.div_
@@ -105,12 +109,12 @@ viewJoin m
       _ -> mGuestName m == Nothing
     joinDisabled = (needsName && mJoinNameInput m == "")
                || mJoinCodeInput m == ""
-    joiningSpinner =
+    spinner label =
       H.div_
         [ HP.class_ "flex-1 flex items-center justify-center w-full" ]
         [ H.div_
             [ HP.class_ "text-center text-muted-foreground animate-pulse"
             , style_ [("margin-top", "4em")]
             ]
-            [ text "Joining game..." ]
+            [ text label ]
         ]
