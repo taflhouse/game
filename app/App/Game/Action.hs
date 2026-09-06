@@ -4,6 +4,7 @@ import Miso.String (MisoString)
 import Miso.JSON (Value)
 import Miso.DSL (JSVal)
 import Supabase.Miso.Realtime (Channel)
+import Supabase.Miso.Auth (AuthResponse)
 
 import Tafl.Board (Coords, MoveAction)
 
@@ -62,6 +63,10 @@ data GameAction
   | GToggleChat
   | GSetChatInput MisoString
   | GSendChat
+  | GSetChatNameInput MisoString
+  | GConfirmChatName
+  | GChatAnonSuccess AuthResponse
+  | GChatAnonError MisoString
   | GChatInserted Value
   | GChatInsertError MisoString
   | GChatReceived Value

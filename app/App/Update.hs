@@ -1391,6 +1391,14 @@ updateModel loungeChannelRef = \case
         case parseMaybe (withObject "Mailbox" (\o -> o .: "msg")) val of
           Just msg -> updateModel loungeChannelRef (ShowToast msg)
           Nothing  -> pure ()
+      -- A spectator named themselves to chat and the game component signed
+      -- them in anonymously. Adopt the name and re-read the session so the
+      -- rest of the app sees the identity that was just created.
+      Just "guest_identity" -> do
+        case parseMaybe (withObject "Mailbox" (\o -> o .: "name")) val of
+          Just name -> modify $ \m -> m { mGuestName = Just name }
+          Nothing   -> pure ()
+        updateModel loungeChannelRef CheckSession
       Just "game_finished" -> loadPastGames
       Just "rating_updated" -> do
         m <- get

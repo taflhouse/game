@@ -866,25 +866,52 @@ viewChatPanel gm
           (if null visible
            then [ H.span_ [HP.class_ "text-xs text-muted-foreground"] [text "No messages yet"] ]
            else map viewChatMessage visible)
-      , -- Input
-        H.form_
-          [ HP.class_ "flex gap-2 px-3 py-2 border-t border-border"
-          , H.onSubmit GSendChat
-          ]
-          [ H.input_
-              [ HP.type_ "text"
-              , HP.class_ "input input-sm flex-1 bg-transparent border border-border rounded text-foreground"
-              , HP.value_ (gmChatInput gm)
-              , HP.placeholder_ "Type a message..."
-              , H.onInput GSetChatInput
-              , style_ [("font-size", "0.85rem")]
+      , -- Input, or the name prompt when a message is waiting on an identity
+        case gmChatPending gm of
+          Just _ ->
+            H.form_
+              [ HP.class_ "flex flex-col gap-2 px-3 py-2 border-t border-border"
+              , H.onSubmit GConfirmChatName
               ]
-          , H.button_
-              [ HP.class_ "btn btn-outline btn-sm text-foreground"
-              , style_ [("touch-action", "manipulation")]
+              [ H.span_
+                  [ HP.class_ "text-xs text-muted-foreground" ]
+                  [ text "Pick a name to chat as" ]
+              , H.div_
+                  [ HP.class_ "flex gap-2" ]
+                  [ H.input_
+                      [ HP.type_ "text"
+                      , HP.class_ "input input-sm flex-1 bg-transparent border border-border rounded text-foreground"
+                      , HP.value_ (gmChatNameInput gm)
+                      , HP.placeholder_ "Your name"
+                      , H.onInput GSetChatNameInput
+                      , style_ [("font-size", "0.85rem")]
+                      ]
+                  , H.button_
+                      [ HP.class_ "btn btn-outline btn-sm text-foreground"
+                      , style_ [("touch-action", "manipulation")]
+                      ]
+                      [ text "Send" ]
+                  ]
               ]
-              [ text "Send" ]
-          ]
+          Nothing ->
+            H.form_
+              [ HP.class_ "flex gap-2 px-3 py-2 border-t border-border"
+              , H.onSubmit GSendChat
+              ]
+              [ H.input_
+                  [ HP.type_ "text"
+                  , HP.class_ "input input-sm flex-1 bg-transparent border border-border rounded text-foreground"
+                  , HP.value_ (gmChatInput gm)
+                  , HP.placeholder_ "Type a message..."
+                  , H.onInput GSetChatInput
+                  , style_ [("font-size", "0.85rem")]
+                  ]
+              , H.button_
+                  [ HP.class_ "btn btn-outline btn-sm text-foreground"
+                  , style_ [("touch-action", "manipulation")]
+                  ]
+                  [ text "Send" ]
+              ]
       ]
     where
       visible = visibleMessages gm

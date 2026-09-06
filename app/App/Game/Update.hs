@@ -17,7 +17,8 @@ import Miso.DSL (JSVal, toJSVal, fromJSValUnchecked, asyncCallback, asyncCallbac
 import Supabase.Miso.Database (insert, selectWithFilters, updateTable, InsertOptions(..), FetchOptions(..), UpdateOptions(..), eq)
 import qualified Data.Map.Strict as Map
 import Supabase.Miso.Realtime (Channel(..), subscribeToTable, subscribeToTableWithPresence, trackPresence, removeChannel)
-import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..))
+import Supabase.Miso.Auth (Session(..), User(..), AppMetadata(..), AuthResponse(..),
+                           AuthData(..), signInAnonymously, defaultSignInAnonymouslyOptions)
 
 import Tafl.Board
 import Tafl.Rules (BoardVariant(..), variantSlug)
@@ -919,9 +920,6 @@ updateGame GameRefs{..} = \case
     gm <- get
     props <- getProps
     let msg = gmChatInput gm
-        chan = case gmPlayerSide gm of
-          Just _  -> "player" :: MisoString
-          Nothing -> "spectator"
     when (msg /= "" && isJust (gmGameId gm)) $
       case gpSession props of
         Just sess -> do
@@ -929,29 +927,40 @@ updateGame GameRefs{..} = \case
               senderName = case gpGuestName props of
                 Just gn -> gn
                 Nothing -> maybe "" pUsername (gpProfile props)
-          case gmGameId gm of
-            Just gid -> do
-              let localMsg = ChatMessage
-                    { cmSender    = senderName
-                    , cmMessage   = msg
-                    , cmChannel   = chan
-                    , cmCreatedAt = ""
-                    }
-              modify $ \x -> x
-                { gmChatInput = ""
-                , gmChatMessages = gmChatMessages x ++ [localMsg]
-                }
-              insert "game_chat"
-                (object [ "game_id"     .= gid
-                        , "user_id"     .= uid
-                        , "sender_name" .= senderName
-                        , "message"     .= msg
-                        , "channel"     .= chan
-                        ])
-                (InsertOptions Nothing Nothing)
-                GChatInserted GChatInsertError
-            Nothing -> pure ()
-        Nothing -> pure ()
+          postChatMessage uid senderName msg
+        -- A spectator can read the room without an account, so we only find
+        -- out who they are when they try to say something. Hold the message
+        -- and ask for a name; the sign-in happens on confirm.
+        Nothing -> modify $ \x -> x { gmChatPending = Just msg, gmChatInput = "" }
+
+  GSetChatNameInput t -> modify $ \gm -> gm { gmChatNameInput = t }
+
+  GConfirmChatName -> do
+    gm <- get
+    when (gmChatNameInput gm /= "") $
+      signInAnonymously defaultSignInAnonymouslyOptions GChatAnonSuccess GChatAnonError
+
+  GChatAnonSuccess resp ->
+    case adSession (arData resp) of
+      Nothing -> modify $ \gm -> gm { gmChatPending = Nothing }
+      Just sess -> do
+        gm <- get
+        let uid  = userId (sessionUser sess)
+            name = gmChatNameInput gm
+        -- Let the root know who this is; it re-reads the session itself so the
+        -- rest of the app agrees on the identity we just created.
+        mailParent $ object [ "type" .= ("guest_identity" :: MisoString)
+                            , "name" .= name
+                            ]
+        case gmChatPending gm of
+          Just msg -> postChatMessage uid name msg
+          Nothing  -> pure ()
+
+  GChatAnonError _ -> do
+    modify $ \gm -> gm { gmChatPending = Nothing }
+    mailParent $ object [ "type" .= ("toast" :: MisoString)
+                        , "msg"  .= ("Could not start a chat session." :: MisoString)
+                        ]
 
   GChatInserted _ -> pure ()
   GChatInsertError _ -> pure ()
@@ -1968,6 +1977,39 @@ saveGame _channelRef _clockRef = do
             ]
       io_ $ saveLocalGameIO gameData
   mailParent $ object ["type" .= ("game_finished" :: MisoString)]
+
+-- | Insert one chat message and echo it into the local list.
+postChatMessage
+  :: MisoString -> MisoString -> MisoString
+  -> Effect Model GameProps GameModel GameAction
+postChatMessage uid senderName msg = do
+  gm <- get
+  let chan = case gmPlayerSide gm of
+        Just _  -> "player" :: MisoString
+        Nothing -> "spectator"
+  case gmGameId gm of
+    Nothing -> pure ()
+    Just gid -> do
+      let localMsg = ChatMessage
+            { cmSender    = senderName
+            , cmMessage   = msg
+            , cmChannel   = chan
+            , cmCreatedAt = ""
+            }
+      modify $ \x -> x
+        { gmChatInput    = ""
+        , gmChatPending  = Nothing
+        , gmChatMessages = gmChatMessages x ++ [localMsg]
+        }
+      insert "game_chat"
+        (object [ "game_id"     .= gid
+                , "user_id"     .= uid
+                , "sender_name" .= senderName
+                , "message"     .= msg
+                , "channel"     .= chan
+                ])
+        (InsertOptions Nothing Nothing)
+        GChatInserted GChatInsertError
 
 -- | Parsed presence state for player/spectator tracking.
 data PresenceInfo = PresenceInfo

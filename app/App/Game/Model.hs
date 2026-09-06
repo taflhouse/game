@@ -124,6 +124,8 @@ data GameModel = GameModel
   , gmChatMessages     :: [ChatMessage]
   , gmChatOpen         :: !Bool
   , gmChatInput        :: !MisoString
+  , gmChatNameInput    :: !MisoString
+  , gmChatPending      :: Maybe MisoString
   , gmChatUnread       :: !Int
   , gmShowSpectatorChat :: !Bool
     -- Voice
@@ -197,6 +199,8 @@ initialGameModel = GameModel
   , gmChatMessages     = []
   , gmChatOpen         = False
   , gmChatInput        = ""
+  , gmChatNameInput    = ""
+  , gmChatPending      = Nothing
   , gmChatUnread       = 0
   , gmShowSpectatorChat = False
   , gmVoiceState   = VoiceIdle
