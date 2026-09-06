@@ -629,32 +629,68 @@ viewMoveHistory gm
         [ HP.class_ "flex flex-col gap-1 items-center w-full"
         , style_ [("max-width", normalBoardWidthCss)]
         ]
-        [ H.div_
-            [ HP.class_ "flex justify-between items-center w-full"
-            , style_ [("margin-bottom", "0.4em")]
-            ]
-            [ H.span_
-                [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase" ]
-                [ text "HISTORY" ]
-            , H.div_
-                [ HP.class_ "flex gap-1" ]
-                (  [ ctrlBtn GToggleZenMode "Zen"
-                   | not (gmGameMode gm == MultiplayerMode && isJust (gmPlayerSide gm))
-                   ]
-                ++ [ ctrlBtn GUndo "Undo"
-                   | gmGameMode gm /= MultiplayerMode
-                     || finished (gsResult (gmGameState gm))
-                   ]
-                )
-            ]
-        , H.div_
-            [ HP.class_ "flex gap-0.5 overflow-y-auto p-2 w-full rounded border border-border"
-            , style_ [("max-height", "10rem"), ("flex-direction", "column-reverse")]
-            ]
-            [ moveBtn gm i gs n (i == viewIdx)
-            | (i, gs) <- reverse (zip [0..] displayStates)
-            ]
-        ]
+        (  [ H.div_
+               [ HP.class_ "flex justify-between items-center w-full"
+               , style_ [("margin-bottom", "0.4em")]
+               ]
+               [ H.span_
+                   [ HP.class_ "text-muted-foreground text-xs tracking-[3px] uppercase" ]
+                   [ text "HISTORY" ]
+               , H.div_
+                   [ HP.class_ "flex gap-1" ]
+                   (  [ ctrlBtn GToggleZenMode "Zen"
+                      | not (gmGameMode gm == MultiplayerMode && isJust (gmPlayerSide gm))
+                      ]
+                   ++ [ ctrlBtn GUndo "Undo"
+                      | gmGameMode gm /= MultiplayerMode
+                        || finished (gsResult (gmGameState gm))
+                      ]
+                   )
+               ]
+           ]
+        -- Step controls only once the game is over. While it is still being
+        -- played the board is for moving on, not for scrubbing through.
+        ++ [ viewHistoryControls viewIdx (length displayStates - 1)
+           | finished (gsResult (gmGameState gm))
+           ]
+        ++ [ H.div_
+               [ HP.class_ "flex gap-0.5 overflow-y-auto p-2 w-full rounded border border-border"
+               , style_ [("max-height", "10rem"), ("flex-direction", "column-reverse")]
+               ]
+               [ moveBtn gm i gs n (i == viewIdx)
+               | (i, gs) <- reverse (zip [0..] displayStates)
+               ]
+           ]
+        )
+
+-- | First/prev/next/last stepping through a finished game, mirroring the
+-- replay screen's controls so the two read the same.
+viewHistoryControls :: Int -> Int -> View GameModel GameAction
+viewHistoryControls idx maxIdx =
+  H.div_
+    [ HP.class_ "flex items-center justify-center gap-2 w-full"
+    , style_ [("margin-bottom", "0.4em")]
+    ]
+    [ histBtn (GGotoMove 0) "|<" (idx > 0)
+    , histBtn (GGotoMove (idx - 1)) "<" (idx > 0)
+    , H.span_
+        [ HP.class_ "text-sm font-mono text-muted-foreground min-w-[5em] text-center" ]
+        [ text (ms (show idx) <> " / " <> ms (show maxIdx)) ]
+    , histBtn (GGotoMove (idx + 1)) ">" (idx < maxIdx)
+    , histBtn (GGotoMove maxIdx) ">|" (idx < maxIdx)
+    ]
+
+-- | History step button, disabled at the ends of the game.
+histBtn :: GameAction -> MisoString -> Bool -> View GameModel GameAction
+histBtn action label enabled =
+  H.button_
+    [ HP.class_ (if enabled
+        then "btn btn-outline btn-sm text-foreground"
+        else "btn btn-outline btn-sm text-muted-foreground opacity-50 cursor-not-allowed")
+    , style_ [("touch-action", "manipulation"), ("min-width", "2.5em")]
+    , SVG.onClick (if enabled then action else GNoOp)
+    ]
+    [ text label ]
 
 -- | Individual move button in history list
 moveBtn :: GameModel -> Int -> GameState -> Int -> Bool -> View GameModel GameAction
