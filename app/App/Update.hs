@@ -745,9 +745,14 @@ updateModel loungeChannelRef = \case
       Success rows -> case (rows :: [GameRow]) of
         (gr:_) -> do
           m <- get
-          if isParticipant (mSession m) gr
-            then io_ $ replaceURI (playURI (grwId gr))
-            else io_ $ replaceURI loungeURI
+          let target
+                -- The invite outlived the game. Send the visitor to the
+                -- permalink so the link still shows the game it pointed at,
+                -- rather than dropping them on the lounge with no explanation.
+                | grwStatus gr == "finished"    = gamePermalinkURI (grwId gr)
+                | isParticipant (mSession m) gr = playURI (grwId gr)
+                | otherwise                     = loungeURI
+          io_ $ replaceURI target
         [] -> modify $ \m -> m { mToast = Just "No game found with that code." }
       Error _ -> modify $ \m -> m { mToast = Just "Failed to look up game." }
 
