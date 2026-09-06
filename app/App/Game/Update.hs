@@ -82,6 +82,9 @@ updateGame GameRefs{..} = \case
                   , "user_id"     .= uid
                   , "variant"     .= variantSlug variant
                   , "result_desc" .= ("in_progress" :: MisoString)
+                  -- Without this the games.status default ('finished') applies,
+                  -- so a game in progress reads as complete from move zero.
+                  , "status"      .= ("active" :: MisoString)
                   , "total_moves" .= (0 :: Int)
                   , "game_mode"   .= gameModeStr
                   , "ai_side"     .= aiSideStr
@@ -1944,6 +1947,7 @@ saveGame _channelRef _clockRef = do
       let updateData = object
             [ "result_desc" .= ms (desc result)
             , "winner"      .= winnerStr
+            , "status"      .= ("finished" :: MisoString)
             , "total_moves" .= gsTurn gs
             , "moves"       .= gmMoveList gm
             ]
