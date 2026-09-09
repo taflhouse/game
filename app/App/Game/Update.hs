@@ -227,7 +227,9 @@ updateGame GameRefs{..} = \case
                   Nothing -> maybe "" pUsername (gpProfile props)
             case tc of
               NoTimeControl ->
-                io (pure (GCompleteJoinWithClock uid displayName "" Nothing))
+                withSink $ \sink -> do
+                  nowStr <- js_nowISO
+                  sink (GCompleteJoinWithClock uid displayName nowStr Nothing)
               BlitzControl _ ->
                 withSink $ \sink -> do
                   nowStr <- js_nowISO
@@ -465,7 +467,9 @@ updateGame GameRefs{..} = \case
                   deadlineStr <- js_addSecondsISO nowStr perMoveSec
                   sink (GWriteMpMoveWithClock nowStr (Just deadlineStr))
               NoTimeControl ->
-                io (pure (GWriteMpMoveWithClock "" Nothing))
+                withSink $ \sink -> do
+                  nowStr <- js_nowISO
+                  sink (GWriteMpMoveWithClock nowStr Nothing)
           when (finished (gsResult gs') && gmGameMode gm /= MultiplayerMode) $ saveGame grChannelRef grClockRef
           triggerAi grChannelRef grClockRef
         Just sel | sel == coords ->
@@ -516,7 +520,9 @@ updateGame GameRefs{..} = \case
                 deadlineStr <- js_addSecondsISO nowStr perMoveSec
                 sink (GWriteMpMoveWithClock nowStr (Just deadlineStr))
             NoTimeControl ->
-              io (pure (GWriteMpMoveWithClock "" Nothing))
+              withSink $ \sink -> do
+                nowStr <- js_nowISO
+                sink (GWriteMpMoveWithClock nowStr Nothing)
           Nothing ->
             when (finished (gsResult gs')) $ saveGame grChannelRef grClockRef
       else pure ()
