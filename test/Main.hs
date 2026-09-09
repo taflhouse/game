@@ -360,6 +360,32 @@ main = hspec $ do
           gs' = act gs (MoveAction (Coords 5 7) (Coords 5 8))
       sort (gsCaptures gs') `shouldBe` sort [Coords 3 8, Coords 4 8]
 
+    it "leaves a lone backed edge piece to the ordinary sandwich rule" $ do
+      -- The attacker on (1,8) is already bracketed on the edge by the corner
+      -- above it and a defender below it -- it moved into that bracket, which
+      -- is safe. A defender landing on (1,7) only supplies inward backing, so
+      -- it must not trigger a one-piece "shield wall".
+      let loneBoard = mkBoard n
+            [ (Coords 1 8, Attacker)
+            , (Coords 2 8, Defender)
+            , (Coords 1 5, Defender)
+            ]
+          gs = (mkGameState loneBoard) { gsTurn = 1 }
+          gs' = act gs (MoveAction (Coords 1 5) (Coords 1 7))
+      gsCaptures gs' `shouldBe` []
+      pieceAt (gsBoard gs') (Coords 1 8) `shouldBe` Attacker
+
+    it "still captures that lone piece when the move closes the bracket" $ do
+      -- Same shape, but now the defender lands on (2,8) to close the vertical
+      -- bracket itself. That is an ordinary sandwich and must still capture.
+      let loneBoard = mkBoard n
+            [ (Coords 1 8, Attacker)
+            , (Coords 2 5, Defender)
+            ]
+          gs = (mkGameState loneBoard) { gsTurn = 1 }
+          gs' = act gs (MoveAction (Coords 2 5) (Coords 2 8))
+      gsCaptures gs' `shouldBe` [Coords 1 8]
+
   describe "Exit forts" $ do
     -- A king in an edge pocket walled in on all three open sides: sealed
     -- against attackers, but with nowhere to go.

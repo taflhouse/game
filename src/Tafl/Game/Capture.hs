@@ -87,13 +87,20 @@ checkKingCapture gs landing side
               in if surrounded >= needed then [kingPos] else []
          else []
 
--- | Shield wall captures. A run of enemy pieces along a board edge can be
--- captured together if each has a friendly piece behind it (one row/column
--- inward) and the run is terminated by a friendly piece or capture helper on
--- the edge at both ends. This can be completed by either move: a piece
--- landing on the edge to cap the run, or a piece landing in the inward
+-- | Shield wall captures. A run of two or more enemy pieces along a board
+-- edge can be captured together if each has a friendly piece behind it (one
+-- row/column inward) and the run is terminated by a friendly piece or capture
+-- helper on the edge at both ends. This can be completed by either move: a
+-- piece landing on the edge to cap the run, or a piece landing in the inward
 -- support square to supply the last piece of backing the run needed. The
 -- king is immune to shield wall capture.
+--
+-- The two-piece minimum matters. A lone edge piece bracketed on the edge is
+-- an ordinary sandwich, and 'checkSandwich' already handles it -- but only
+-- when the moving piece is one of the two brackets. Letting a run of one
+-- through here would also fire on the support move, capturing a piece that
+-- walked into a standing bracket (which is safe) because an unrelated piece
+-- later stepped in behind it.
 checkShieldWalls :: GameState -> Coords -> [Coords]
 checkShieldWalls gs landing =
   let board = gsBoard gs
@@ -142,9 +149,10 @@ supportRun gs side opp edgeIdx behindIdx anchorPos isHorizontal
   | otherwise =
       let (leftPieces,  leftEnd)  = walk (-1)
           (rightPieces, rightEnd) = walk 1
+          wall = leftPieces ++ [anchorCoords] ++ rightPieces
           endOk p = insideBounds board (mkCoords p) && canHelpCapture gs (mkCoords p) side
-      in if endOk leftEnd && endOk rightEnd
-         then leftPieces ++ [anchorCoords] ++ rightPieces
+      in if length wall >= 2 && endOk leftEnd && endOk rightEnd
+         then wall
          else []
   where
     board = gsBoard gs
@@ -166,8 +174,9 @@ supportRun gs side opp edgeIdx behindIdx anchorPos isHorizontal
 -- collecting capturable enemy pieces. The scan continues while:
 --   1. The next position on the edge is an opponent piece (not king)
 --   2. The position behind it (one row/col inward) has a capture helper
--- If the scan terminates at a friendly capture helper on the edge,
--- all collected pieces are captured. Otherwise nothing is captured.
+-- If at least two pieces were collected and the scan terminates at a friendly
+-- capture helper on the edge, all collected pieces are captured. Otherwise
+-- nothing is captured -- a single bracketed piece is left to 'checkSandwich'.
 --
 -- @isHorizontal@: True = scanning columns along a row edge,
 --                 False = scanning rows along a column edge
@@ -194,6 +203,8 @@ scanEdge gs side opp edgeIdx startPos delta behindIdx isHorizontal =
 
       -- Check if the run is terminated by a friendly capture helper
       endCoords = mkCoords endPos
-  in if insideBounds board endCoords && canHelpCapture gs endCoords side
+  in if length captured >= 2
+        && insideBounds board endCoords
+        && canHelpCapture gs endCoords side
      then captured
      else []
