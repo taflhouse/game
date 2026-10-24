@@ -204,14 +204,14 @@ otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
 otp_expiry = 3600
 
-# Production SMTP (Postmark). Ignored by `supabase start` — local mail always
+# Production SMTP (Brevo). Ignored by `supabase start` — local mail always
 # goes to Mailpit on port 54324 — so this only affects `supabase config push`.
 [auth.email.smtp]
 enabled = true
-host = "smtp.postmarkapp.com"
+host = "smtp-relay.brevo.com"
 port = 587
-user = "env(POSTMARK_API_TOKEN)"
-pass = "env(POSTMARK_API_TOKEN)"
+user = "env(BREVO_SMTP_LOGIN)"
+pass = "env(BREVO_SMTP_KEY)"
 admin_email = "noreply@taflhouse.com"
 sender_name = "Tafl House"
 

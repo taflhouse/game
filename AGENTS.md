@@ -92,8 +92,8 @@ GitHub Actions on push to `main` (production) or `staging` (staging):
 1. Supabase CLI pushes migrations via transaction pooler (`--db-url`)
 2. `supabase config push` applies `supabase/config.toml` to the hosted project — note this
    pushes the whole `[auth]` block, so environment-specific values (`SITE_URL`,
-   `SITE_URL_WILDCARD`, `POSTMARK_API_TOKEN`) are `env(...)` placeholders supplied by the workflow
+   `SITE_URL_WILDCARD`, `BREVO_SMTP_LOGIN`, `BREVO_SMTP_KEY`) are `env(...)` placeholders supplied by the workflow
 3. Nix builds WASM app
 4. Wrangler deploys to Cloudflare Workers
 
-Secrets: `PROD_DATABASE_URL`, `STAGING_DATABASE_URL`, `PROD_SUPABASE_URL`, `STAGING_SUPABASE_URL`, `PROD_SUPABASE_KEY`, `STAGING_SUPABASE_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `PROD_POSTMARK_API_TOKEN`, `STAGING_POSTMARK_API_TOKEN`
+Secrets: `PROD_DATABASE_URL`, `STAGING_DATABASE_URL`, `PROD_SUPABASE_URL`, `STAGING_SUPABASE_URL`, `PROD_SUPABASE_KEY`, `STAGING_SUPABASE_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `PROD_BREVO_SMTP_LOGIN`, `STAGING_BREVO_SMTP_LOGIN`, `PROD_BREVO_SMTP_KEY`, `STAGING_BREVO_SMTP_KEY`, `SUPABASE_ACCESS_TOKEN`, `PROD_PROJECT_REF`, `STAGING_PROJECT_REF`
