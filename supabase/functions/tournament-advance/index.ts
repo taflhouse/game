@@ -673,6 +673,15 @@ Deno.serve(async (req) => {
     return Response.json({ error: "Tournament not found" }, { status: 404 });
   }
 
+  // Only the DB trigger (service role) may advance rounds; a user token may
+  // only start a tournament it organizes.
+  if (token !== serviceRoleKey) {
+    const { data: { user } } = await supabase.auth.getUser(token);
+    if (!user || action !== "start" || user.id !== tournament.organizer_id) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+  }
+
   // Fetch players
   const { data: players } = await supabase
     .from("tournament_players")

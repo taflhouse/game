@@ -73,10 +73,37 @@ jobs:
           VAPID_PUBLIC_KEY: ${{ github.ref_name == 'main' && secrets.PROD_VAPID_PUBLIC_KEY || secrets.STAGING_VAPID_PUBLIC_KEY }}
 
       - name: Deploy Edge Functions
-        run: supabase functions deploy send-push --project-ref "$PROJECT_REF"
+        run: supabase functions deploy --project-ref "$PROJECT_REF"
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           PROJECT_REF: ${{ github.ref_name == 'main' && secrets.PROD_PROJECT_REF || secrets.STAGING_PROJECT_REF }}
+
+      # DB triggers read these from Vault to call the edge functions; without
+      # them, push notifications and tournament round advancement silently no-op.
+      - name: Sync Vault secrets for DB-triggered edge functions
+        run: |
+          SERVICE_KEY=$(supabase projects api-keys --project-ref "$PROJECT_REF" -o json \
+            | jq -r '.[] | select(.name == "service_role") | .api_key')
+          echo "::add-mask::$SERVICE_KEY"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -v service_key="$SERVICE_KEY" \
+            -v push_url="$SUPABASE_URL/functions/v1/send-push" \
+            -v tournament_url="$SUPABASE_URL/functions/v1/tournament-advance" <<'SQL'
+          SELECT vault.create_secret(:'service_key', 'service_role_key')
+            WHERE NOT EXISTS (SELECT 1 FROM vault.secrets WHERE name = 'service_role_key');
+          SELECT vault.update_secret(id, :'service_key') FROM vault.secrets WHERE name = 'service_role_key';
+          SELECT vault.create_secret(:'push_url', 'push_edge_fn_url')
+            WHERE NOT EXISTS (SELECT 1 FROM vault.secrets WHERE name = 'push_edge_fn_url');
+          SELECT vault.update_secret(id, :'push_url') FROM vault.secrets WHERE name = 'push_edge_fn_url';
+          SELECT vault.create_secret(:'tournament_url', 'tournament_advance_fn_url')
+            WHERE NOT EXISTS (SELECT 1 FROM vault.secrets WHERE name = 'tournament_advance_fn_url');
+          SELECT vault.update_secret(id, :'tournament_url') FROM vault.secrets WHERE name = 'tournament_advance_fn_url';
+          SQL
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ github.ref_name == 'main' && secrets.PROD_PROJECT_REF || secrets.STAGING_PROJECT_REF }}
+          DATABASE_URL: ${{ github.ref_name == 'main' && secrets.PROD_DATABASE_URL || secrets.STAGING_DATABASE_URL }}
+          SUPABASE_URL: ${{ github.ref_name == 'main' && secrets.PROD_SUPABASE_URL || secrets.STAGING_SUPABASE_URL }}
 
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v4

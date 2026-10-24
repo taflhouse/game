@@ -366,3 +366,10 @@ enabled = true
 verify_jwt = false
 import_map = "./functions/send-push/deno.json"
 entrypoint = "./functions/send-push/index.ts"
+
+# Auth is checked inside the function (service role key or organizer's token).
+[functions.tournament-advance]
+enabled = true
+verify_jwt = false
+import_map = "./functions/tournament-advance/deno.json"
+entrypoint = "./functions/tournament-advance/index.ts"
