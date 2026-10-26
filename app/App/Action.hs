@@ -200,12 +200,12 @@ data Action
   | TournamentJoinError MisoString
   -- Organizer
   | StartTournament MisoString
+  | CopyTournamentLink MisoString
   | TournamentStarted Value
   | TournamentStartError MisoString
   -- Private join
   | SetTournamentCodeInput MisoString
   | LookupTournamentByCode
-  | TournamentFoundByCode Value
-  | TournamentCodeError MisoString
+  | TournamentByCodeLoaded Value
   -- Game component mailbox
   | GameMailbox Value

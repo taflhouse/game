@@ -228,6 +228,19 @@ updateModel loungeChannelRef = \case
           [eq "tournament_id" tid]
           (FetchOptions Nothing Nothing (Just ("round_number", True)) Nothing)
           TournamentPairingsLoaded TournamentLoadError
+      TournamentCodeRoute code -> do
+        modify $ \x -> x
+          { mScreen = TournamentScreen
+          , mTournamentLoading = True
+          , mTournament = Nothing
+          , mTournamentPlayers = []
+          , mTournamentPairings = []
+          , mTournamentRound = 1
+          }
+        withSink $ \sink -> do
+          okCb  <- successCallback sink (\_ -> TournamentByCodeLoaded (toJSON ([] :: [Value]))) TournamentByCodeLoaded
+          errCb <- errorCallback sink TournamentLoadError
+          js_runSupabaseRpc "get_tournament_by_invite_code" (object ["p_code" .= code]) okCb errCb
       CreateTournamentRoute ->
         modify $ \x -> x
           { mScreen = CreateTournamentScreen
@@ -1297,6 +1310,12 @@ updateModel loungeChannelRef = \case
           TournamentPairingsLoaded TournamentLoadError
       Nothing -> pure ()
 
+  CopyTournamentLink path -> do
+    io_ $ do
+      origin <- js_getOrigin
+      js_copyToClipboard (origin <> "/" <> path)
+    withSink $ \sink -> sink (ShowToast "Invite link copied!")
+
   TournamentStartError msg ->
     modify $ \x -> x { mToast = Just ("Error starting tournament: " <> msg) }
 
@@ -1307,20 +1326,28 @@ updateModel loungeChannelRef = \case
     m <- get
     let code = mTournamentCodeInput m
     when (code /= "") $
-      selectWithFilters "tournaments" "*"
-        [eq "invite_code" code]
-        (FetchOptions Nothing Nothing Nothing Nothing)
-        TournamentFoundByCode TournamentCodeError
+      io_ $ pushURI (tournamentCodeURI code)
 
-  TournamentFoundByCode val ->
+  -- Private tournaments aren't readable by non-members until they join, so the
+  -- invite-code route loads the row via RPC, then players/pairings by id.
+  TournamentByCodeLoaded val ->
     case fromJSON val of
       Success ts -> case (ts :: [TournamentRow]) of
-        (t:_) -> io_ $ pushURI (tournamentURI (trId t))
-        []    -> modify $ \x -> x { mToast = Just "No tournament found with that code." }
-      Error _ -> modify $ \x -> x { mToast = Just "Failed to look up tournament." }
-
-  TournamentCodeError msg ->
-    modify $ \x -> x { mToast = Just ("Lookup error: " <> msg) }
+        (t:_) -> do
+          modify $ \x -> x { mTournament = Just t, mTournamentLoading = False
+                           , mTournamentRound = trCurrentRound t }
+          selectWithFilters "tournament_players" "*"
+            [eq "tournament_id" (trId t)]
+            (FetchOptions Nothing Nothing (Just ("score", False)) Nothing)
+            TournamentPlayersLoaded TournamentLoadError
+          selectWithFilters "tournament_pairings" "*"
+            [eq "tournament_id" (trId t)]
+            (FetchOptions Nothing Nothing (Just ("round_number", True)) Nothing)
+            TournamentPairingsLoaded TournamentLoadError
+        [] -> modify $ \x -> x { mTournamentLoading = False
+                               , mToast = Just "No tournament found with that code." }
+      Error _ -> modify $ \x -> x { mTournamentLoading = False
+                                  , mToast = Just "Failed to look up tournament." }
 
   -- Push notifications (app-level) ----------------------------------------
 

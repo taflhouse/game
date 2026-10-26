@@ -163,6 +163,7 @@ viewTournamentDetail m = case mTournament m of
                   && not isJoined
                   && maybe True (\mx -> length players < mx) (trMaxPlayers t)
         canStart = isOrganizer && trStatus t == "registration" && length players >= 2
+        canInvite = trStatus t == "registration" && (isOrganizer || isJoined)
         roundN = mTournamentRound m
         roundPairings = filter (\p -> tprRoundNumber p == roundN) pairings
     in H.div_
@@ -208,6 +209,21 @@ viewTournamentDetail m = case mTournament m of
                 , SVG.onClick (StartTournament (trId t))
                 ]
                 [ text "Start Tournament" ]
+              else text ""
+          , if canInvite
+              then H.button_
+                [ HP.class_ "btn-outline"
+                , style_ [("touch-action", "manipulation")]
+                , SVG.onClick (CopyTournamentLink
+                    (case (trIsPrivate t, trInviteCode t) of
+                       (True, Just code) -> "tournaments/join/" <> code
+                       _                 -> "tournaments/" <> trId t))
+                ]
+                [ text "Copy Invite Link" ]
+              else text ""
+          , if isOrganizer && trStatus t == "registration" && length players < 2
+              then H.div_ [ HP.class_ "text-sm text-muted-foreground self-center" ]
+                [ text "Invite at least one more player to start." ]
               else text ""
           , if trIsPrivate t
               then case trInviteCode t of

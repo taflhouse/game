@@ -27,6 +27,7 @@ module App.Route
   , learnLessonURI
   , tournamentsURI
   , tournamentURI
+  , tournamentCodeURI
   , createTournamentURI
   ) where
 
@@ -51,6 +52,7 @@ data Route = HomeRoute | SignInRoute | SignUpRoute | ConfigRoute | ConfigureRout
            | LearnLessonRoute MisoString -- /learn/<lesson-id>
            | TournamentsRoute          -- /tournaments list
            | TournamentRoute MisoString -- /tournaments/<uuid> detail
+           | TournamentCodeRoute MisoString -- /tournaments/join/<code> private invite
            | CreateTournamentRoute     -- /tournaments/new
 
 variantSlugMs :: BoardVariant -> MisoString
@@ -86,6 +88,8 @@ parseRoute uri = case uriPath uri of
   "tournaments"     -> TournamentsRoute
   "tournaments/new" -> CreateTournamentRoute
   path
+    | Just code <- msStripPrefix "tournaments/join/" path
+    , not (null (fromMisoString code :: String)) -> TournamentCodeRoute code
     | Just tid <- msStripPrefix "tournaments/" path
     , isUUID tid -> TournamentRoute tid
     | Just uuid <- msStripPrefix "play/" path
@@ -207,6 +211,9 @@ tournamentsURI = emptyURI { uriPath = "tournaments" }
 
 tournamentURI :: MisoString -> URI
 tournamentURI tid = emptyURI { uriPath = "tournaments/" <> tid }
+
+tournamentCodeURI :: MisoString -> URI
+tournamentCodeURI code = emptyURI { uriPath = "tournaments/join/" <> code }
 
 createTournamentURI :: URI
 createTournamentURI = emptyURI { uriPath = "tournaments/new" }
