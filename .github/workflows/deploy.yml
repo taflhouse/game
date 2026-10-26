@@ -74,7 +74,7 @@ jobs:
           VAPID_PUBLIC_KEY: ${{ github.ref_name == 'main' && secrets.PROD_VAPID_PUBLIC_KEY || secrets.STAGING_VAPID_PUBLIC_KEY }}
 
       - name: Deploy Edge Functions
-        run: supabase functions deploy --project-ref "$PROJECT_REF"
+        run: supabase functions deploy --use-api --project-ref "$PROJECT_REF"
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           PROJECT_REF: ${{ github.ref_name == 'main' && secrets.PROD_PROJECT_REF || secrets.STAGING_PROJECT_REF }}
