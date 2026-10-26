@@ -6,7 +6,7 @@ module App.Update (updateModel) where
 import Prelude hiding ((.))
 import Control.Category ((.))
 import Control.Concurrent (threadDelay)
-import Control.Monad (filterM, when)
+import Control.Monad (filterM, forM_, when)
 import Data.IORef (IORef, readIORef, writeIORef)
 import Data.List (sortOn)
 import Data.Maybe (fromMaybe)
@@ -215,6 +215,7 @@ updateModel loungeChannelRef = \case
           , mTournamentPlayers = []
           , mTournamentPairings = []
           , mTournamentRound = 1
+          , mTournamentConfirm = Nothing
           }
         selectWithFilters "tournaments" "*"
           [eq "id" tid]
@@ -236,6 +237,7 @@ updateModel loungeChannelRef = \case
           , mTournamentPlayers = []
           , mTournamentPairings = []
           , mTournamentRound = 1
+          , mTournamentConfirm = Nothing
           }
         withSink $ \sink -> do
           okCb  <- successCallback sink (\_ -> TournamentByCodeLoaded (toJSON ([] :: [Value]))) TournamentByCodeLoaded
@@ -1261,19 +1263,32 @@ updateModel loungeChannelRef = \case
   TournamentCreateError msg ->
     modify $ \x -> x { mToast = Just ("Error creating tournament: " <> msg) }
 
+  -- Joining is validated server-side (open, not full, invite code, username).
   JoinTournament tid -> do
     m <- get
     case (mSession m, mProfile m) of
-      (Just sess, Just profile) -> do
-        let uid = userId (sessionUser sess)
-        insert "tournament_players"
-          (object [ "tournament_id" .= tid
-                  , "player_id"     .= uid
-                  , "player_name"   .= pUsername profile
-                  ])
-          (InsertOptions Nothing Nothing)
-          TournamentJoined TournamentJoinError
+      (Just _, Just _) -> withSink $ \sink -> do
+        let code = mTournament m >>= trInviteCode
+        okCb  <- successCallback sink (\_ -> TournamentJoined (object [])) TournamentJoined
+        errCb <- errorCallback sink TournamentJoinError
+        js_runSupabaseRpc "join_tournament"
+          (object ["p_tournament_id" .= tid, "p_invite_code" .= code]) okCb errCb
       _ -> modify $ \x -> x { mToast = Just "Please sign in and create a profile first." }
+
+  LeaveTournament tid -> tournamentRpc "leave_tournament" tid
+
+  CancelTournament tid -> tournamentRpc "cancel_tournament" tid
+
+  ConfirmTournamentAction act ->
+    modify $ \x -> x { mTournamentConfirm = act }
+
+  TournamentActionDone _ -> do
+    modify $ \x -> x { mTournamentConfirm = Nothing }
+    m <- get
+    forM_ (mTournament m) $ \t -> reloadTournament (trId t)
+
+  TournamentActionError msg ->
+    modify $ \x -> x { mTournamentConfirm = Nothing, mToast = Just msg }
 
   TournamentJoined _ -> do
     m <- get
@@ -1286,7 +1301,7 @@ updateModel loungeChannelRef = \case
       Nothing -> pure ()
 
   TournamentJoinError msg ->
-    modify $ \x -> x { mToast = Just ("Error joining tournament: " <> msg) }
+    modify $ \x -> x { mToast = Just msg }
 
   StartTournament tid -> do
     withSink $ \sink -> do
@@ -1659,3 +1674,21 @@ activateMatchInterest = do
         ]
         (FetchOptions Nothing Nothing Nothing Nothing)
         MatchInterestInitialLoad MatchInterestInitialError
+
+-- | Call a tournament RPC that takes only the tournament id.
+tournamentRpc :: MisoString -> MisoString -> Effect ROOT () Model Action
+tournamentRpc fnName tid = withSink $ \sink -> do
+  okCb  <- successCallback sink (\_ -> TournamentActionDone (object [])) TournamentActionDone
+  errCb <- errorCallback sink TournamentActionError
+  js_runSupabaseRpc fnName (object ["p_tournament_id" .= tid]) okCb errCb
+
+reloadTournament :: MisoString -> Effect ROOT () Model Action
+reloadTournament tid = do
+  selectWithFilters "tournaments" "*"
+    [eq "id" tid]
+    (FetchOptions Nothing Nothing Nothing Nothing)
+    TournamentLoaded TournamentLoadError
+  selectWithFilters "tournament_players" "*"
+    [eq "tournament_id" tid]
+    (FetchOptions Nothing Nothing (Just ("score", False)) Nothing)
+    TournamentPlayersLoaded TournamentLoadError

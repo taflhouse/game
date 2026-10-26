@@ -20,6 +20,7 @@ interface Tournament {
   current_round: number;
   total_rounds: number | null;
   round_interval_minutes: number;
+  next_round_at: string | null;
 }
 
 interface TournamentPlayer {
@@ -52,6 +53,7 @@ interface PairingRow {
   id: string;
   tournament_id: string;
   round_number: number;
+  pairing_order: number;
   player_1_id: string;
   player_2_id: string | null;
   player_1_side: string;
@@ -197,8 +199,13 @@ function roundRobinPairings(
   roundNumber: number,
   priorPairings: PairingRow[]
 ): Pairing[] {
-  const active = players.filter((p) => p.is_active);
-  const ids = active.map((p) => p.player_id);
+  // The circle method needs the same order every round, and withdrawn players
+  // keep their slot (their opponent gets a bye) so the rotation doesn't shift.
+  const ordered = [...players].sort(bySeed);
+  const activeIds = new Set(
+    ordered.filter((p) => p.is_active).map((p) => p.player_id)
+  );
+  const ids = ordered.map((p) => p.player_id);
 
   // Add a dummy for odd count
   const hasDummy = ids.length % 2 !== 0;
@@ -219,10 +226,14 @@ function roundRobinPairings(
   const all = [fixed, ...rotated];
 
   for (let i = 0; i < n / 2; i++) {
-    const p1 = all[i];
-    const p2 = all[n - 1 - i];
+    let p1 = all[i];
+    let p2 = all[n - 1 - i];
+    if (p1 !== "__bye__" && !activeIds.has(p1)) p1 = "__bye__";
+    if (p2 !== "__bye__" && !activeIds.has(p2)) p2 = "__bye__";
 
-    if (p1 === "__bye__") {
+    if (p1 === "__bye__" && p2 === "__bye__") {
+      continue;
+    } else if (p1 === "__bye__") {
       pairings.push({
         player_1_id: p2,
         player_2_id: null,
@@ -296,20 +307,28 @@ function eliminationPairings(
   }
 
   // Subsequent rounds: winners from previous round advance
-  const prevRound = priorPairings.filter(
-    (p) => p.round_number === roundNumber - 1
+  const seedOf = new Map(players.map((p) => [p.player_id, p.seed ?? 999]));
+  const activeIds = new Set(
+    players.filter((p) => p.is_active).map((p) => p.player_id)
   );
   const winners: string[] = [];
 
-  for (const p of prevRound) {
-    if (p.result === "bye" || !p.player_2_id) {
-      winners.push(p.player_1_id);
-    } else if (p.winner_id) {
-      winners.push(p.winner_id);
-    } else if (p.result === "draw") {
-      // In elimination, draws shouldn't happen, but default to player_1
-      winners.push(p.player_1_id);
+  for (const match of eliminationMatches(priorPairings, roundNumber - 1)) {
+    const last = match[match.length - 1];
+    let winner: string;
+    if (last.result === "bye" || !last.player_2_id) {
+      winner = last.player_1_id;
+    } else if (last.winner_id) {
+      winner = last.winner_id;
+    } else {
+      // Drawn even after replays: the higher seed advances.
+      winner =
+        (seedOf.get(last.player_1_id) ?? 999) <=
+        (seedOf.get(last.player_2_id) ?? 999)
+          ? last.player_1_id
+          : last.player_2_id;
     }
+    if (activeIds.has(winner)) winners.push(winner);
   }
 
   const pairings: Pairing[] = [];
@@ -332,6 +351,54 @@ function eliminationPairings(
   }
 
   return pairings;
+}
+
+const MAX_ELIMINATION_GAMES = 3;
+
+function bySeed(a: TournamentPlayer, b: TournamentPlayer): number {
+  return (a.seed ?? 999) - (b.seed ?? 999) || (a.player_id < b.player_id ? -1 : 1);
+}
+
+/** Group a round's pairings into matches (all games between the same two
+ *  players), in bracket order. A drawn elimination game is replayed as a new
+ *  pairing in the same round, so a match can span several pairings. */
+function eliminationMatches(
+  priorPairings: PairingRow[],
+  roundNumber: number
+): PairingRow[][] {
+  const matches = new Map<string, PairingRow[]>();
+  const round = priorPairings
+    .filter((p) => p.round_number === roundNumber)
+    .sort((a, b) => a.pairing_order - b.pairing_order);
+  for (const p of round) {
+    const key = [p.player_1_id, p.player_2_id ?? ""].sort().join(":");
+    if (!matches.has(key)) matches.set(key, []);
+    matches.get(key)!.push(p);
+  }
+  return [...matches.values()];
+}
+
+/** Replays for elimination matches whose latest game was drawn, sides swapped. */
+function eliminationReplays(
+  priorPairings: PairingRow[],
+  roundNumber: number
+): Pairing[] {
+  const replays: Pairing[] = [];
+  for (const match of eliminationMatches(priorPairings, roundNumber)) {
+    const last = match[match.length - 1];
+    if (
+      last.result === "draw" &&
+      last.player_2_id &&
+      match.length < MAX_ELIMINATION_GAMES
+    ) {
+      replays.push({
+        player_1_id: last.player_1_id,
+        player_2_id: last.player_2_id,
+        player_1_side: last.player_1_side === "attacker" ? "defender" : "attacker",
+      });
+    }
+  }
+  return replays;
 }
 
 function generatePairings(
@@ -494,7 +561,8 @@ async function createGamesForPairings(
   tournament: Tournament,
   pairings: Pairing[],
   players: TournamentPlayer[],
-  roundNumber: number
+  roundNumber: number,
+  orderOffset = 0
 ): Promise<{ pairingId: string; gameId: string | null }[]> {
   const playerMap = new Map(players.map((p) => [p.player_id, p]));
   const results: { pairingId: string; gameId: string | null }[] = [];
@@ -509,7 +577,7 @@ async function createGamesForPairings(
         id: pairingId,
         tournament_id: tournament.id,
         round_number: roundNumber,
-        pairing_order: i,
+        pairing_order: orderOffset + i,
         player_1_id: pairing.player_1_id,
         player_2_id: null,
         player_1_side: pairing.player_1_side,
@@ -584,7 +652,7 @@ async function createGamesForPairings(
         id: pairingId,
         tournament_id: tournament.id,
         round_number: roundNumber,
-        pairing_order: i,
+        pairing_order: orderOffset + i,
         player_1_id: pairing.player_1_id,
         player_2_id: pairing.player_2_id,
         player_1_side: pairing.player_1_side,
@@ -695,23 +763,36 @@ Deno.serve(async (req) => {
     );
   }
 
-  // Fetch all pairings
-  const { data: allPairings } = await supabase
-    .from("tournament_pairings")
-    .select("*")
-    .eq("tournament_id", tournament_id)
-    .order("round_number", { ascending: true });
-
-  const priorPairings: PairingRow[] = allPairings ?? [];
-
   // ---------------------------------------------------------------------------
   // START tournament
   // ---------------------------------------------------------------------------
-  if (action === "start" && tournament.status === "registration") {
+  if (action === "start") {
+    if (tournament.status !== "registration") {
+      return Response.json({ status: "no_action", tournament_status: tournament.status });
+    }
+
     const totalRounds = computeTotalRounds(tournament.format, players.length);
     const roundNumber = 1;
 
-    // Assign seeds if not already set
+    // Claim the start so a double click can't create round 1 twice.
+    const { data: claimed } = await supabase
+      .from("tournaments")
+      .update({
+        status: "active",
+        current_round: roundNumber,
+        total_rounds: totalRounds,
+        started_at: new Date().toISOString(),
+      })
+      .eq("id", tournament_id)
+      .eq("status", "registration")
+      .select("id");
+    if (!claimed?.length) {
+      return Response.json({ status: "no_action", reason: "already started" });
+    }
+
+    // Seed by registration order
+    players.sort((a: TournamentPlayer & { registered_at?: string }, b: TournamentPlayer & { registered_at?: string }) =>
+      (a.registered_at ?? "").localeCompare(b.registered_at ?? ""));
     for (let i = 0; i < players.length; i++) {
       if (players[i].seed === null) {
         await supabase
@@ -722,35 +803,8 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Generate round 1 pairings
-    const pairings = generatePairings(
-      tournament,
-      players,
-      roundNumber,
-      []
-    );
-
-    // Create games
-    await createGamesForPairings(
-      supabase,
-      tournament,
-      pairings,
-      players,
-      roundNumber
-    );
-
-    // Update tournament status
-    await supabase
-      .from("tournaments")
-      .update({
-        status: "active",
-        current_round: roundNumber,
-        total_rounds: totalRounds,
-        started_at: new Date().toISOString(),
-      })
-      .eq("id", tournament_id);
-
-    // Notify players
+    const pairings = generatePairings(tournament, players, roundNumber, []);
+    await createGamesForPairings(supabase, tournament, pairings, players, roundNumber);
     await notifyPlayers(supabase, tournament, pairings, roundNumber);
 
     return Response.json({
@@ -762,74 +816,109 @@ Deno.serve(async (req) => {
   }
 
   // ---------------------------------------------------------------------------
-  // ADVANCE to next round (called by trigger when all games in current round finish)
+  // ADVANCE (called by the round-complete trigger and the per-minute cron).
+  // Safe to call repeatedly: it does nothing until the round is complete, and
+  // the round number is claimed atomically before the next round is created.
   // ---------------------------------------------------------------------------
-  if (tournament.status === "active") {
-    // Refresh pairings with results
-    const { data: freshPairings } = await supabase
-      .from("tournament_pairings")
-      .select("*")
-      .eq("tournament_id", tournament_id)
-      .order("round_number", { ascending: true });
+  if (tournament.status !== "active") {
+    return Response.json({ status: "no_action", tournament_status: tournament.status });
+  }
 
-    const currentPairings: PairingRow[] = freshPairings ?? [];
+  const currentRound: number = tournament.current_round;
+  const { data: freshPairings } = await supabase
+    .from("tournament_pairings")
+    .select("*")
+    .eq("tournament_id", tournament_id)
+    .order("round_number", { ascending: true });
+  const allPairings: PairingRow[] = freshPairings ?? [];
 
-    // Update standings from all completed pairings
-    await updateStandings(supabase, tournament_id, players, currentPairings);
+  const roundPairings = allPairings.filter((p) => p.round_number === currentRound);
+  if (roundPairings.length === 0 || roundPairings.some((p) => !p.result)) {
+    return Response.json({ status: "round_in_progress", round: currentRound });
+  }
 
-    // Re-fetch players with updated scores
-    const { data: updatedPlayers } = await supabase
-      .from("tournament_players")
-      .select("*")
-      .eq("tournament_id", tournament_id);
+  await updateStandings(supabase, tournament_id, players, allPairings);
 
-    const currentRound = tournament.current_round;
-    const totalRounds = tournament.total_rounds ?? 0;
+  const { data: updatedPlayers } = await supabase
+    .from("tournament_players")
+    .select("*")
+    .eq("tournament_id", tournament_id);
+  const standings: TournamentPlayer[] = updatedPlayers ?? players;
 
-    if (currentRound >= totalRounds) {
-      // Tournament is finished
-      await supabase
-        .from("tournaments")
-        .update({
-          status: "finished",
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", tournament_id);
-
-      return Response.json({ status: "finished", final_round: currentRound });
+  // Elimination: a drawn match is replayed (sides swapped) within the round.
+  if (tournament.format === "single_elimination") {
+    const replays = eliminationReplays(allPairings, currentRound);
+    if (replays.length > 0) {
+      const nextOrder = Math.max(...roundPairings.map((p) => p.pairing_order)) + 1;
+      await createGamesForPairings(
+        supabase, tournament, replays, standings, currentRound, nextOrder
+      );
+      await notifyPlayers(supabase, tournament, replays, currentRound);
+      return Response.json({ status: "replay", round: currentRound, replays: replays.length });
     }
+  }
 
-    // Generate next round
-    const nextRound = currentRound + 1;
-    const pairings = generatePairings(
-      tournament,
-      updatedPlayers ?? players,
-      nextRound,
-      currentPairings
-    );
+  const nextRound = currentRound + 1;
+  const totalRounds = tournament.total_rounds ?? 0;
+  const pairings =
+    currentRound >= totalRounds
+      ? []
+      : generatePairings(tournament, standings, nextRound, allPairings);
 
-    await createGamesForPairings(
-      supabase,
-      tournament,
-      pairings,
-      updatedPlayers ?? players,
-      nextRound
-    );
-
-    await supabase
+  // Finished when the schedule is done or there's nobody left to play.
+  if (!pairings.some((p) => p.player_2_id)) {
+    const { data: finished } = await supabase
       .from("tournaments")
-      .update({ current_round: nextRound })
-      .eq("id", tournament_id);
-
-    // Notify players
-    await notifyPlayers(supabase, tournament, pairings, nextRound);
-
+      .update({
+        status: "finished",
+        finished_at: new Date().toISOString(),
+        next_round_at: null,
+      })
+      .eq("id", tournament_id)
+      .eq("status", "active")
+      .eq("current_round", currentRound)
+      .select("id");
     return Response.json({
-      status: "advanced",
-      round: nextRound,
-      pairings: pairings.length,
+      status: finished?.length ? "finished" : "no_action",
+      final_round: currentRound,
     });
   }
 
-  return Response.json({ status: "no_action", tournament_status: tournament.status });
+  // Round interval: schedule the next round, and let the cron start it.
+  const intervalMin = tournament.round_interval_minutes ?? 0;
+  if (intervalMin > 0) {
+    if (!tournament.next_round_at) {
+      const startsAt = new Date(Date.now() + intervalMin * 60_000).toISOString();
+      await supabase
+        .from("tournaments")
+        .update({ next_round_at: startsAt })
+        .eq("id", tournament_id)
+        .eq("current_round", currentRound)
+        .is("next_round_at", null);
+      return Response.json({ status: "scheduled", next_round: nextRound, starts_at: startsAt });
+    }
+    if (new Date(tournament.next_round_at).getTime() > Date.now()) {
+      return Response.json({ status: "waiting", next_round: nextRound, starts_at: tournament.next_round_at });
+    }
+  }
+
+  const { data: claimed } = await supabase
+    .from("tournaments")
+    .update({ current_round: nextRound, next_round_at: null })
+    .eq("id", tournament_id)
+    .eq("status", "active")
+    .eq("current_round", currentRound)
+    .select("id");
+  if (!claimed?.length) {
+    return Response.json({ status: "no_action", reason: "round already advanced" });
+  }
+
+  await createGamesForPairings(supabase, tournament, pairings, standings, nextRound);
+  await notifyPlayers(supabase, tournament, pairings, nextRound);
+
+  return Response.json({
+    status: "advanced",
+    round: nextRound,
+    pairings: pairings.length,
+  });
 });

@@ -228,6 +228,7 @@ data Model = Model
   , mTFormRoundInterval :: !Int
   , mTFormForfeitTimeout :: !Int
   , mTournamentCodeInput :: !MisoString
+  , mTournamentConfirm  :: !(Maybe MisoString)  -- ^ "leave" / "cancel" awaiting a second click
   }
 
 -- Manual Eq instance: skip mMatchInterestChannel (Channel wraps JSVal, no Eq)
@@ -301,6 +302,7 @@ instance Eq Model where
     && mTFormRoundInterval a == mTFormRoundInterval b
     && mTFormForfeitTimeout a == mTFormForfeitTimeout b
     && mTournamentCodeInput a == mTournamentCodeInput b
+    && mTournamentConfirm a == mTournamentConfirm b
 
 mAuth :: Lens Model AuthState
 mAuth = lens _mAuth $ \r f -> r { _mAuth = f }
@@ -397,4 +399,5 @@ initModel = Model
   , mTFormRoundInterval = 0
   , mTFormForfeitTimeout = 1440
   , mTournamentCodeInput = ""
+  , mTournamentConfirm  = Nothing
   }

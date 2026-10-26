@@ -23,6 +23,7 @@ import App.JSON (Profile(..), TournamentRow(..), TournamentPlayerRow(..), Tourna
 import App.Model
 import App.Action
 import App.Route (variantName, lookupVariant, playURI, gamePermalinkURI)
+import App.FFI (js_formatDeadline)
 
 -- ---------------------------------------------------------------------------
 -- Tournament List (/tournaments)
@@ -164,6 +165,11 @@ viewTournamentDetail m = case mTournament m of
                   && maybe True (\mx -> length players < mx) (trMaxPlayers t)
         canStart = isOrganizer && trStatus t == "registration" && length players >= 2
         canInvite = trStatus t == "registration" && (isOrganizer || isJoined)
+        isActiveMe = any (\p -> Just (tpPlayerId p) == mUid && tpIsActive p) players
+        canLeave = isJoined && (trStatus t == "registration"
+                                || (trStatus t == "active" && isActiveMe))
+        leaveLabel = if trStatus t == "active" then "Withdraw" else "Leave Tournament"
+        canCancel = isOrganizer && trStatus t `elem` ["registration", "active"]
         roundN = mTournamentRound m
         roundPairings = filter (\p -> tprRoundNumber p == roundN) pairings
     in H.div_
@@ -187,6 +193,10 @@ viewTournamentDetail m = case mTournament m of
               , case trStatus t of
                   "active" -> H.span_ [] [ text ("Round " <> ms (show (trCurrentRound t)) <> maybe "" (\n -> " / " <> ms (show n)) (trTotalRounds t)) ]
                   _        -> text ""
+              , case (trStatus t, trNextRoundAt t) of
+                  ("active", Just at) ->
+                    H.span_ [] [ text ("Round " <> ms (show (trCurrentRound t + 1)) <> " starts: " <> js_formatDeadline at) ]
+                  _ -> text ""
               ]
           , case trDescription t of
               Just desc | desc /= "" -> H.p_ [ HP.class_ "text-sm text-muted-foreground mt-2" ] [ text desc ]
@@ -221,6 +231,32 @@ viewTournamentDetail m = case mTournament m of
                 ]
                 [ text "Copy Invite Link" ]
               else text ""
+          , case mTournamentConfirm m of
+              Just "leave" | canLeave ->
+                confirmBox
+                  (if trStatus t == "active"
+                     then "Withdraw? Your current game is forfeited and you won't be paired again."
+                     else "Leave this tournament?")
+                  leaveLabel (LeaveTournament (trId t))
+              Just "cancel" | canCancel ->
+                confirmBox "Cancel this tournament for everyone? Games in progress are cancelled."
+                  "Cancel Tournament" (CancelTournament (trId t))
+              _ -> H.div_ [ HP.class_ "flex gap-2 flex-wrap" ]
+                [ if canLeave
+                    then H.button_
+                      [ HP.class_ "btn-outline"
+                      , SVG.onClick (ConfirmTournamentAction (Just "leave"))
+                      ]
+                      [ text leaveLabel ]
+                    else text ""
+                , if canCancel
+                    then H.button_
+                      [ HP.class_ "btn-outline text-destructive"
+                      , SVG.onClick (ConfirmTournamentAction (Just "cancel"))
+                      ]
+                      [ text "Cancel Tournament" ]
+                    else text ""
+                ]
           , if isOrganizer && trStatus t == "registration" && length players < 2
               then H.div_ [ HP.class_ "text-sm text-muted-foreground self-center" ]
                 [ text "Invite at least one more player to start." ]
@@ -297,7 +333,11 @@ viewStandingRow mUid showStats rank p =
   in H.tr_
     [ HP.class_ (if isMe then "bg-muted/50" else "") ]
     ([ H.td_ [] [ text (ms (show rank)) ]
-     , H.td_ [ HP.class_ "font-medium" ] [ text (tpPlayerName p) ]
+     , H.td_ [ HP.class_ "font-medium" ]
+         [ text (tpPlayerName p)
+         , if tpIsActive p then text ""
+           else H.span_ [ HP.class_ "text-xs text-muted-foreground ml-2" ] [ text "withdrawn" ]
+         ]
      ] ++ if showStats
        then [ H.td_ [] [ text (ms (showScore (tpScore p))) ]
             , H.td_ [] [ text (ms (show (tpWins p)) <> "-" <> ms (show (tpLosses p)) <> "-" <> ms (show (tpDraws p))) ]
@@ -512,6 +552,18 @@ formBtn action label isActive =
 
 -- ---------------------------------------------------------------------------
 -- Shared helpers
+
+confirmBox :: MisoString -> MisoString -> Action -> View Model Action
+confirmBox msg label act =
+  H.div_ [ HP.class_ "flex items-center gap-2 flex-wrap text-sm" ]
+    [ H.span_ [] [ text msg ]
+    , H.button_
+        [ HP.class_ "btn-destructive", SVG.onClick act ]
+        [ text label ]
+    , H.button_
+        [ HP.class_ "btn-ghost", SVG.onClick (ConfirmTournamentAction Nothing) ]
+        [ text "Never mind" ]
+    ]
 -- ---------------------------------------------------------------------------
 
 statusBadge :: MisoString -> View Model Action

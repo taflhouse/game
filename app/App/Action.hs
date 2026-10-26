@@ -198,6 +198,11 @@ data Action
   | JoinTournament MisoString
   | TournamentJoined Value
   | TournamentJoinError MisoString
+  | LeaveTournament MisoString
+  | CancelTournament MisoString
+  | ConfirmTournamentAction (Maybe MisoString)
+  | TournamentActionDone Value
+  | TournamentActionError MisoString
   -- Organizer
   | StartTournament MisoString
   | CopyTournamentLink MisoString
