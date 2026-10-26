@@ -1,6 +1,10 @@
 packages:
   .
 
+-- Pin Hackage so CI's `cabal update` can't change the build plan. Without
+-- it, the solver fell back to aeson-0.8 (doesn't build on GHC 9.14).
+index-state: 2026-09-09T03:00:00Z
+
 allow-newer:
   all:base
 
