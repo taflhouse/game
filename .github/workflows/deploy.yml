@@ -85,6 +85,10 @@ jobs:
         run: |
           SERVICE_KEY=$(supabase projects api-keys --project-ref "$PROJECT_REF" -o json \
             | jq -r '.[] | select(.name == "service_role") | .api_key')
+          if [ -z "$SERVICE_KEY" ] || [ "$SERVICE_KEY" = "null" ]; then
+            echo "::error::No service_role key returned for project; refusing to overwrite Vault"
+            exit 1
+          fi
           echo "::add-mask::$SERVICE_KEY"
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
             -v service_key="$SERVICE_KEY" \
