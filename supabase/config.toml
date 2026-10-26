@@ -212,7 +212,7 @@ host = "smtp-relay.brevo.com"
 port = 587
 user = "env(BREVO_SMTP_LOGIN)"
 pass = "env(BREVO_SMTP_KEY)"
-admin_email = "noreply@taflhouse.com"
+admin_email = "hello@taflhouse.com"
 sender_name = "Tafl House"
 
 # Uncomment to customize email template
