@@ -6,6 +6,7 @@ module App.Route
   , variantName
   , replayMoves
   , friendlyAuthError
+  , friendlyProfileError
   , lookupVariant
     -- * URI helpers
   , homeURI
@@ -29,7 +30,7 @@ module App.Route
   , createTournamentURI
   ) where
 
-import Data.List (isPrefixOf)
+import Data.List (isInfixOf, isPrefixOf)
 import Miso (URI(..), emptyURI)
 import Miso.String (MisoString, ms, fromMisoString)
 
@@ -140,6 +141,16 @@ friendlyAuthError code = case (fromMisoString code :: String) of
   "invalid_credentials" -> "Invalid email or password."
   "user_already_exists" -> "An account with this email already exists."
   _ -> "Something went wrong. Please try again."
+
+-- | Map Postgres errors from saving a profile (unique / check constraints on
+--   profiles.username) to something the user can act on.
+friendlyProfileError :: MisoString -> MisoString
+friendlyProfileError msg
+  | "profiles_username_key" `isInfixOf` s = "That username is already taken."
+  | "username_format" `isInfixOf` s =
+      "Usernames must be 3-20 characters: letters, numbers, and underscores only."
+  | otherwise = "Something went wrong. Please try again."
+  where s = fromMisoString msg :: String
 
 homeURI :: URI
 homeURI = emptyURI

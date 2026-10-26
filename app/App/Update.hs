@@ -559,6 +559,8 @@ updateModel loungeChannelRef = \case
     case mSession m of
       Just sess -> do
         let uid = userId (sessionUser sess)
+        assign (mAuth . authError) Nothing
+        assign (mAuth . authLoading) True
         insert "profiles"
           (object ["id" .= uid, "username" .= mUsernameInput m])
           (InsertOptions Nothing Nothing)
@@ -566,6 +568,7 @@ updateModel loungeChannelRef = \case
       Nothing -> pure ()
 
   ProfileCreated _ -> do
+    assign (mAuth . authLoading) False
     m <- get
     let uid = maybe "" (userId . sessionUser) (mSession m)
     modify $ \x -> x
@@ -577,8 +580,9 @@ updateModel loungeChannelRef = \case
     when (readyToAutoJoin m') $
       withSink $ \sink -> sink JoinMultiplayerGame
 
-  ProfileCreateError _ ->
-    assign (mAuth . authError) (Just "Something went wrong. Please try again.")
+  ProfileCreateError msg -> do
+    assign (mAuth . authError) (Just (friendlyProfileError msg))
+    assign (mAuth . authLoading) False
 
   ProfileLoaded val ->
     case fromJSON val of
@@ -649,8 +653,8 @@ updateModel loungeChannelRef = \case
       { mProfile = Just (Profile pid (mEditUsername m) (Just (mEditDisplayName m)) r rd gr) }
     io_ $ pushURI profileURI
 
-  ProfileUpdateError _ ->
-    assign (mAuth . authError) (Just "Something went wrong. Please try again.")
+  ProfileUpdateError msg ->
+    assign (mAuth . authError) (Just (friendlyProfileError msg))
 
   -- Multiplayer setup ----------------------------------------------------
 

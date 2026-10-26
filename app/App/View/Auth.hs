@@ -203,9 +203,19 @@ viewUsernameGate m =
                 Just err -> H.div_
                   [ HP.class_ "text-destructive text-sm text-center" ]
                   [ text err ]
-            , H.button_
-                [ HP.class_ "btn w-full" ]
-                [ text "Continue" ]
+            , if m ^. mAuth . authLoading
+                then H.button_
+                  [ HP.class_ "btn w-full gap-2", HP.disabled_ ]
+                  [ H.span_
+                      [ HP.class_ "size-4 rounded-full border-2 animate-spin"
+                      , style_ [("border-color", "currentColor"), ("border-top-color", "transparent")]
+                      ]
+                      []
+                  , text "Saving..."
+                  ]
+                else H.button_
+                  [ HP.class_ "btn w-full" ]
+                  [ text "Continue" ]
             ]
         ]
     ]
